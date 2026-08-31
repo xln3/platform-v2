@@ -17,15 +17,16 @@ from domain.analysis.v2.decision_task_schema import (
 )
 
 
-def test_builtin_policies_are_hash_bound_resolved_and_safe_shadow_policies() -> None:
+def test_builtin_policies_are_hash_bound_resolved_single_model_policies() -> None:
     tasks = load_builtin_task_definitions()
     policies = load_builtin_judge_policies(tasks=tasks)
 
     assert {policy.name for policy in policies} == {
-        "semantic-v2-shadow-hybrid",
-        "semantic-v2-shadow-model",
+        "semantic-v2-primary-hybrid",
+        "semantic-v2-primary-model",
     }
-    assert all(policy.status.value == "experimental" for policy in policies)
+    assert all(policy.status.value == "published" for policy in policies)
+    assert all(policy.calibration_artifact_hash is None for policy in policies)
     assert all(policy.fallback_policy.action in {"abstain", "review"} for policy in policies)
     assert all(
         route.resolved_revision and route.retention_policy
@@ -52,7 +53,12 @@ def test_policy_rejects_secrets_keyword_fallback_and_unresolved_route() -> None:
 
     with pytest.raises(ValidationError, match="judge_policy_contains_secret"):
         JudgePolicyDefinition.model_validate(
-            payload | {"inference_configs": {"offline-fixture-v2": {"api_key": "secret"}}}
+            payload
+            | {
+                "inference_configs": {
+                    "semantic-llm-primary-v2": {"api_key": "secret"}
+                }
+            }
         )
     with pytest.raises(ValidationError, match="fallback_action_forbidden"):
         JudgePolicyDefinition.model_validate(
@@ -65,19 +71,22 @@ def test_policy_rejects_secrets_keyword_fallback_and_unresolved_route() -> None:
         JudgePolicyDefinition.model_validate(payload | {"method_pipeline": pipeline})
 
 
-def test_published_policy_requires_calibration_artifact() -> None:
+def test_published_policy_allows_versioned_uncalibrated_operation() -> None:
     original = policy_for("recommendation-relation")
     payload = original.model_dump(mode="python", exclude={"policy_hash"})
 
-    with pytest.raises(ValidationError, match="published_policy_requires_calibration_artifact"):
-        JudgePolicyDefinition.model_validate(
-            payload
-            | {
-                "status": "published",
-                "published_at": datetime(2026, 8, 27, tzinfo=UTC),
-                "calibration_artifact_hash": None,
-            }
-        )
+    published = JudgePolicyDefinition.model_validate(
+        payload
+        | {
+            "status": "published",
+            "published_at": datetime(2026, 8, 27, tzinfo=UTC),
+            "calibration_artifact_hash": None,
+        }
+    )
+
+    assert published.status.value == "published"
+    assert published.calibration_artifact_hash is None
+    assert published.policy_hash == original.policy_hash
 
 
 def test_policy_cannot_be_reused_for_incompatible_task_method() -> None:

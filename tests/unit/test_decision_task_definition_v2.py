@@ -98,3 +98,13 @@ def test_task_schema_and_policy_forbid_open_outputs_and_heuristic_fallback() -> 
         DecisionTaskDefinition.model_validate(
             payload | {"abstention_policy": {"fallback_to_heuristics": True}}
         )
+
+
+def test_online_tasks_require_only_one_proposer_without_nested_review_gates() -> None:
+    definitions = load_builtin_task_definitions().definitions
+
+    assert all(item.adjudication_policy.required_roles == ("proposer",) for item in definitions)
+    assert all(
+        not item.evidence_requirements.requires_independent_verifier for item in definitions
+    )
+    assert all(item.adjudication_policy.high_severity_requires is None for item in definitions)

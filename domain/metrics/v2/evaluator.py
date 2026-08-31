@@ -98,6 +98,49 @@ def _decision(subject: EvaluationInput, task_ref: str) -> SemanticDecisionFact |
     return subject.decisions.get(task_name)
 
 
+def _decision_failure_reason(decision: SemanticDecisionFact, fallback: str) -> str:
+    """Preserve actionable infrastructure failures through metric projections."""
+
+    execution_failures = {
+        "chunk_incomplete",
+        "decision_method_not_allowed",
+        "dependency_failed",
+        "evidence_retrieval_failed",
+        "judge_policy_not_published_for_official_use",
+        "model_timeout",
+        "model_unavailable_for_policy",
+        "output_schema_hash_mismatch",
+        "prompt_template_hash_mismatch",
+        "required_judge_role_missing",
+        "rubric_hash_mismatch",
+        "structured_output_invalid",
+        "truth_as_of_policy_invalid",
+    }
+    return next(
+        (
+            code
+            for code in decision.reason_codes
+            if code.startswith(("llm_api_", "upstream_")) or code in execution_failures
+        ),
+        fallback,
+    )
+
+
+def _failed_query_context_decisions(
+    subject: EvaluationInput,
+) -> tuple[SemanticDecisionFact, ...]:
+    task_names = {"query-intent", "query-brand-entity-resolution"}
+    by_id: dict[str, SemanticDecisionFact] = {}
+    for task_ref, decision in sorted(subject.decisions.items()):
+        if task_ref.split("@", 1)[0] not in task_names:
+            continue
+        if decision.status is not DecisionStatus.FAILED:
+            continue
+        identity = decision.decision_pub_id or task_ref
+        by_id[identity] = decision
+    return tuple(by_id[key] for key in sorted(by_id))
+
+
 def _decision_result_is_unknown(value: Mapping[str, Any]) -> bool:
     semantic_label_keys = {
         "label",
@@ -531,6 +574,29 @@ class MetricEvaluator:
                 Decimal("0"),
                 interpreter,
             )
+        if subject.query_context.classification_state is ClassificationState.FAILED:
+            failed_query_decisions = _failed_query_context_decisions(subject)
+            for decision in failed_query_decisions:
+                if decision.decision_pub_id:
+                    interpreter.supporting_decisions.add(decision.decision_pub_id)
+            reason = next(
+                (
+                    candidate
+                    for decision in failed_query_decisions
+                    if (candidate := _decision_failure_reason(decision, ""))
+                ),
+                "query_context_analysis_failed",
+            )
+            return self._result(
+                definition,
+                subject,
+                EligibilityStatus.ANALYSIS_FAILED,
+                reason,
+                None,
+                Decimal("0"),
+                Decimal("0"),
+                interpreter,
+            )
         predicate_result, predicate_reason = _query_failure_reason(definition, subject, interpreter)
         if predicate_result is TruthValue.FALSE:
             return self._result(
@@ -538,6 +604,49 @@ class MetricEvaluator:
                 subject,
                 EligibilityStatus.EXCLUDED,
                 predicate_reason,
+                None,
+                Decimal("0"),
+                Decimal("0"),
+                interpreter,
+            )
+        required_task_refs: set[str] = set(definition.decision_task_refs)
+        required_task_refs.update(
+            capability.task_ref for capability in definition.required_semantic_capabilities
+        )
+        # Pre-scan the whole required boundary so an earlier review/unknown state
+        # cannot hide a known execution failure in another required capability.
+        for capability in definition.required_semantic_capabilities:
+            if _capability_status(subject, capability.name) != "failed":
+                continue
+            failed_decision = _decision(subject, capability.task_ref)
+            if failed_decision and failed_decision.decision_pub_id:
+                interpreter.supporting_decisions.add(failed_decision.decision_pub_id)
+            reason = (
+                _decision_failure_reason(failed_decision, "semantic_analysis_failed")
+                if failed_decision is not None
+                else "semantic_analysis_failed"
+            )
+            return self._result(
+                definition,
+                subject,
+                EligibilityStatus.ANALYSIS_FAILED,
+                reason,
+                None,
+                Decimal("0"),
+                Decimal("0"),
+                interpreter,
+            )
+        for task_ref in sorted(required_task_refs):
+            failed_decision = _decision(subject, task_ref)
+            if failed_decision is None or failed_decision.status is not DecisionStatus.FAILED:
+                continue
+            if failed_decision.decision_pub_id:
+                interpreter.supporting_decisions.add(failed_decision.decision_pub_id)
+            return self._result(
+                definition,
+                subject,
+                EligibilityStatus.ANALYSIS_FAILED,
+                _decision_failure_reason(failed_decision, "decision_failed"),
                 None,
                 Decimal("0"),
                 Decimal("0"),
@@ -554,10 +663,12 @@ class MetricEvaluator:
                 Decimal("0"),
                 interpreter,
             )
-        required_task_refs: set[str] = set(definition.decision_task_refs)
         for capability in definition.required_semantic_capabilities:
             capability_status = _capability_status(subject, capability.name)
             if capability_status != capability.accepted_status:
+                failed_decision = _decision(subject, capability.task_ref)
+                if failed_decision and failed_decision.decision_pub_id:
+                    interpreter.supporting_decisions.add(failed_decision.decision_pub_id)
                 reason = {
                     "failed": "semantic_analysis_failed",
                     "abstained": "decision_abstained",
@@ -565,17 +676,22 @@ class MetricEvaluator:
                     "not_requested": "required_decision_missing",
                     "missing": "required_decision_missing",
                 }.get(capability_status, "semantic_result_unknown")
+                if failed_decision is not None:
+                    reason = _decision_failure_reason(failed_decision, reason)
                 return self._result(
                     definition,
                     subject,
-                    EligibilityStatus.ANALYSIS_UNKNOWN,
+                    (
+                        EligibilityStatus.ANALYSIS_FAILED
+                        if capability_status == "failed"
+                        else EligibilityStatus.ANALYSIS_UNKNOWN
+                    ),
                     reason,
                     None,
                     Decimal("0"),
                     Decimal("0"),
                     interpreter,
                 )
-            required_task_refs.add(capability.task_ref)
         for task_ref in sorted(required_task_refs):
             decision = _decision(subject, task_ref)
             if decision is None:
@@ -598,10 +714,15 @@ class MetricEvaluator:
                     DecisionStatus.REVIEW_REQUIRED: "decision_review_required",
                     DecisionStatus.MISSING: "required_decision_missing",
                 }.get(decision.status, "required_decision_missing")
+                reason = _decision_failure_reason(decision, reason)
                 return self._result(
                     definition,
                     subject,
-                    EligibilityStatus.ANALYSIS_UNKNOWN,
+                    (
+                        EligibilityStatus.ANALYSIS_FAILED
+                        if decision.status is DecisionStatus.FAILED
+                        else EligibilityStatus.ANALYSIS_UNKNOWN
+                    ),
                     reason,
                     None,
                     Decimal("0"),
@@ -614,17 +735,6 @@ class MetricEvaluator:
                     subject,
                     EligibilityStatus.ANALYSIS_UNKNOWN,
                     "semantic_result_unknown",
-                    None,
-                    Decimal("0"),
-                    Decimal("0"),
-                    interpreter,
-                )
-            if not decision.calibrated:
-                return self._result(
-                    definition,
-                    subject,
-                    EligibilityStatus.ANALYSIS_UNKNOWN,
-                    "decision_not_calibrated",
                     None,
                     Decimal("0"),
                     Decimal("0"),
@@ -645,7 +755,7 @@ class MetricEvaluator:
                 return self._result(
                     definition,
                     subject,
-                    EligibilityStatus.ANALYSIS_UNKNOWN,
+                    EligibilityStatus.ANALYSIS_FAILED,
                     "evidence_retrieval_failed",
                     None,
                     Decimal("0"),
@@ -656,8 +766,8 @@ class MetricEvaluator:
             return self._result(
                 definition,
                 subject,
-                EligibilityStatus.ANALYSIS_UNKNOWN,
-                "required_event_unknown",
+                EligibilityStatus.ANALYSIS_FAILED,
+                "semantic_event_integrity_failed",
                 None,
                 Decimal("0"),
                 Decimal("0"),
@@ -667,8 +777,8 @@ class MetricEvaluator:
             return self._result(
                 definition,
                 subject,
-                EligibilityStatus.ANALYSIS_UNKNOWN,
-                "evidence_span_invalid",
+                EligibilityStatus.ANALYSIS_FAILED,
+                "evidence_span_integrity_failed",
                 None,
                 Decimal("0"),
                 Decimal("0"),
@@ -678,7 +788,7 @@ class MetricEvaluator:
             return self._result(
                 definition,
                 subject,
-                EligibilityStatus.ANALYSIS_UNKNOWN,
+                EligibilityStatus.ANALYSIS_FAILED,
                 "evidence_retrieval_failed",
                 None,
                 Decimal("0"),

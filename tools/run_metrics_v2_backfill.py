@@ -145,7 +145,7 @@ def plan_backfill(
         "estimated_atomic_decisions": estimated_tasks,
         "configured_daily_model_budget": settings.semantic_decision_daily_budget,
         "budget_gate": (
-            "blocked_model_attempts_become_unknown"
+            "blocked_model_attempts_fail_llm_api_budget_exhausted"
             if stage == "semantic" and settings.semantic_decision_daily_budget <= 0
             else "configured"
         ),

@@ -31,6 +31,7 @@ from domain.analysis.v2.decision_models import (
     AttemptRole,
     AttemptValidationStatus,
     DecisionMethod,
+    DecisionStatus,
     subject_key_for,
 )
 from domain.analysis.v2.event_derivation import (
@@ -49,6 +50,15 @@ from domain.metrics.v2.query_context import (
     RequestedOperation,
     derive_brand_structure,
     derive_exposure_role,
+)
+from workflows.activities.semantic_judge_llm import (
+    SemanticJudgeFailure,
+    execute_semantic_judge,
+    load_frozen_semantic_context,
+    load_frozen_semantic_source,
+)
+from workflows.activities.semantic_judge_llm import (
+    config_from_settings as semantic_judge_config_from_settings,
 )
 
 
@@ -96,10 +106,17 @@ async def create_decision_request_activity(payload: dict[str, Any]) -> dict[str,
         context_hash=str(payload["context_hash"]),
         judge_policy_hash=str(payload["judge_policy_hash"]),
         idempotency_key=str(payload["idempotency_key"]),
+        judge_model_ref=(
+            str(payload["judge_model_ref"]) if payload.get("judge_model_ref") else None
+        ),
         rejudge_generation=int(payload.get("rejudge_generation") or 0),
         supersedes_decision_pub_id=payload.get("supersedes_decision_pub_id"),
         workflow_id=str(payload.get("workflow_id") or ""),
         run_id=str(payload.get("run_id") or ""),
+        # This activity is already running inside SemanticDecisionWorkflowV2.
+        # Enqueuing another workflow owner for the same job races persistence
+        # and duplicates model spend.
+        enqueue_workflow_start=False,
     )
 
 
@@ -152,6 +169,16 @@ async def freeze_decision_input_activity(payload: dict[str, Any]) -> dict[str, A
             type="decision_input_hash_invalid",
             non_retryable=True,
         )
+    material_hashes = payload.get("input_material_hashes")
+    safe_material_hashes: dict[str, str] = {}
+    if isinstance(material_hashes, dict):
+        safe_material_hashes = {str(key): str(value) for key, value in material_hashes.items()}
+        if any(len(value) != 64 for value in safe_material_hashes.values()):
+            raise ApplicationError(
+                "decision source hash envelope is invalid",
+                type="decision_input_hash_invalid",
+                non_retryable=True,
+            )
     # The returned object is deliberately reference-only.  Raw input is loaded
     # by run_model_judge_v2 using input_snapshot_ref inside its process.
     return {
@@ -162,7 +189,10 @@ async def freeze_decision_input_activity(payload: dict[str, Any]) -> dict[str, A
         "subject_ref": subject_ref,
         "input_snapshot_ref": input_snapshot_ref,
         "input_hash": input_hash,
+        "input_material_hashes": safe_material_hashes,
         "context_hash": context_hash,
+        "source_answer_pub_id": payload.get("source_answer_pub_id"),
+        "source_query_pub_id": payload.get("source_query_pub_id"),
         "candidate_set_hash": payload.get("candidate_set_hash"),
         "evidence_bundle_ref": payload.get("evidence_bundle_ref"),
         "evidence_bundle_hash": payload.get("evidence_bundle_hash"),
@@ -222,13 +252,8 @@ async def retrieve_evidence_activity(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @activity.defn(name="run_model_judge_v2")
-async def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
-    """Run a configured judge adapter or fail closed.
-
-    The repository ships only an offline fixture route until calibration has
-    been approved.  Tests/backfills may provide a frozen ``fixture_attempt``.
-    Production never interprets strings or silently substitutes a heuristic.
-    """
+def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
+    """Run the blocking DB/HTTP judge work outside the worker event loop."""
 
     settings = get_settings()
     fixture_attempt = payload.get("fixture_attempt")
@@ -250,43 +275,136 @@ async def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
         (item for item in policy.model_routes if stage and item.route_name == stage.route_name),
         None,
     )
-    if stage is None or route is None:
-        raise ApplicationError(
-            "judge policy has no model route",
-            type="judge_policy_invalid",
-            non_retryable=True,
-        )
-    reason_codes = ["model_unavailable_for_policy"]
-    if settings.semantic_decision_daily_budget <= 0:
-        reason_codes.append("model_budget_exhausted")
+    config = semantic_judge_config_from_settings(
+        settings,
+        model=(str(payload["judge_model_ref"]) if payload.get("judge_model_ref") else None),
+    )
+    attempt_role = AttemptRole(stage.role.value) if stage is not None else AttemptRole.PROPOSER
     attempt_seed = canonical_hash(
         {
             "decision_job_pub_id": payload["decision_job_pub_id"],
             "attempt_index": int(payload.get("attempt_index") or 0),
-            "role": stage.role.value,
+            "role": attempt_role.value,
         }
     )
-    attempt = SemanticDecisionAttempt(
-        pub_id=f"sda_{attempt_seed[:26]}",
-        tenant_pub_id=str(payload["tenant_pub_id"]),
-        project_pub_id=str(payload["project_pub_id"]),
-        decision_job_pub_id=str(payload["decision_job_pub_id"]),
-        attempt_index=int(payload.get("attempt_index") or 0),
-        role=AttemptRole(stage.role.value),
-        method=DecisionMethod.MODEL,
-        provider=route.provider,
-        model=route.model,
-        model_revision=route.resolved_revision,
-        inference_config=policy.inference_configs.get(route.route_name, {}),
-        prompt_template_ref=task.prompt_template_ref,
-        prompt_template_hash=task.prompt_template_hash,
-        rubric_hash=task.rubric_hash,
-        output_schema_hash=canonical_hash(task.output_schema),
-        request_payload_hash=str(payload["input_hash"]),
-        validation_status=AttemptValidationStatus.ERROR,
-        reason_codes=tuple(reason_codes),
-        created_at=datetime.now(UTC),
+    common_attempt: dict[str, Any] = {
+        "pub_id": f"sda_{attempt_seed[:26]}",
+        "tenant_pub_id": str(payload["tenant_pub_id"]),
+        "project_pub_id": str(payload["project_pub_id"]),
+        "decision_job_pub_id": str(payload["decision_job_pub_id"]),
+        "attempt_index": int(payload.get("attempt_index") or 0),
+        "role": attempt_role,
+        "method": DecisionMethod.MODEL,
+        "provider": config.provider,
+        "model": config.model,
+        "model_revision": config.model_revision,
+        "inference_config": {
+            "route_name": route.route_name if route is not None else "unavailable",
+            "response_format": "json_schema",
+            "single_model": True,
+            "timeout_ms": int(config.timeout_seconds * 1000),
+            "max_attempts": config.max_retries + 1,
+        },
+        "prompt_template_ref": task.prompt_template_ref,
+        "prompt_template_hash": task.prompt_template_hash,
+        "rubric_hash": task.rubric_hash,
+        "output_schema_hash": canonical_hash(task.output_schema),
+        "created_at": datetime.now(UTC),
+    }
+    failure_hash = canonical_hash(
+        {
+            "context_hash": payload.get("context_hash"),
+            "decision_job_pub_id": payload.get("decision_job_pub_id"),
+            "input_hash": payload.get("input_hash"),
+            "model": config.model,
+            "subject_ref": payload.get("subject_ref"),
+            "task_ref": task.task_ref,
+        }
     )
+    failure_code: str | None = None
+    result = None
+    if stage is None or route is None:
+        failure_code = "model_unavailable_for_policy"
+    elif settings.semantic_decision_daily_budget <= 0 or payload.get("llm_budget_exhausted"):
+        failure_code = "llm_api_budget_exhausted"
+    elif not config.api_key:
+        failure_code = "llm_api_auth_missing"
+    else:
+        candidate_payload = payload.get("candidate_set")
+        candidate_set = (
+            CandidateSet.model_validate(candidate_payload)
+            if isinstance(candidate_payload, dict)
+            else None
+        )
+        try:
+            source = load_frozen_semantic_source(
+                dsn=settings.worker_postgres_dsn or settings.postgres_dsn,
+                payload=payload,
+                task=task,
+            )
+            frozen_context = load_frozen_semantic_context(
+                dsn=settings.worker_postgres_dsn or settings.postgres_dsn,
+                settings=settings,
+                payload=payload,
+                task=task,
+                source=source,
+            )
+            validated_evidence_context = (
+                frozen_context.evidence_context
+                if frozen_context.evidence_context
+                else (
+                    dict(payload["evidence_context"])
+                    if isinstance(payload.get("evidence_context"), dict)
+                    else None
+                )
+            )
+            result = execute_semantic_judge(
+                config=config,
+                task=task,
+                source=source,
+                subject_ref=dict(payload["subject_ref"]),
+                candidate_set=candidate_set,
+                evidence_context=validated_evidence_context,
+                frozen_context=frozen_context,
+            )
+        except SemanticJudgeFailure as failure:
+            failure_code = failure.code
+    if result is None:
+        attempt = SemanticDecisionAttempt(
+            **common_attempt,
+            request_payload_hash=failure_hash,
+            validation_status=AttemptValidationStatus.ERROR,
+            reason_codes=(failure_code or "llm_api_adapter_unavailable",),
+        )
+    else:
+        from geo_platform.metrics_v2.semantic_models import estimated_cost_usd, model_option
+
+        common_attempt["inference_config"] = dict(common_attempt["inference_config"]) | {
+            "transport_mode": result.transport_mode
+        }
+        cost_amount = (
+            estimated_cost_usd(
+                model=model_option(settings, config.model),
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+            )
+            if result.input_tokens is not None and result.output_tokens is not None
+            else None
+        )
+        attempt = SemanticDecisionAttempt(
+            **common_attempt,
+            request_payload_hash=result.request_payload_hash,
+            response_payload_hash=result.response_payload_hash,
+            validated_output=result.output,
+            rationale_summary="单一 LLM 的结构化判定已通过任务、候选集和证据跨度校验。",
+            validation_status=AttemptValidationStatus.VALID,
+            reason_codes=("llm_api_success",),
+            latency_ms=result.latency_ms,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            cost_amount=cost_amount,
+            cost_currency="USD" if cost_amount is not None else None,
+        )
     return attempt.model_dump(mode="json")
 
 
@@ -344,6 +462,19 @@ async def adjudicate_decision_activity(payload: dict[str, Any]) -> dict[str, Any
     attempts = tuple(
         SemanticDecisionAttempt.model_validate(item) for item in payload.get("attempts", [])
     )
+    source_text = payload.get("answer_text")
+    source_text_hash = payload.get("answer_text_hash")
+    answer_source_ref = payload.get("input_snapshot_ref")
+    if any(attempt.validation_status is AttemptValidationStatus.VALID for attempt in attempts):
+        settings = get_settings()
+        source = load_frozen_semantic_source(
+            dsn=settings.worker_postgres_dsn or settings.postgres_dsn,
+            payload=payload,
+            task=task,
+        )
+        source_text = source.source_text
+        source_text_hash = source.source_text_hash
+        answer_source_ref = source.source_ref
     request = AdjudicationRequest(
         task=task,
         judge_policy=policy,
@@ -353,11 +484,12 @@ async def adjudicate_decision_activity(payload: dict[str, Any]) -> dict[str, Any
             for key, value in dict(payload.get("calibrated_confidences") or {}).items()
         },
         candidate_set=candidate_set,
-        answer_text=payload.get("answer_text"),
-        expected_answer_text_hash=payload.get("answer_text_hash"),
+        answer_text=source_text,
+        expected_answer_text_hash=source_text_hash,
         evidence_context=dict(payload.get("evidence_context") or {}),
         evidence_refs=tuple(map(str, payload.get("evidence_refs", []))),
         evidence_spans=tuple(payload.get("evidence_spans", [])),
+        answer_source_ref=(str(answer_source_ref) if answer_source_ref else None),
         dependency_statuses=dict(payload.get("dependency_statuses") or {}),
         required_chunks_complete=bool(payload.get("required_chunks_complete", True)),
         explicit_human_override=bool(payload.get("explicit_human_override", False)),
@@ -491,7 +623,19 @@ async def derive_query_context_activity(payload: dict[str, Any]) -> dict[str, An
     accepted = {item.task_name: item for item in decisions if item.status.value == "accepted"}
     intent = accepted.get("query-intent")
     entities = accepted.get("query-brand-entity-resolution")
-    if intent is None or entities is None:
+    query_decisions = tuple(
+        item
+        for item in decisions
+        if item.task_name in {"query-intent", "query-brand-entity-resolution"}
+    )
+    if any(item.status is DecisionStatus.FAILED for item in query_decisions):
+        classification_state = "failed"
+        lenses = set()
+        operations = set()
+        subtypes = set()
+        detected = set()
+        unresolved = True
+    elif intent is None or entities is None:
         classification_state = "review_required"
         lenses: set[str] = set()
         operations: set[str] = set()
@@ -650,6 +794,7 @@ async def load_semantic_decision_backfill_batch_activity(
         limit=min(int(payload.get("limit") or 100), 1000),
         as_of=payload.get("as_of"),
         dry_run=bool(payload.get("dry_run", False)),
+        answer_pub_ids=tuple(map(str, payload.get("answer_pub_ids") or ())),
     )
 
 

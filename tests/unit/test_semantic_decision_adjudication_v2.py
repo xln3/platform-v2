@@ -25,6 +25,7 @@ from domain.analysis.v2.decision_models import (
     DecisionStatus,
     subject_key_for,
 )
+from domain.analysis.v2.decision_task_schema import JudgePolicyDefinition
 
 
 def _mention_output(text: str) -> dict[str, object]:
@@ -63,21 +64,33 @@ def _request(
     confidences: dict[str, float] | None = None,
     official_use: bool = False,
     human_override: bool = False,
+    include_request_span: bool = True,
+    judge_policy: JudgePolicyDefinition | None = None,
+    dependency_statuses: dict[str, DecisionStatus] | None = None,
+    evidence_context: dict[str, object] | None = None,
+    required_chunks_complete: bool = True,
 ) -> AdjudicationRequest:
     definition = task(task_name)
     return AdjudicationRequest(
         task=definition,
-        judge_policy=policy_for(task_name),
+        judge_policy=judge_policy or policy_for(task_name),
         attempts=attempts,
         calibrated_confidences=confidences or {},
         candidate_set=candidate_set(),
         answer_text=text,
         expected_answer_text_hash=digest(text),
         evidence_refs=("answer-snapshot-v2",),
-        evidence_spans=(evidence_span(text, 0, len(text)),),
-        dependency_statuses={
-            ref: DecisionStatus.ACCEPTED for ref in definition.dependency_task_refs
-        },
+        evidence_spans=(evidence_span(text, 0, len(text)),)
+        if include_request_span
+        else (),
+        answer_source_ref=ANSWER_ID,
+        evidence_context=evidence_context or {},
+        dependency_statuses=(
+            dependency_statuses
+            if dependency_statuses is not None
+            else {ref: DecisionStatus.ACCEPTED for ref in definition.dependency_task_refs}
+        ),
+        required_chunks_complete=required_chunks_complete,
         explicit_human_override=human_override,
         official_use=official_use,
     )
@@ -139,11 +152,11 @@ def test_deterministic_string_rule_cannot_emit_model_required_recommendation() -
         _request(definition.name, text, (attempt,), confidences={attempt.pub_id: 1.0})
     )
 
-    assert outcome.status is DecisionStatus.REVIEW_REQUIRED
+    assert outcome.status is DecisionStatus.FAILED
     assert "decision_method_not_allowed" in outcome.reason_codes
 
 
-def test_proposer_verifier_disagreement_reviews_only_recommendation_capability() -> None:
+def test_single_strong_proposer_does_not_wait_for_optional_nested_review() -> None:
     text = "可以考虑它，但仅适合大型政企"
     recommendation_task = task("recommendation-relation")
     proposer = make_attempt(
@@ -168,34 +181,19 @@ def test_proposer_verifier_disagreement_reviews_only_recommendation_capability()
         )
     )
 
-    mention_text = "盛邦安全"
-    mention_task = task("substantive-entity-mention")
-    mention_attempt = make_attempt(
-        mention_task,
-        _mention_output(mention_text),
-        method=DecisionMethod.DETERMINISTIC,
-        fast_path_name="exact_substantive_body_mention",
-    )
-    mention = adjudicate_decision(
-        _request(
-            mention_task.name,
-            mention_text,
-            (mention_attempt,),
-            confidences={mention_attempt.pub_id: 0.99},
-        )
-    )
-
-    assert recommendation.status is DecisionStatus.REVIEW_REQUIRED
-    assert recommendation.reason_codes == ("judge_disagreement",)
-    assert mention.status is DecisionStatus.ACCEPTED
+    assert recommendation.status is DecisionStatus.ACCEPTED
+    assert recommendation.result["polarity"] == "conditional_positive"
+    assert recommendation.selected_attempt_pub_ids == (proposer.pub_id,)
 
 
 @pytest.mark.parametrize(
     ("reason_code", "expected_status"),
     [
-        ("model_unavailable_for_policy", DecisionStatus.ABSTAINED),
+        ("model_unavailable_for_policy", DecisionStatus.FAILED),
         ("model_timeout", DecisionStatus.FAILED),
-        ("structured_output_invalid", DecisionStatus.REVIEW_REQUIRED),
+        ("llm_api_rate_limited", DecisionStatus.FAILED),
+        ("llm_api_budget_exhausted", DecisionStatus.FAILED),
+        ("structured_output_invalid", DecisionStatus.FAILED),
     ],
 )
 def test_machine_failures_stay_unknown_without_dictionary_fallback(
@@ -218,23 +216,107 @@ def test_machine_failures_stay_unknown_without_dictionary_fallback(
     assert outcome.selected_attempt_pub_ids == ()
 
 
-def test_model_reported_confidence_cannot_replace_offline_calibration() -> None:
+def test_valid_model_output_without_prebuilt_calibration_is_accepted_and_audited() -> None:
     text = "可以考虑它，但仅适合大型政企"
     definition = task("recommendation-relation")
     output = _recommendation_output(text, "conditional_positive")
     proposer = make_attempt(definition, output, index=0)
-    verifier = make_attempt(
+    outcome = adjudicate_decision(_request(definition.name, text, (proposer,)))
+
+    assert outcome.status is DecisionStatus.ACCEPTED
+    assert outcome.calibrated_confidence is None
+    assert "accepted_without_calibration" in outcome.reason_codes
+
+
+def test_llm_infrastructure_failure_precedes_missing_evidence() -> None:
+    text = "该主张需要外部证据"
+    definition = task("claim-evidence-verdict")
+    failed = make_attempt(
         definition,
-        output,
-        role=AttemptRole.VERIFIER,
-        index=1,
-        verifier_route=True,
+        None,
+        status=AttemptValidationStatus.ERROR,
+        reason_codes=("llm_api_timeout",),
     )
 
-    outcome = adjudicate_decision(_request(definition.name, text, (proposer, verifier)))
+    outcome = adjudicate_decision(_request(definition.name, text, (failed,)))
 
-    assert outcome.status is DecisionStatus.REVIEW_REQUIRED
-    assert outcome.reason_codes == ("calibration_unavailable",)
+    assert outcome.status is DecisionStatus.FAILED
+    assert outcome.reason_codes == ("llm_api_timeout",)
+
+
+def test_evidence_retrieval_execution_failure_is_not_semantic_unknown() -> None:
+    text = "该主张需要外部证据"
+    definition = task("claim-evidence-verdict")
+
+    outcome = adjudicate_decision(_request(definition.name, text, ()))
+
+    assert outcome.status is DecisionStatus.FAILED
+    assert outcome.reason_codes == ("evidence_retrieval_failed",)
+
+
+def test_known_evidence_failure_precedes_dependency_unknown() -> None:
+    text = "该主张需要外部证据"
+    definition = task("claim-evidence-verdict")
+    dependencies = {
+        ref: DecisionStatus.ABSTAINED for ref in definition.dependency_task_refs
+    }
+
+    outcome = adjudicate_decision(
+        _request(
+            definition.name,
+            text,
+            (),
+            dependency_statuses=dependencies,
+            evidence_context={
+                "evidence_bundle_status": "failed",
+                "retrieval_protocol_complete": False,
+            },
+        )
+    )
+
+    assert outcome.status is DecisionStatus.FAILED
+    assert outcome.reason_codes == ("evidence_retrieval_failed",)
+
+
+def test_truncated_evidence_is_chunk_failure_before_dependency_unknown() -> None:
+    text = "该主张需要外部证据"
+    definition = task("claim-evidence-verdict")
+    dependencies = {
+        ref: DecisionStatus.ABSTAINED for ref in definition.dependency_task_refs
+    }
+
+    outcome = adjudicate_decision(
+        _request(
+            definition.name,
+            text,
+            (),
+            dependency_statuses=dependencies,
+            evidence_context={"evidence_material_truncated": True},
+        )
+    )
+
+    assert outcome.status is DecisionStatus.FAILED
+    assert outcome.reason_codes == ("chunk_incomplete",)
+
+
+def test_validated_model_output_spans_become_immutable_record_evidence() -> None:
+    text = "可以考虑它，但仅适合大型政企"
+    definition = task("recommendation-relation")
+    proposer = make_attempt(definition, _recommendation_output(text, "conditional_positive"))
+
+    outcome = adjudicate_decision(
+        _request(
+            definition.name,
+            text,
+            (proposer,),
+            include_request_span=False,
+        )
+    )
+
+    assert outcome.status is DecisionStatus.ACCEPTED
+    assert len(outcome.evidence_spans) == 1
+    assert outcome.evidence_spans[0].source_ref == ANSWER_ID
+    assert outcome.evidence_spans[0].excerpt_hash == digest(text)
 
 
 def test_human_override_is_a_new_superseding_record_not_an_update() -> None:
@@ -324,6 +406,15 @@ def test_experimental_policy_cannot_auto_accept_official_decision() -> None:
         fast_path_name="exact_substantive_body_mention",
     )
 
+    original = policy_for(definition.name)
+    experimental = JudgePolicyDefinition.model_validate(
+        original.model_dump(mode="python", exclude={"policy_hash"})
+        | {
+            "status": "experimental",
+            "published_at": None,
+            "calibration_artifact_hash": None,
+        }
+    )
     outcome = adjudicate_decision(
         _request(
             definition.name,
@@ -331,8 +422,43 @@ def test_experimental_policy_cannot_auto_accept_official_decision() -> None:
             (attempt,),
             confidences={attempt.pub_id: 1.0},
             official_use=True,
+            judge_policy=experimental,
         )
     )
 
-    assert outcome.status is DecisionStatus.ABSTAINED
-    assert outcome.reason_codes == ("judge_policy_not_calibrated_for_official_use",)
+    assert outcome.status is DecisionStatus.FAILED
+    assert outcome.reason_codes == ("judge_policy_not_published_for_official_use",)
+
+
+def test_published_policy_can_accept_official_decision_without_calibration() -> None:
+    text = "盛邦安全"
+    definition = task("substantive-entity-mention")
+    attempt = make_attempt(
+        definition,
+        _mention_output(text),
+        method=DecisionMethod.DETERMINISTIC,
+        fast_path_name="exact_substantive_body_mention",
+    )
+    original = policy_for(definition.name)
+    published = JudgePolicyDefinition.model_validate(
+        original.model_dump(mode="python", exclude={"policy_hash"})
+        | {
+            "status": "published",
+            "published_at": NOW,
+            "calibration_artifact_hash": None,
+        }
+    )
+
+    outcome = adjudicate_decision(
+        _request(
+            definition.name,
+            text,
+            (attempt,),
+            official_use=True,
+            judge_policy=published,
+        )
+    )
+
+    assert outcome.status is DecisionStatus.ACCEPTED
+    assert outcome.calibrated_confidence is None
+    assert "accepted_without_calibration" in outcome.reason_codes

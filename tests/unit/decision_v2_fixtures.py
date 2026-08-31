@@ -91,10 +91,17 @@ def make_attempt(
     verifier_route: bool = False,
 ) -> SemanticDecisionAttempt:
     provider = model = revision = None
+    inference_config: dict[str, Any] = {}
     if method in {DecisionMethod.MODEL, DecisionMethod.HYBRID}:
-        provider = "offline-fixture"
-        model = "semantic-verifier-fixture-v2" if verifier_route else "semantic-judge-fixture-v2"
-        revision = "fixture-2026-08-27"
+        route = policy_for(task_definition.name).model_routes[0]
+        provider = route.provider
+        model = route.model
+        revision = (
+            "fixture-verifier-revision"
+            if verifier_route
+            else "fixture-primary-revision"
+        )
+        inference_config = {"temperature": 0, "route_name": route.route_name}
     response_hash = canonical_hash(output) if output is not None else None
     return SemanticDecisionAttempt(
         pub_id=f"sda_attempt_{index:04d}_{role.value}",
@@ -107,7 +114,7 @@ def make_attempt(
         provider=provider,
         model=model,
         model_revision=revision,
-        inference_config={"temperature": 0} if provider else {},
+        inference_config=inference_config,
         prompt_template_ref=task_definition.prompt_template_ref,
         prompt_template_hash=task_definition.prompt_template_hash,
         rubric_hash=task_definition.rubric_hash,

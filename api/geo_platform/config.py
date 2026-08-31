@@ -40,7 +40,24 @@ class Settings(BaseSettings):
     metrics_backfill_batch_size: int = 500
     semantic_decision_max_concurrent_activities: int = 8
     semantic_decision_backfill_batch_size: int = 100
-    semantic_decision_daily_budget: float = 0.0
+    # Semantic Metrics V2 uses one automatic OpenAI-compatible judge.  The
+    # dedicated values may override the shared research gateway without ever
+    # entering a workflow payload, database row, or log record.  Empty
+    # credential/base URL values inherit GEO_RESEARCH_LLM_*.
+    semantic_decision_llm_api_key: str = ""
+    semantic_decision_llm_base_url: str = ""
+    semantic_decision_llm_base_url_fallback: str = ""
+    semantic_decision_llm_provider: str = "openai-compatible"
+    semantic_decision_llm_model: str = "gpt-5.6-sol"
+    # Operations may select only these audited gateway model IDs.  The first
+    # runtime default above is always included even when omitted here.
+    semantic_decision_llm_models: str = "glm-5.3-flash,gpt-5.6-luna,gpt-5.6-sol"
+    semantic_decision_llm_model_revision: str = "runtime-configured"
+    semantic_decision_llm_timeout_seconds: float = 120.0
+    semantic_decision_llm_max_retries: int = 2
+    # Positive by default so a configured credential actually executes the
+    # automatic judge.  Operations may set zero to stop new calls explicitly.
+    semantic_decision_daily_budget: float = 100.0
     semantic_decision_judge_policy_version: str = ""
     minio_endpoint: str = "http://127.0.0.1:19000"
     minio_access_key: str = "geo"

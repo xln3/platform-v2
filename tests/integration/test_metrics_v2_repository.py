@@ -10,8 +10,8 @@ import pytest
 from geo_platform.metrics_v2.repository import MetricsV2Repository
 
 from domain.analysis.v2 import load_builtin_task_definitions
-from domain.analysis.v2.decision_models import subject_key_for
-from domain.metrics.v2 import validate_metric_definition
+from domain.analysis.v2.decision_models import SemanticDecisionRecord, subject_key_for
+from domain.metrics.v2 import canonical_hash, validate_metric_definition
 from tools.seed_metrics_v2_definitions import SeedArtifact, build_seed_bundle, seed
 
 from .metrics_v2_fixtures import digest, snapshot_row, snapshot_set_row
@@ -339,7 +339,6 @@ def test_official_publication_rejects_a_missing_supporting_decision_reference() 
             }
         ],
     )
-
     with pytest.raises(RuntimeError, match="metrics_v2_official_dependency_not_published"):
         repository.publish_snapshot_set_cas(
             tenant_pub_id=tenant,
@@ -453,6 +452,16 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
     now = datetime.now(UTC)
     attempt_pub_id = f"sda_{token}"
     decision_pub_id = f"sdr_{token}"
+    accepted_result = {
+        "entity_id": f"entity-{token}",
+        "surface": "fixture entity",
+        "substantive": True,
+        "mention_role": "asserted_body",
+        "start": 0,
+        "end": 1,
+        "excerpt_hash": digest(f"excerpt:{token}"),
+        "reason_codes": [],
+    }
     attempt = {
         "pub_id": attempt_pub_id,
         "attempt_index": 0,
@@ -465,7 +474,7 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
         "output_schema_hash": digest(f"schema:{token}"),
         "request_payload_hash": digest(f"request:{token}"),
         "response_payload_hash": digest(f"response:{token}"),
-        "validated_output": {"substantive": True},
+        "validated_output": accepted_result,
         "validation_status": "valid",
         "reason_codes": ("fixture_attempt",),
         "created_at": now,
@@ -483,7 +492,7 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
         "context_hash": digest(f"context:{token}"),
         "method": "deterministic",
         "status": "accepted",
-        "result": {"substantive": True},
+        "result": accepted_result,
         "rationale_summary": "bounded evidence-backed reason",
         "calibrated_confidence": "0.99",
         "calibration_bucket": "high",
@@ -495,9 +504,17 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
         "rubric_ref": task.rubric_ref,
         "rubric_hash": task.rubric_hash,
         "output_schema_hash": digest(f"schema:{token}"),
-        "decision_hash": digest(f"decision:{token}"),
+        "decision_hash": "",
         "created_at": now,
     }
+    decision["decision_hash"] = SemanticDecisionRecord.model_validate(
+        {
+            **decision,
+            "tenant_pub_id": tenant,
+            "project_pub_id": project,
+            "decision_job_pub_id": request["decision_job_pub_id"],
+        }
+    ).decision_hash
     completed = repository.persist_decision_atomic(
         tenant_pub_id=tenant,
         project_pub_id=project,
@@ -549,6 +566,277 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
         repository.get_semantic_decision(
             tenant_pub_id=f"tnt_other_{token}", decision_pub_id=decision_pub_id
         )
+    entity = f"entity-{token}"
+    answer_pub_id = f"ans_{token}"
+    query_pub_id = f"qry_{token}"
+    context_pub_id = f"qcf_{token}"
+    manifest_pub_id = f"asm_{token}"
+    query_key = digest(f"query-key:{token}")
+    answer_hash = digest(f"answer:{token}")
+    decision_set_hash = digest(f"decision-set:{token}")
+    captured_at = datetime(2026, 8, 1, 12, tzinfo=UTC)
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            """
+            INSERT INTO analytics.answer
+              (pub_id,tenant_pub_id,project_pub_id,query_pub_id,query_text,
+               response_text,model,region,mode,eligible,degraded,channel,
+               adapter_version,capture_time,response_raw,
+               response_markdown_normalized,response_ast,response_html_sanitized,
+               response_plain_text,response_hash,render_parser_version)
+            VALUES
+              (%s,%s,%s,%s,%s,%s,'fixture-model','cn','api',true,false,'api',
+               'fixture-v1',%s,'{}',%s,'[]'::jsonb,%s,%s,%s,'fixture-parser-v1')
+            """,
+            (
+                answer_pub_id,
+                tenant,
+                project,
+                query_pub_id,
+                f"fixture query {token}",
+                "fixture entity is recommended",
+                captured_at,
+                "fixture entity is recommended",
+                "fixture entity is recommended",
+                "fixture entity is recommended",
+                answer_hash,
+            ),
+        )
+    repository.persist_query_context_atomic(
+        tenant_pub_id=tenant,
+        project_pub_id=project,
+        fact={
+            "pub_id": context_pub_id,
+            "query_key": query_key,
+            "query_pub_id": query_pub_id,
+            "query_text_hash": digest(f"query-text:{token}"),
+            "primary_lens": "ai_recommendation",
+            "analysis_lenses": ["ai_recommendation"],
+            "requested_operations": ["recommend"],
+            "query_subtypes": [],
+            "detected_entity_ids": [entity],
+            "brand_structure_type": "single_brand_named",
+            "classification_state": "ready",
+            "classifier_version": "fixture-v2",
+            "decision_task_bundle_hash": digest(f"task-bundle:{token}"),
+            "entity_dictionary_hash": digest(f"entity-dictionary:{token}"),
+            "classification_source": "historical_backfill",
+            "derivation_method": "deterministic",
+            "decision_record_pub_ids": [],
+            "review_status": "approved",
+            "fact_hash": digest(f"query-context:{token}"),
+            "created_at": captured_at,
+        },
+        exposures=[],
+    )
+    repository.persist_semantic_manifest_atomic(
+        tenant_pub_id=tenant,
+        project_pub_id=project,
+        manifest={
+            "pub_id": manifest_pub_id,
+            "answer_pub_id": answer_pub_id,
+            "analysis_run_pub_id": f"arun_{token}",
+            "query_context_fact_pub_id": context_pub_id,
+            "answer_text_hash": answer_hash,
+            "input_hash": digest(f"manifest-input:{token}"),
+            "extractor_bundle": {},
+            "decision_task_bundle": {},
+            "extractor_bundle_hash": digest(f"extractor-bundle:{token}"),
+            "decision_task_bundle_hash": digest(f"task-bundle:{token}"),
+            "entity_dictionary_hash": digest(f"entity-dictionary:{token}"),
+            "status": "ready",
+            "capability_statuses": {
+                "substantive_entity_mention": {
+                    "status": "ready",
+                    "decision_record_pub_ids": [decision_pub_id],
+                    "reason_codes": [],
+                }
+            },
+            "decision_record_pub_ids": [decision_pub_id],
+            "decision_set_hash": decision_set_hash,
+            "completed_at": now,
+        },
+        events=[],
+    )
+    set_row = snapshot_set_row(token)
+    recompute_scope = {
+        "tenant_pub_id": tenant,
+        "project_pub_id": project,
+        "window": {"start": "2026-08-01", "end": "2026-08-02"},
+        "filters": {"model": [], "region": [], "mode": []},
+        "focal_entity_ids": [entity],
+        "aggregation_method": "query_macro",
+        "publication_channel": "shadow",
+    }
+    set_row["scope_hash"] = canonical_hash(recompute_scope)
+    metric_row = snapshot_row(token)
+    repository.persist_snapshot_set_atomic(
+        tenant_pub_id=tenant,
+        project_pub_id=project,
+        snapshot_set=set_row,
+        snapshots=[metric_row],
+        contributions=[
+            {
+                "pub_id": f"mct_{token}",
+                "snapshot_pub_id": metric_row["pub_id"],
+                "answer_pub_id": answer_pub_id,
+                "query_key": query_key,
+                "focal_entity_id": entity,
+                "metric_name": metric_row["metric_name"],
+                "metric_version": metric_row["metric_version"],
+                "model": "fixture-model",
+                "region": "cn",
+                "mode": "api",
+                "capture_time": captured_at,
+                "eligibility_status": "included_hit",
+                "reason_codes": ["fixture_hit"],
+                "outcome_value": {"hit": True},
+                "numerator_contribution": 1,
+                "denominator_contribution": 1,
+                "query_weight": 1,
+                "design_cell_weight": 1,
+                "repeat_weight": 1,
+                "final_weight": 1,
+                "weighted_numerator": 1,
+                "weighted_denominator": 1,
+                "query_context_fact_pub_id": context_pub_id,
+                "semantic_manifest_pub_id": manifest_pub_id,
+                "supporting_event_pub_ids": [],
+                "supporting_decision_pub_ids": [decision_pub_id],
+                "semantic_decision_set_hash": decision_set_hash,
+                "dimension_snapshot": {},
+                "answer_detail_ref": f"/answers/{answer_pub_id}",
+                "contribution_hash": digest(f"contribution:{token}"),
+            }
+        ],
+    )
+    repository.publish_snapshot_set_cas(
+        tenant_pub_id=tenant,
+        set_pub_id=str(set_row["pub_id"]),
+        publication_channel="shadow",
+        expected_generation=0,
+        expected_snapshot_set_hash=str(set_row["snapshot_set_hash"]),
+        published_by=f"usr_{token}",
+    )
+    correction = {
+        **accepted_result,
+        "substantive": False,
+        "mention_role": "prompt_echo",
+        "start": None,
+        "end": None,
+        "excerpt_hash": None,
+        "reason_codes": ["customer_fact_correction"],
+    }
+    with pytest.raises(LookupError):
+        repository.create_override(
+            tenant_pub_id=tenant,
+            project_pub_id=f"prj_other_{token}",
+            decision_pub_id=decision_pub_id,
+            result=correction,
+            rationale_summary="wrong project must remain invisible",
+            reason_codes=("customer_fact_correction",),
+            expected_decision_hash=decision["decision_hash"],
+            actor_pub_id=f"usr_{token}",
+        )
+    with pytest.raises(LookupError):
+        repository.create_override(
+            tenant_pub_id=f"tnt_other_{token}",
+            project_pub_id=project,
+            decision_pub_id=decision_pub_id,
+            result=correction,
+            rationale_summary="cross tenant must remain invisible",
+            reason_codes=("customer_fact_correction",),
+            expected_decision_hash=decision["decision_hash"],
+            actor_pub_id=f"usr_{token}",
+        )
+    override = repository.create_override(
+        tenant_pub_id=tenant,
+        project_pub_id=project,
+        decision_pub_id=decision_pub_id,
+        result=correction,
+        rationale_summary="The matched surface is only a prompt echo.",
+        reason_codes=("customer_fact_correction",),
+        expected_decision_hash=decision["decision_hash"],
+        actor_pub_id=f"usr_{token}",
+    )
+    with pytest.raises(RuntimeError, match="metrics_v2_decision_already_superseded"):
+        repository.create_override(
+            tenant_pub_id=tenant,
+            project_pub_id=project,
+            decision_pub_id=decision_pub_id,
+            result=correction,
+            rationale_summary="stale retry",
+            reason_codes=("customer_fact_correction",),
+            expected_decision_hash=decision["decision_hash"],
+            actor_pub_id=f"usr_{token}",
+        )
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        successor = connection.execute(
+            """
+            SELECT method,status,result,supersedes_pub_id
+            FROM analytics.semantic_decision_record_v2
+            WHERE tenant_pub_id=%s AND project_pub_id=%s AND pub_id=%s
+            """,
+            (tenant, project, override["decision_pub_id"]),
+        ).fetchone()
+        recompute = connection.execute(
+            """
+            SELECT status,scope,requested_by
+            FROM analytics.metric_recompute_job_v2
+            WHERE tenant_pub_id=%s AND project_pub_id=%s AND pub_id=%s
+            """,
+            (tenant, project, override["recompute_job_pub_id"]),
+        ).fetchone()
+        workflow = connection.execute(
+            """
+            SELECT workflow_type,task_queue,payload
+            FROM integration.workflow_start_command
+            WHERE tenant_pub_id=%s AND workflow_id=%s
+            """,
+            (tenant, f"metrics-v2:{override['recompute_job_pub_id']}"),
+        ).fetchone()
+        refreshed_manifest = connection.execute(
+            """
+            SELECT pub_id,decision_record_pub_ids,decision_set_hash,supersedes_pub_id,event_count
+            FROM analytics.answer_semantic_manifest_v2
+            WHERE tenant_pub_id=%s AND project_pub_id=%s AND supersedes_pub_id=%s
+            """,
+            (tenant, project, manifest_pub_id),
+        ).fetchone()
+    assert successor == ("human", "accepted", correction, decision_pub_id)
+    assert override["recompute_job_pub_ids"] == [override["recompute_job_pub_id"]]
+    assert recompute is not None
+    assert recompute[0] == "pending"
+    assert recompute[1] == recompute_scope
+    assert canonical_hash(recompute[1]) == set_row["scope_hash"]
+    assert recompute[2] == f"usr_{token}"
+    assert workflow is not None
+    assert workflow[:2] == ("metric_snapshot_set_v2", "geo-platform-v2-metrics")
+    assert workflow[2]["project_pub_id"] == project
+    assert workflow[2]["scope"] == recompute[1]
+    assert workflow[2]["publication_channel"] == "shadow"
+    assert workflow[2]["expected_generation"] == 1
+    assert workflow[2]["published_by"] == f"usr_{token}"
+    assert refreshed_manifest is not None
+    assert refreshed_manifest[1] == [override["decision_pub_id"]]
+    assert refreshed_manifest[2] != decision_set_hash
+    assert refreshed_manifest[3:] == (manifest_pub_id, 0)
+
+    loaded = repository.load_snapshot_build_inputs(
+        tenant_pub_id=tenant,
+        project_pub_id=project,
+        scope=recompute[1],
+        as_of=(datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
+    )
+    assert len(loaded["subjects"]) == 1
+    loaded_subject = loaded["subjects"][0]
+    loaded_decision = loaded_subject["decisions"][task.task_ref]
+    assert loaded_subject["semantic_manifest_pub_id"] == refreshed_manifest[0]
+    assert loaded_subject["semantic_decision_set_hash"] == refreshed_manifest[2]
+    assert loaded_subject["events"] == []
+    assert loaded_decision["decision_pub_id"] == override["decision_pub_id"]
+    assert loaded_decision["method"] == "human"
+    assert loaded_decision["value"] == correction
 
 
 def test_recompute_claim_and_finish_are_compare_and_swap_safe() -> None:

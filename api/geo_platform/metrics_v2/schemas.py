@@ -17,6 +17,7 @@ EligibilityStatus = Literal[
     "excluded",
     "not_applicable",
     "analysis_unknown",
+    "analysis_failed",
 ]
 
 
@@ -54,7 +55,7 @@ class SnapshotFilters(StrictModel):
 class SnapshotRequest(StrictModel):
     window: SnapshotWindow
     filters: SnapshotFilters = Field(default_factory=SnapshotFilters)
-    focal_entity_ids: list[str] = Field(min_length=1, max_length=100)
+    focal_entity_ids: list[str] = Field(max_length=100)
     aggregation_method: Literal["query_macro"] = "query_macro"
     publication_channel: Literal["shadow"] = "shadow"
     idempotency_key: str | None = Field(
@@ -157,6 +158,7 @@ class MetricSnapshotView(StrictModel):
     candidate_answer_count: int = Field(ge=0)
     known_answer_count: int = Field(ge=0)
     unknown_answer_count: int = Field(ge=0)
+    failed_answer_count: int = Field(default=0, ge=0)
     not_applicable_answer_count: int = Field(ge=0)
     excluded_answer_count: int = Field(ge=0)
     design_cell_count: int = Field(ge=0)
@@ -200,10 +202,13 @@ class MetricSnapshotDetailView(MetricSnapshotView):
 
 class SupportingDecisionView(StrictModel):
     decision_pub_id: PublicId
+    decision_hash: Hash
     task: str
     version: str
     method: Literal["deterministic", "model", "hybrid", "human"]
     status: Literal["accepted", "abstained", "review_required", "failed"]
+    result: dict[str, Any]
+    reason_codes: list[str] = Field(default_factory=list)
     calibrated_confidence: float | None = Field(default=None, ge=0, le=1)
     rubric_hash: Hash
     evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
@@ -394,9 +399,117 @@ class RecomputeRequest(StrictModel):
     idempotency_key: str = Field(min_length=16, max_length=128, pattern=r"^[\x20-\x7e]+$")
 
 
+class SemanticBackfillCandidateView(StrictModel):
+    answer_pub_id: PublicId
+    query_text: str = Field(max_length=500)
+    model: str = Field(min_length=1, max_length=120)
+    region: str = Field(min_length=1, max_length=120)
+    mode: str = Field(min_length=1, max_length=80)
+    channel: str = Field(min_length=1, max_length=80)
+    capture_time: datetime
+    preparation_state: Literal["ready", "unknown"]
+    reason_codes: list[str] = Field(default_factory=list)
+
+
+class SemanticBackfillModelView(StrictModel):
+    model: str
+    label: str
+    provider: str
+    tier: Literal["economy", "premium"]
+    input_usd_per_million_tokens: float = Field(ge=0)
+    output_usd_per_million_tokens: float = Field(ge=0)
+    context_window_tokens: int = Field(gt=0)
+    recommended: bool
+    catalog_revision: str
+    pricing_observed_at: str
+    pricing_source_url: str
+    pricing_currency: Literal["USD"]
+    token_price_unit: Literal["per_million_tokens"]
+    pricing_notice: Literal["catalog_snapshot_provider_invoice_authoritative"]
+
+
+class SemanticBackfillOptionsView(StrictModel):
+    schema_version: Literal["semantic-backfill-options-v2"] = "semantic-backfill-options-v2"
+    project_pub_id: PublicId
+    as_of: datetime
+    candidate_count: int = Field(ge=0)
+    candidates: list[SemanticBackfillCandidateView]
+    next_cursor: str | None = None
+    max_batch_size: int = Field(ge=1, le=100)
+    default_model: str
+    models: list[SemanticBackfillModelView]
+
+
+class SemanticBackfillPlanRequest(StrictModel):
+    answer_pub_ids: list[PublicId] = Field(min_length=1, max_length=100)
+    model: str = Field(min_length=1, max_length=120)
+    as_of: datetime
+
+    @field_validator("answer_pub_ids")
+    @classmethod
+    def unique_answer_ids(cls, values: list[str]) -> list[str]:
+        if len(values) != len(set(values)):
+            raise ValueError("duplicate_answer_pub_id")
+        return sorted(values)
+
+
+class SemanticBackfillPlanView(StrictModel):
+    schema_version: Literal["semantic-backfill-plan-v2"] = "semantic-backfill-plan-v2"
+    project_pub_id: PublicId
+    model: str
+    as_of: datetime
+    window: SnapshotWindow
+    focal_entity_ids: list[str] = Field(min_length=1, max_length=100)
+    selected_answer_count: int = Field(ge=0)
+    executable_answer_count: int = Field(ge=0)
+    preparation_unknown_count: int = Field(ge=0)
+    estimated_atomic_decisions: int = Field(ge=0)
+    estimated_input_tokens: int = Field(ge=0)
+    estimated_output_tokens: int = Field(ge=0)
+    estimated_cost_usd: float = Field(ge=0)
+    estimated_cost_high_usd: float = Field(ge=0)
+    budget_limit_usd: float = Field(ge=0)
+    selection_hash: Hash
+    confirmation_token: Hash
+    start_allowed: bool
+    blocker_codes: list[str] = Field(default_factory=list)
+    estimate_notice: Literal["bounded_estimate_provider_invoice_authoritative"] = (
+        "bounded_estimate_provider_invoice_authoritative"
+    )
+
+
+class SemanticBackfillStartRequest(SemanticBackfillPlanRequest):
+    selection_hash: Hash
+    confirmation_token: Hash
+
+
+class SemanticBackfillStartView(StrictModel):
+    schema_version: Literal["semantic-backfill-start-v2"] = "semantic-backfill-start-v2"
+    project_pub_id: PublicId
+    workflow_id: str
+    job_pub_id: PublicId
+    selection_hash: Hash
+    status: Literal["started", "reused"]
+    selected_answer_count: int = Field(ge=1, le=100)
+    model: str
+
+
+class SemanticBackfillStatusView(StrictModel):
+    schema_version: Literal["semantic-backfill-status-v2"] = "semantic-backfill-status-v2"
+    project_pub_id: PublicId
+    selection_hash: Hash
+    workflow_id: str
+    status: Literal["running", "succeeded", "failed"]
+    processed_answer_count: int = Field(ge=0)
+    metric_evaluation_count: int = Field(ge=0)
+    snapshot_set_pub_id: PublicId | None = None
+    failure_code: str | None = None
+
+
 class DecisionOverrideRequest(StrictModel):
+    project_pub_id: PublicId
     result: dict[str, Any]
-    rationale_summary: str = Field(min_length=1, max_length=2_000)
+    rationale_summary: str = Field(min_length=1, max_length=1_000)
     reason_codes: list[str] = Field(min_length=1, max_length=20)
     expected_decision_hash: Hash
 
@@ -407,3 +520,4 @@ class DecisionOverrideView(StrictModel):
     supersedes_pub_id: PublicId
     decision_hash: Hash
     recompute_job_pub_id: PublicId
+    recompute_job_pub_ids: list[PublicId] = Field(default_factory=list)

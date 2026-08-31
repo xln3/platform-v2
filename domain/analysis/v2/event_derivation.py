@@ -100,7 +100,15 @@ def derive_answer_semantic_events(
             event.model_dump(mode="python")
             | {
                 "event_index": index,
-                "pub_id": f"ase_{event.event_fingerprint[:26]}",
+                "pub_id": (
+                    "ase_"
+                    + canonical_hash(
+                        {
+                            "event_fingerprint": event.event_fingerprint,
+                            "semantic_manifest_pub_id": context.semantic_manifest_pub_id,
+                        }
+                    )[:26]
+                ),
             }
         )
         for index, event in enumerate(ordered)
@@ -135,10 +143,10 @@ def capability_analyses_from_decisions(
     answer: dict[str, CapabilityAnalysis] = {}
     for capability, records in grouped.items():
         statuses = {record.status for record in records}
-        if DecisionStatus.REVIEW_REQUIRED in statuses:
-            status = CapabilityStatus.REVIEW_REQUIRED
-        elif DecisionStatus.FAILED in statuses:
+        if DecisionStatus.FAILED in statuses:
             status = CapabilityStatus.FAILED
+        elif DecisionStatus.REVIEW_REQUIRED in statuses:
+            status = CapabilityStatus.REVIEW_REQUIRED
         elif DecisionStatus.ABSTAINED in statuses:
             status = CapabilityStatus.ABSTAINED
         else:
@@ -173,6 +181,13 @@ def _drafts_for_decision(
             )
         ]
     if task == "recommendation-relation":
+        # A governed neutral/unknown result can represent the absence of a
+        # recommendation for an entity inherited from query context. It has
+        # no answer span and therefore must not be materialized as evidence.
+        if result.get("polarity") in {"neutral", "unknown"} and any(
+            result.get(field) is None for field in ("start", "end", "excerpt_hash")
+        ):
+            return []
         qualifiers = {
             "stance_owner": result["stance_owner"],
             "subject_resolution": result["subject_resolution"],

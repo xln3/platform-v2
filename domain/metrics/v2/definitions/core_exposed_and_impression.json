@@ -166,7 +166,7 @@
     "missing_policy": "unknown_if_evidence_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "claim_supported", "miss": "claim_unsupported", "not_applicable": "no_applicable_claim", "unknown": "evidence_retrieval_failed"},
+    "reason_codes": {"hit": "claim_supported", "miss": "claim_unsupported", "not_applicable": "no_applicable_claim", "unknown": "semantic_result_unknown"},
     "metadata": {"release_role": "official", "metric_family": "claim_verification"}
   },
   {
@@ -189,7 +189,7 @@
     "missing_policy": "unknown_if_evidence_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "claim_unsupported", "miss": "claim_supported", "not_applicable": "no_applicable_claim", "unknown": "evidence_retrieval_failed"},
+    "reason_codes": {"hit": "claim_unsupported", "miss": "claim_supported", "not_applicable": "no_applicable_claim", "unknown": "semantic_result_unknown"},
     "metadata": {"release_role": "official", "metric_family": "claim_verification"}
   },
   {

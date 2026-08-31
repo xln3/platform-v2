@@ -94,12 +94,25 @@ def _snapshot_state(
     minimum_queries_for_ready: int,
     coverage_gate: Decimal,
     sensitivity_width: Decimal | None,
+    failed_answer_count: int,
+    failure_reason_codes: tuple[str, ...],
 ) -> tuple[MetricSnapshotState, tuple[str, ...]]:
+    if denominator <= ZERO and failed_answer_count:
+        return MetricSnapshotState.FAILED, (
+            "analysis_failed_no_known_answers",
+            *failure_reason_codes,
+        )
     if definition.status is DefinitionStatus.EXPERIMENTAL:
         return MetricSnapshotState.EXPERIMENTAL, ("metric_definition_experimental",)
     if denominator <= ZERO:
         return MetricSnapshotState.INSUFFICIENT, ("empty_known_denominator",)
-    if any(coverage < coverage_gate for coverage in coverages):
+    collection_coverage, query_context_coverage, semantic_coverage, evidence_coverage = coverages
+    if any(
+        coverage < coverage_gate
+        for coverage in (collection_coverage, query_context_coverage, evidence_coverage)
+    ):
+        return MetricSnapshotState.INSUFFICIENT, ("coverage_below_publication_gate",)
+    if semantic_coverage < coverage_gate and not failed_answer_count:
         return MetricSnapshotState.INSUFFICIENT, ("coverage_below_publication_gate",)
     maximum_sensitivity_width = definition.publication_gate.get(
         "maximum_adjudication_sensitivity_width"
@@ -110,6 +123,10 @@ def _snapshot_state(
                 "adjudication_sensitivity_above_publication_gate",
             )
     limited: list[str] = []
+    if failed_answer_count:
+        limited.extend(("analysis_failed_partial", *failure_reason_codes))
+        if semantic_coverage < coverage_gate:
+            limited.append("semantic_coverage_below_publication_gate")
     if design_basis == "observed_cells":
         limited.append("historical_design_unknown")
     if unique_query_count < minimum_queries_for_ready:
@@ -282,6 +299,16 @@ class MetricSnapshotEngine:
                     ZERO,
                 )
                 statuses = Counter(item.eligibility_status for item in evaluations)
+                failure_reason_codes = tuple(
+                    sorted(
+                        {
+                            code
+                            for item in evaluations
+                            if item.eligibility_status is EligibilityStatus.ANALYSIS_FAILED
+                            for code in item.reason_codes
+                        }
+                    )
+                )
                 applicable_queries = {
                     item.query_key
                     for item in evaluations
@@ -290,6 +317,7 @@ class MetricSnapshotEngine:
                         EligibilityStatus.INCLUDED_HIT,
                         EligibilityStatus.INCLUDED_MISS,
                         EligibilityStatus.ANALYSIS_UNKNOWN,
+                        EligibilityStatus.ANALYSIS_FAILED,
                     }
                 }
                 calculated_collection_coverage = (
@@ -320,6 +348,8 @@ class MetricSnapshotEngine:
                     minimum_queries_for_ready=request.minimum_queries_for_ready,
                     coverage_gate=request.coverage_gate,
                     sensitivity_width=sensitivity_width,
+                    failed_answer_count=statuses[EligibilityStatus.ANALYSIS_FAILED],
+                    failure_reason_codes=failure_reason_codes,
                 )
                 weighted_by_answer = {item.evaluation.answer_pub_id: item for item in weighted}
                 if len(weighted_by_answer) != len(weighted):
@@ -429,7 +459,10 @@ class MetricSnapshotEngine:
                                 item.missing_bound_weight
                                 for item in query_weighted
                                 if item.evaluation.eligibility_status
-                                is EligibilityStatus.ANALYSIS_UNKNOWN
+                                in {
+                                    EligibilityStatus.ANALYSIS_UNKNOWN,
+                                    EligibilityStatus.ANALYSIS_FAILED,
+                                }
                             ),
                             ZERO,
                         ),
@@ -604,6 +637,7 @@ class MetricSnapshotEngine:
                         + statuses[EligibilityStatus.INCLUDED_MISS]
                     ),
                     unknown_answer_count=statuses[EligibilityStatus.ANALYSIS_UNKNOWN],
+                    failed_answer_count=statuses[EligibilityStatus.ANALYSIS_FAILED],
                     not_applicable_answer_count=statuses[EligibilityStatus.NOT_APPLICABLE],
                     excluded_answer_count=statuses[EligibilityStatus.EXCLUDED],
                     unique_query_count=len(applicable_queries),

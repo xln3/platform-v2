@@ -77,6 +77,7 @@ def assign_query_macro_weights(
         EligibilityStatus.INCLUDED_HIT,
         EligibilityStatus.INCLUDED_MISS,
         EligibilityStatus.ANALYSIS_UNKNOWN,
+        EligibilityStatus.ANALYSIS_FAILED,
     }
     applicable = tuple(
         record
@@ -209,7 +210,8 @@ def calculate_missing_bounds(
     unknown = tuple(
         item
         for item in records
-        if item.evaluation.eligibility_status is EligibilityStatus.ANALYSIS_UNKNOWN
+        if item.evaluation.eligibility_status
+        in {EligibilityStatus.ANALYSIS_UNKNOWN, EligibilityStatus.ANALYSIS_FAILED}
     )
     weighted_numerator = sum((item.weighted_numerator for item in known), ZERO)
     weighted_denominator = sum((item.weighted_denominator for item in known), ZERO)

@@ -44,6 +44,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "intake:write",
             "knowledge:resolve",
             "knowledge:observe",
+            "semantic:override",
         }
     ),
     Role.OPERATOR: frozenset(

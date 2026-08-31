@@ -291,6 +291,7 @@ semantic.decision_task.published.v2
 semantic.judge_policy.published.v2
 answer.semantic_events.completed.v2
 answer.semantic_events.review_required.v2
+answer.semantic_events.failed.v2
 entity.dictionary.published.v2
 metric.definition.published.v2
 metric.snapshot_set.requested.v2

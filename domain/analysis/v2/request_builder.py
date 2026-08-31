@@ -40,7 +40,14 @@ def instantiate_decision_task_request(
             "task_ref": task_ref,
         }
     )
-    request = {key: value for key, value in template.items() if key != "input_material_hashes"}
+    # Source text never enters the request, but its frozen hashes and the
+    # answer/query references must survive template instantiation.  The
+    # decision activity uses these values to hydrate and verify the immutable
+    # tenant row without copying raw text into Temporal workflow history.
+    request = dict(template)
+    request["input_material_hashes"] = {
+        str(key): str(value) for key, value in material_hashes.items()
+    }
     request.update(
         {
             "subject_ref": concrete_subject,
@@ -159,6 +166,8 @@ def build_answer_semantic_workflow_request(
                 if query_scoped
                 else f"capture://answer/{answer_pub_id}"
             ),
+            "source_answer_pub_id": answer_pub_id,
+            "source_query_pub_id": query_pub_id,
             "input_material_hashes": (
                 {"query_text_hash": query_text_hash}
                 if query_scoped
@@ -172,6 +181,10 @@ def build_answer_semantic_workflow_request(
             "judge_policy_ref": policy.policy_ref,
             "dependency_task_refs": list(task.dependency_task_refs),
             "official_use": False,
+            # Historical replay is already governed page by page. Keep one
+            # bounded model attempt per atomic task so a timeout is disclosed
+            # without an exponential continue-as-new chain blocking the page.
+            "max_auto_rejudge_generations": 0,
         }
 
     templates = {task_ref: decision_template(task_ref) for task_ref in tasks.topological_refs}

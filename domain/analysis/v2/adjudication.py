@@ -1,13 +1,16 @@
 """Fail-closed semantic decision adjudication.
 
-No majority vote and no keyword fallback are implemented here.  Agreement,
-evidence closure, schema validity, candidate closure, and an offline-calibrated
-confidence are all required before automatic acceptance.
+No majority vote and no keyword fallback are implemented here.  A configured
+judge may be accepted without a pre-existing calibration artifact, while
+schema, candidate, evidence, dependency, and immutable-policy checks remain
+mandatory.  Missing calibration is recorded explicitly instead of becoming an
+implicit human-review gate.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
+from hashlib import sha256
 from typing import Any, Self
 
 from pydantic import Field, model_validator
@@ -31,7 +34,11 @@ from domain.analysis.v2.decision_task_schema import (
     SubjectType,
     validate_policy_compatibility,
 )
-from domain.analysis.v2.output_validation import validate_decision_output, validate_subject_ref
+from domain.analysis.v2.output_validation import (
+    answer_evidence_required,
+    validate_decision_output,
+    validate_subject_ref,
+)
 
 
 class AdjudicationRequest(FrozenDomainModel):
@@ -45,6 +52,7 @@ class AdjudicationRequest(FrozenDomainModel):
     evidence_context: dict[str, Any] = Field(default_factory=dict)
     evidence_refs: tuple[str, ...] = ()
     evidence_spans: tuple[EvidenceSpan, ...] = ()
+    answer_source_ref: str | None = None
     dependency_statuses: dict[str, DecisionStatus] = Field(default_factory=dict)
     required_chunks_complete: bool = True
     explicit_human_override: bool = False
@@ -161,32 +169,48 @@ def adjudicate_decision(request: AdjudicationRequest) -> DecisionAdjudication:
     if request.official_use and request.judge_policy.status is not DefinitionStatus.PUBLISHED:
         return _terminal(
             request,
-            DecisionStatus.ABSTAINED,
+            DecisionStatus.FAILED,
             _method_for_request(request),
-            ("judge_policy_not_calibrated_for_official_use",),
+            ("judge_policy_not_published_for_official_use",),
         )
-    if any(
-        request.dependency_statuses.get(ref) is not DecisionStatus.ACCEPTED
-        for ref in request.task.dependency_task_refs
-    ):
+    infrastructure_failure = _attempt_infrastructure_failure(request.attempts)
+    if infrastructure_failure is not None:
+        return _terminal(
+            request,
+            DecisionStatus.FAILED,
+            _method_for_request(request),
+            (infrastructure_failure,),
+        )
+    dependency_states = tuple(
+        request.dependency_statuses.get(ref) for ref in request.task.dependency_task_refs
+    )
+    if DecisionStatus.FAILED in dependency_states:
+        return _terminal(
+            request,
+            DecisionStatus.FAILED,
+            _method_for_request(request),
+            ("dependency_failed",),
+        )
+    evidence_execution_failure = _known_evidence_execution_failure(request)
+    if evidence_execution_failure is not None:
+        return _terminal(
+            request,
+            DecisionStatus.FAILED,
+            _method_for_request(request),
+            (evidence_execution_failure,),
+        )
+    if any(state is not DecisionStatus.ACCEPTED for state in dependency_states):
         return _terminal(
             request,
             DecisionStatus.ABSTAINED,
             _method_for_request(request),
             ("dependency_unknown",),
         )
-    if not request.required_chunks_complete:
-        return _terminal(
-            request,
-            DecisionStatus.REVIEW_REQUIRED,
-            _method_for_request(request),
-            ("chunk_incomplete",),
-        )
     evidence_error = _evidence_requirement_error(request)
     if evidence_error is not None:
         return _terminal(
             request,
-            DecisionStatus.ABSTAINED,
+            _status_for_reason(evidence_error),
             _method_for_request(request),
             (evidence_error,),
         )
@@ -220,7 +244,11 @@ def adjudicate_decision(request: AdjudicationRequest) -> DecisionAdjudication:
         return _adjudicate_human_override(request, valid, invalid_codes)
     selected, selection_error = _select_attempts(request, valid)
     if selection_error is not None:
-        status = _status_for_reason(selection_error)
+        status = (
+            DecisionStatus.FAILED
+            if any(_status_for_reason(code) is DecisionStatus.FAILED for code in invalid_codes)
+            else _status_for_reason(selection_error)
+        )
         return _terminal(
             request,
             status,
@@ -230,19 +258,28 @@ def adjudicate_decision(request: AdjudicationRequest) -> DecisionAdjudication:
     assert selected
     result = selected[-1].validated_output
     assert result is not None
-    confidence = min(
-        (request.calibrated_confidences.get(attempt.pub_id, -1.0) for attempt in selected),
-        default=-1.0,
-    )
-    if confidence < 0:
+    evidence_spans = _evidence_spans_for_result(request, result)
+    if (
+        answer_evidence_required(request.task, result)
+        and _answer_span_count(request, evidence_spans)
+        < request.task.evidence_requirements.minimum_span_count
+    ):
         return _terminal(
             request,
-            DecisionStatus.REVIEW_REQUIRED,
+            DecisionStatus.ABSTAINED,
             _method_for_selected(selected),
-            ("calibration_unavailable",),
+            ("evidence_not_closed",),
         )
+    supplied_confidences = [
+        request.calibrated_confidences.get(attempt.pub_id) for attempt in selected
+    ]
+    confidence = (
+        min(value for value in supplied_confidences if value is not None)
+        if supplied_confidences and all(value is not None for value in supplied_confidences)
+        else None
+    )
     threshold = _acceptance_threshold(request.judge_policy, result)
-    if confidence < threshold:
+    if confidence is not None and confidence < threshold:
         return _terminal(
             request,
             DecisionStatus.ABSTAINED,
@@ -250,6 +287,8 @@ def adjudicate_decision(request: AdjudicationRequest) -> DecisionAdjudication:
             ("low_calibrated_confidence",),
         )
     reason_codes = ["accepted"]
+    if confidence is None:
+        reason_codes.append("accepted_without_calibration")
     if _contains_semantic_unknown(result):
         reason_codes.append("semantic_unknown")
     return DecisionAdjudication(
@@ -259,9 +298,11 @@ def adjudicate_decision(request: AdjudicationRequest) -> DecisionAdjudication:
         reason_codes=tuple(reason_codes),
         selected_attempt_pub_ids=tuple(attempt.pub_id for attempt in selected),
         calibrated_confidence=confidence,
-        calibration_bucket=_calibration_bucket(confidence),
+        calibration_bucket=(
+            _calibration_bucket(confidence) if confidence is not None else None
+        ),
         evidence_refs=request.evidence_refs,
-        evidence_spans=request.evidence_spans,
+        evidence_spans=evidence_spans,
         rationale_summary=selected[-1].rationale_summary,
     )
 
@@ -310,6 +351,18 @@ def _adjudicate_human_override(
         )
     chosen = humans[-1]
     assert chosen.validated_output is not None
+    evidence_spans = _evidence_spans_for_result(request, chosen.validated_output)
+    if (
+        answer_evidence_required(request.task, chosen.validated_output)
+        and _answer_span_count(request, evidence_spans)
+        < request.task.evidence_requirements.minimum_span_count
+    ):
+        return _terminal(
+            request,
+            DecisionStatus.REVIEW_REQUIRED,
+            DecisionMethod.HUMAN,
+            ("evidence_not_closed",),
+        )
     return DecisionAdjudication(
         method=DecisionMethod.HUMAN,
         status=DecisionStatus.ACCEPTED,
@@ -317,7 +370,7 @@ def _adjudicate_human_override(
         reason_codes=("accepted", "human_override"),
         selected_attempt_pub_ids=(chosen.pub_id,),
         evidence_refs=request.evidence_refs,
-        evidence_spans=request.evidence_spans,
+        evidence_spans=evidence_spans,
         rationale_summary=chosen.rationale_summary,
     )
 
@@ -358,12 +411,22 @@ def _attempt_route_error(
 ) -> str | None:
     if attempt.method not in {DecisionMethod.MODEL, DecisionMethod.HYBRID}:
         return None
+    runtime_route_name = attempt.inference_config.get("route_name")
     matching = [
         route
         for route in policy.model_routes
         if route.provider == attempt.provider
-        and route.model == attempt.model
-        and route.resolved_revision == attempt.model_revision
+        and (
+            (
+                isinstance(runtime_route_name, str)
+                and route.route_name == runtime_route_name
+                and route.resolved_revision == "runtime-configured"
+            )
+            or (
+                route.model == attempt.model
+                and route.resolved_revision == attempt.model_revision
+            )
+        )
     ]
     return None if matching else "model_unavailable_for_policy"
 
@@ -382,10 +445,6 @@ def _attempt_contract_hash_error(
 
 def _evidence_requirement_error(request: AdjudicationRequest) -> str | None:
     requirements = request.task.evidence_requirements
-    if requirements.requires_answer_spans and (
-        len(request.evidence_spans) < requirements.minimum_span_count
-    ):
-        return "evidence_not_closed"
     if requirements.requires_frozen_evidence_bundle:
         if (
             not request.evidence_refs
@@ -403,23 +462,154 @@ def _evidence_requirement_error(request: AdjudicationRequest) -> str | None:
     return None
 
 
+def _known_evidence_execution_failure(request: AdjudicationRequest) -> str | None:
+    """Return only observed execution failures, before dependency unknowns mask them."""
+
+    if (
+        not request.required_chunks_complete
+        or request.evidence_context.get("evidence_material_truncated") is True
+    ):
+        return "chunk_incomplete"
+    if request.evidence_context.get("evidence_bundle_status") in {"partial", "failed"}:
+        return "evidence_retrieval_failed"
+    if request.evidence_context.get("retrieval_protocol_complete") is False:
+        return "evidence_retrieval_failed"
+    return None
+
+
 def _missing_attempt_reason(attempts: tuple[SemanticDecisionAttempt, ...]) -> str:
     reason_codes = {code for attempt in attempts for code in attempt.reason_codes}
     priority = (
+        "llm_api_auth_missing",
+        "llm_api_budget_exhausted",
+        "llm_api_rate_limited",
+        "llm_api_timeout",
+        "llm_api_network_error",
+        "llm_api_adapter_unavailable",
         "model_unavailable_for_policy",
         "model_timeout",
         "evidence_retrieval_failed",
+        "judge_policy_not_published_for_official_use",
         "structured_output_invalid",
     )
-    return next((code for code in priority if code in reason_codes), "required_judge_role_missing")
+    selected = next((code for code in priority if code in reason_codes), None)
+    if selected is not None:
+        return selected
+    infrastructure = sorted(
+        code
+        for code in reason_codes
+        if code.startswith("llm_api_") or code.startswith("upstream_")
+    )
+    return infrastructure[0] if infrastructure else "required_judge_role_missing"
+
+
+def _attempt_infrastructure_failure(
+    attempts: tuple[SemanticDecisionAttempt, ...],
+) -> str | None:
+    failed_attempts = tuple(
+        attempt
+        for attempt in attempts
+        if attempt.validation_status is not AttemptValidationStatus.VALID
+    )
+    reason = _missing_attempt_reason(failed_attempts) if failed_attempts else None
+    return (
+        reason
+        if reason is not None and _status_for_reason(reason) is DecisionStatus.FAILED
+        else None
+    )
 
 
 def _status_for_reason(reason: str) -> DecisionStatus:
-    if reason in {"model_unavailable_for_policy", "evidence_retrieval_failed"}:
-        return DecisionStatus.ABSTAINED
-    if reason == "model_timeout":
+    if reason.startswith(("llm_api_", "upstream_")) or reason in {
+        "chunk_incomplete",
+        "dependency_failed",
+        "decision_method_not_allowed",
+        "evidence_retrieval_failed",
+        "model_unavailable_for_policy",
+        "model_timeout",
+        "output_schema_hash_mismatch",
+        "prompt_template_hash_mismatch",
+        "required_judge_role_missing",
+        "rubric_hash_mismatch",
+        "structured_output_invalid",
+        "truth_as_of_policy_invalid",
+    }:
         return DecisionStatus.FAILED
     return DecisionStatus.REVIEW_REQUIRED
+
+
+def _evidence_spans_for_result(
+    request: AdjudicationRequest, result: dict[str, Any]
+) -> tuple[EvidenceSpan, ...]:
+    """Bind validated output offsets to the frozen answer snapshot.
+
+    The structured-output validator has already checked bounds, excerpt hashes,
+    and the task's minimum span count.  This step turns those validated offsets
+    into immutable provenance records; it does not trust an unvalidated model
+    response or require a separately supplied human span list.
+    """
+
+    spans = list(request.evidence_spans)
+    source_text_hash = request.expected_answer_text_hash
+    if source_text_hash is None and request.answer_text is not None:
+        source_text_hash = sha256(request.answer_text.encode()).hexdigest()
+    if request.answer_source_ref and source_text_hash:
+        found: list[dict[str, Any]] = []
+
+        def visit(value: object) -> None:
+            if isinstance(value, dict):
+                if {"start", "end", "excerpt_hash"} <= set(value):
+                    found.append(value)
+                for item in value.values():
+                    visit(item)
+            elif isinstance(value, list | tuple):
+                for item in value:
+                    visit(item)
+
+        visit(result)
+        for item in found:
+            start = item.get("start")
+            end = item.get("end")
+            excerpt_hash = item.get("excerpt_hash")
+            if (
+                isinstance(start, int)
+                and not isinstance(start, bool)
+                and isinstance(end, int)
+                and not isinstance(end, bool)
+                and isinstance(excerpt_hash, str)
+            ):
+                spans.append(
+                    EvidenceSpan(
+                        source_ref=request.answer_source_ref,
+                        start=start,
+                        end=end,
+                        excerpt_hash=excerpt_hash,
+                        source_text_hash=source_text_hash,
+                        role=f"{request.task.name}_answer_evidence",
+                    )
+                )
+    unique: dict[tuple[str, int, int, str, str], EvidenceSpan] = {}
+    for span in spans:
+        identity = (
+            span.source_ref,
+            span.start,
+            span.end,
+            span.excerpt_hash,
+            span.role,
+        )
+        unique[identity] = span
+    return tuple(unique[key] for key in sorted(unique))
+
+
+def _answer_span_count(
+    request: AdjudicationRequest, spans: tuple[EvidenceSpan, ...]
+) -> int:
+    source_text_hash = request.expected_answer_text_hash
+    if source_text_hash is None and request.answer_text is not None:
+        source_text_hash = sha256(request.answer_text.encode()).hexdigest()
+    if source_text_hash is None:
+        return 0
+    return sum(span.source_text_hash == source_text_hash for span in spans)
 
 
 def _acceptance_threshold(policy: JudgePolicyDefinition, result: dict[str, Any]) -> float:

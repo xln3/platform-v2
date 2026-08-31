@@ -183,8 +183,55 @@ def test_claim_unsupported_requires_complete_historical_retrieval() -> None:
     )
 
     assert "unsupported_requires_complete_retrieval" in failed.reason_codes
-    assert "evidence_retrieval_failure_requires_unknown" in failed.reason_codes
+    assert "evidence_retrieval_failed" in failed.reason_codes
     assert complete.is_valid
+
+
+def test_failed_or_partial_evidence_cannot_validate_semantic_unknown() -> None:
+    output = {
+        "claim_event_pub_id": "ase_claim_0001",
+        "verdict": "unknown",
+        "verification_as_of": datetime(2026, 8, 1, tzinfo=UTC).isoformat(),
+        "evidence_snapshot_refs": [],
+        "reason_codes": ["insufficient_evidence"],
+    }
+
+    for status in ("failed", "partial"):
+        result = validate_decision_output(
+            task=task("claim-evidence-verdict"),
+            output=output,
+            evidence_context={
+                "evidence_bundle_status": status,
+                "retrieval_protocol_complete": False,
+                "truth_as_of_policy": "answer_capture_time",
+            },
+        )
+        assert not result.is_valid
+        assert "evidence_retrieval_failed" in result.reason_codes
+
+
+def test_truncated_evidence_is_chunk_incomplete_even_for_unknown_output() -> None:
+    output = {
+        "claim_event_pub_id": "ase_claim_0001",
+        "verdict": "unknown",
+        "verification_as_of": datetime(2026, 8, 1, tzinfo=UTC).isoformat(),
+        "evidence_snapshot_refs": [],
+        "reason_codes": ["insufficient_evidence"],
+    }
+
+    result = validate_decision_output(
+        task=task("claim-evidence-verdict"),
+        output=output,
+        evidence_context={
+            "evidence_bundle_status": "ready",
+            "retrieval_protocol_complete": True,
+            "truth_as_of_policy": "answer_capture_time",
+            "evidence_material_truncated": True,
+        },
+    )
+
+    assert not result.is_valid
+    assert "chunk_incomplete" in result.reason_codes
 
 
 def test_legal_semantic_unknown_is_not_a_structural_failure() -> None:
@@ -204,6 +251,98 @@ def test_legal_semantic_unknown_is_not_a_structural_failure() -> None:
     )
 
     assert result.is_valid
+
+
+def test_known_empty_and_negative_outputs_do_not_invent_evidence_spans() -> None:
+    text = "回答没有列出任何品牌或主张。"
+    cases = (
+        ("answer-entity-resolution", {"resolutions": []}),
+        ("rank-semantics", {"rank_events": []}),
+        ("claim-extraction", {"claims": []}),
+        (
+            "substantive-entity-mention",
+            {
+                "entity_id": ENTITY_ID,
+                "surface": "盛邦安全",
+                "substantive": False,
+                "mention_role": "prompt_echo",
+                "start": None,
+                "end": None,
+                "excerpt_hash": None,
+                "reason_codes": ["not_present_in_answer"],
+            },
+        ),
+        (
+            "recommendation-relation",
+            {
+                "subject_entity_id": ENTITY_ID,
+                "surface": None,
+                "polarity": "neutral",
+                "strength": 0,
+                "scenario": "",
+                "stance_owner": "assistant",
+                "subject_resolution": "query_context_coreference",
+                "start": None,
+                "end": None,
+                "excerpt_hash": None,
+            },
+        ),
+    )
+
+    for task_name, output in cases:
+        result = validate_decision_output(
+            task=task(task_name),
+            output=output,
+            candidate_set=candidate_set(),
+            answer_text=text,
+            expected_answer_text_hash=digest(text),
+        )
+        assert result.is_valid, (task_name, result.reason_codes)
+
+
+def test_positive_fact_still_requires_a_valid_answer_span() -> None:
+    text = "盛邦安全值得推荐。"
+    output = _recommendation_output(text) | {
+        "polarity": "positive",
+        "scenario": "",
+        "start": None,
+        "end": None,
+        "excerpt_hash": None,
+    }
+
+    result = validate_decision_output(
+        task=task("recommendation-relation"),
+        output=output,
+        candidate_set=candidate_set(),
+        answer_text=text,
+        expected_answer_text_hash=digest(text),
+    )
+
+    assert "required_evidence_span_missing" in result.reason_codes
+
+
+def test_high_severity_risk_is_valid_with_single_strong_model_and_evidence() -> None:
+    text = "盛邦安全存在高危漏洞"
+    output = {
+        "risk_type": "security_vulnerability",
+        "severity": "high",
+        "verdict": "confirmed",
+        "subject_entity_id": ENTITY_ID,
+        "object_entity_id": None,
+        "start": 0,
+        "end": len(text),
+        "excerpt_hash": digest(text),
+    }
+
+    result = validate_decision_output(
+        task=task("risk-adjudication"),
+        output=output,
+        candidate_set=candidate_set(),
+        answer_text=text,
+        expected_answer_text_hash=digest(text),
+    )
+
+    assert result.is_valid, result.reason_codes
 
 
 def test_additional_output_field_and_bad_excerpt_hash_fail_closed() -> None:

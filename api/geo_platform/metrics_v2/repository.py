@@ -16,7 +16,7 @@ from hashlib import sha256
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
-from psycopg import Connection, sql
+from psycopg import Connection, errors, sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -32,6 +32,44 @@ _HASH_KEYS = frozenset(
         "contribution_hash",
     }
 )
+
+_RETRYABLE_LLM_FAILURE_CODES = frozenset(
+    {
+        "llm_api_adapter_unavailable",
+        "llm_api_empty_response",
+        "llm_api_invalid_json",
+        "llm_api_invalid_response",
+        "llm_api_network_error",
+        "llm_api_rate_limited",
+        "llm_api_schema_violation",
+        "llm_api_timeout",
+        "llm_api_upstream_unavailable",
+    }
+)
+
+
+def _is_retryable_llm_failure(reason_code: str) -> bool:
+    return reason_code in _RETRYABLE_LLM_FAILURE_CODES
+
+
+def _semantic_manifest_event_type(status: str) -> str:
+    if status == "failed":
+        return "answer.semantic_events.failed.v2"
+    if status == "review_required":
+        return "answer.semantic_events.review_required.v2"
+    return "answer.semantic_events.completed.v2"
+
+
+def _semantic_event_review_status_for_storage(status: object) -> str:
+    """Translate decision review states to the frozen human-review vocabulary."""
+
+    value = str(status or "accepted")
+    if value in {"accepted", "review_required"}:
+        return "unreviewed"
+    if value in {"unreviewed", "approved", "rejected", "overridden"}:
+        return value
+    raise ValueError("metrics_v2_semantic_event_review_status_invalid")
+
 
 _TABLE_PREFIX = {
     "metric_snapshot_set_v2": "mss",
@@ -119,7 +157,7 @@ _INSERT_COLUMNS: dict[str, frozenset[str]] = {
         metric_version metric_definition_hash state state_reason_codes value observed_value
         answer_weighted_value lower_bound upper_bound semantic_lower_bound semantic_upper_bound
         weighted_numerator weighted_denominator raw_numerator raw_denominator
-        candidate_answer_count known_answer_count unknown_answer_count
+        candidate_answer_count known_answer_count unknown_answer_count failed_answer_count
         decision_abstained_count decision_review_required_count not_applicable_answer_count
         excluded_answer_count unique_query_count design_cell_count effective_sample_size
         collection_coverage query_context_coverage semantic_coverage evidence_coverage
@@ -421,6 +459,7 @@ def _metric_projection(row: Mapping[str, Any]) -> dict[str, Any]:
         "candidate_answer_count": int(row.get("candidate_answer_count") or 0),
         "known_answer_count": int(row.get("known_answer_count") or 0),
         "unknown_answer_count": int(row.get("unknown_answer_count") or 0),
+        "failed_answer_count": int(row.get("failed_answer_count") or 0),
         "not_applicable_answer_count": int(row.get("not_applicable_answer_count") or 0),
         "excluded_answer_count": int(row.get("excluded_answer_count") or 0),
         "design_cell_count": int(row.get("design_cell_count") or 0),
@@ -978,9 +1017,10 @@ class MetricsV2Repository:
                     SELECT pub_id,event_type,subject_entity_id,object_entity_id,event_value,
                            answer_text_start,answer_text_end,answer_pub_id
                     FROM analytics.answer_semantic_event_v2
-                    WHERE tenant_pub_id=%s AND pub_id=ANY(%s::text[])
+                    WHERE tenant_pub_id=%s AND project_pub_id=%s
+                      AND pub_id=ANY(%s::text[])
                     """,
-                    (tenant_pub_id, event_ids),
+                    (tenant_pub_id, snapshot["project_pub_id"], event_ids),
                 ).fetchall()
                 if event_ids
                 else []
@@ -989,11 +1029,13 @@ class MetricsV2Repository:
                 connection.execute(
                     """
                     SELECT pub_id,task_name,task_version,method,status,calibrated_confidence,
-                           rubric_hash,evidence_refs,rationale_summary
+                           rubric_hash,evidence_refs,rationale_summary,result,decision_hash,
+                           reason_codes
                     FROM analytics.semantic_decision_record_v2
-                    WHERE tenant_pub_id=%s AND pub_id=ANY(%s::text[])
+                    WHERE tenant_pub_id=%s AND project_pub_id=%s
+                      AND pub_id=ANY(%s::text[])
                     """,
-                    (tenant_pub_id, decision_ids),
+                    (tenant_pub_id, snapshot["project_pub_id"], decision_ids),
                 ).fetchall()
                 if decision_ids
                 else []
@@ -1054,10 +1096,13 @@ class MetricsV2Repository:
                 supporting_decisions.append(
                     {
                         "decision_pub_id": decision["pub_id"],
+                        "decision_hash": decision["decision_hash"],
                         "task": decision["task_name"],
                         "version": decision["task_version"],
                         "method": decision["method"],
                         "status": decision["status"],
+                        "result": _json_object(decision["result"]),
+                        "reason_codes": list(decision.get("reason_codes") or ()),
                         "calibrated_confidence": _float_or_none(
                             decision.get("calibrated_confidence")
                         ),
@@ -1268,6 +1313,7 @@ class MetricsV2Repository:
         context_hash: str,
         judge_policy_hash: str,
         idempotency_key: str,
+        judge_model_ref: str | None = None,
         task_ref: str | None = None,
         task_name: str | None = None,
         task_version: str | None = None,
@@ -1278,6 +1324,7 @@ class MetricsV2Repository:
         supersedes_decision_pub_id: str | None = None,
         workflow_id: str = "",
         run_id: str = "",
+        enqueue_workflow_start: bool = True,
     ) -> dict[str, Any]:
         """Idempotently create a Decision job and its requested outbox row.
 
@@ -1322,8 +1369,7 @@ class MetricsV2Repository:
         if not subject_ref:
             raise ValueError("metrics_v2_decision_subject_ref_required")
         resolved_subject_key = subject_key or _canonical_hash(dict(subject_ref))
-        canonical_idempotency = _canonical_hash(
-            {
+        identity_material: dict[str, Any] = {
                 "tenant_pub_id": tenant_pub_id,
                 "task_definition_hash": resolved_hash,
                 "subject_key": resolved_subject_key,
@@ -1331,8 +1377,14 @@ class MetricsV2Repository:
                 "context_hash": context_hash,
                 "judge_policy_hash": judge_policy_hash,
                 "rejudge_generation": rejudge_generation,
-            }
-        )
+        }
+        # Legacy/collection calls without an explicit model retain the frozen
+        # physical identity.  Operator-selected backfills add the governed
+        # execution model so a prior failed attempt on another model is not
+        # incorrectly reused.
+        if judge_model_ref:
+            identity_material["judge_model_ref"] = judge_model_ref
+        canonical_idempotency = _canonical_hash(identity_material)
         # The caller token is retained in the event for request correlation;
         # storage identity follows the canonical physical contract in section
         # 22.7 and therefore cannot be changed by a retrying caller.
@@ -1429,28 +1481,29 @@ class MetricsV2Repository:
                         "causation_id": supersedes_decision_pub_id,
                     },
                 )
-                self._insert_workflow_start(
-                    connection,
-                    tenant_pub_id=tenant_pub_id,
-                    workflow_type="semantic_decision_v2",
-                    workflow_id=f"decision-v2:{job_pub_id}",
-                    task_queue="geo-platform-v2-decision",
-                    payload={
-                        "tenant_pub_id": tenant_pub_id,
-                        "project_pub_id": project_pub_id,
-                        "job_pub_id": job_pub_id,
-                        "decision_job_pub_id": job_pub_id,
-                        "task_ref": f"{resolved_name}@{resolved_version}",
-                        "subject_ref": dict(subject_ref),
-                        "input_snapshot_ref": input_snapshot_ref,
-                        "input_hash": input_hash,
-                        "context_hash": context_hash,
-                        "judge_policy_hash": judge_policy_hash,
-                        "idempotency_key": canonical_idempotency,
-                        "rejudge_generation": rejudge_generation,
-                        "supersedes_decision_pub_id": supersedes_decision_pub_id,
-                    },
-                )
+                if enqueue_workflow_start:
+                    self._insert_workflow_start(
+                        connection,
+                        tenant_pub_id=tenant_pub_id,
+                        workflow_type="semantic_decision_v2",
+                        workflow_id=f"decision-v2:{job_pub_id}",
+                        task_queue="geo-platform-v2-decision",
+                        payload={
+                            "tenant_pub_id": tenant_pub_id,
+                            "project_pub_id": project_pub_id,
+                            "job_pub_id": job_pub_id,
+                            "decision_job_pub_id": job_pub_id,
+                            "task_ref": f"{resolved_name}@{resolved_version}",
+                            "subject_ref": dict(subject_ref),
+                            "input_snapshot_ref": input_snapshot_ref,
+                            "input_hash": input_hash,
+                            "context_hash": context_hash,
+                            "judge_policy_hash": judge_policy_hash,
+                            "idempotency_key": canonical_idempotency,
+                            "rejudge_generation": rejudge_generation,
+                            "supersedes_decision_pub_id": supersedes_decision_pub_id,
+                        },
+                    )
             decision_row = connection.execute(
                 """
                 SELECT * FROM analytics.semantic_decision_record_v2
@@ -1688,6 +1741,31 @@ class MetricsV2Repository:
                     "causation_id": job.get("supersedes_decision_pub_id"),
                 },
             )
+            recompute_job_pub_id = None
+            superseded_decision_pub_id = job.get("supersedes_decision_pub_id")
+            if decision_status == "accepted" and superseded_decision_pub_id:
+                previous = connection.execute(
+                    """
+                    SELECT status,reason_codes
+                    FROM analytics.semantic_decision_record_v2
+                    WHERE tenant_pub_id=%s AND project_pub_id=%s AND pub_id=%s
+                    """,
+                    (tenant_pub_id, project_pub_id, superseded_decision_pub_id),
+                ).fetchone()
+                previous_reasons = set(map(str, (previous or {}).get("reason_codes") or ()))
+                if (
+                    previous is not None
+                    and previous["status"] == "failed"
+                    and any(_is_retryable_llm_failure(code) for code in previous_reasons)
+                ):
+                    recompute_job_pub_id = self._schedule_recovered_decision_recompute(
+                        connection,
+                        tenant_pub_id=tenant_pub_id,
+                        project_pub_id=project_pub_id,
+                        previous_decision_pub_id=str(superseded_decision_pub_id),
+                        decision_pub_id=decision_pub_id,
+                        decision_hash=decision_hash,
+                    )
             record = connection.execute(
                 """
                 SELECT * FROM analytics.semantic_decision_record_v2
@@ -1704,6 +1782,8 @@ class MetricsV2Repository:
                 "decision": _decision_record_projection(record),
             }
         )
+        if recompute_job_pub_id is not None:
+            result["recompute_job_pub_id"] = recompute_job_pub_id
         return result
 
     # Worker code used both names while the V2 workflow contract was settling.
@@ -1781,6 +1861,707 @@ class MetricsV2Repository:
             ),
         ).fetchone()
         return row is not None
+
+    @staticmethod
+    def _latest_snapshot_scope(
+        connection: Connection[dict[str, Any]],
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        decision_pub_id: str,
+    ) -> dict[str, Any] | None:
+        scopes = MetricsV2Repository._affected_snapshot_scopes(
+            connection,
+            tenant_pub_id=tenant_pub_id,
+            project_pub_id=project_pub_id,
+            decision_pub_id=decision_pub_id,
+        )
+        return (
+            {key: value for key, value in scopes[0].items() if not key.startswith("_")}
+            if scopes
+            else None
+        )
+
+    @staticmethod
+    def _affected_snapshot_scopes(
+        connection: Connection[dict[str, Any]],
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        decision_pub_id: str,
+    ) -> tuple[dict[str, Any], ...]:
+        """Return the latest affected set for every distinct historical scope."""
+
+        rows = connection.execute(
+            """
+            WITH ranked AS (
+              SELECT snapshot_set.window_start,snapshot_set.window_end,
+                     snapshot_set.focal_entity_ids,snapshot_set.filters,
+                     snapshot_set.aggregation_method,snapshot_set.design_basis,
+                     snapshot_set.scope_hash,source_job.scope AS original_scope,
+                     snapshot_set.as_of,
+                     snapshot_set.created_at,snapshot_set.pub_id,
+                     row_number() OVER (
+                       PARTITION BY snapshot_set.scope_hash
+                       ORDER BY snapshot_set.as_of DESC,snapshot_set.created_at DESC,
+                                snapshot_set.pub_id DESC
+                     ) AS scope_rank
+              FROM analytics.metric_snapshot_set_v2 snapshot_set
+              LEFT JOIN LATERAL (
+                SELECT job.scope
+                FROM analytics.metric_recompute_job_v2 job
+                WHERE job.tenant_pub_id=snapshot_set.tenant_pub_id
+                  AND job.project_pub_id=snapshot_set.project_pub_id
+                  AND job.snapshot_set_pub_id=snapshot_set.pub_id
+                  AND job.status='succeeded'
+                ORDER BY job.completed_at DESC,job.pub_id DESC LIMIT 1
+              ) source_job ON true
+              WHERE snapshot_set.tenant_pub_id=%s
+                AND snapshot_set.project_pub_id=%s
+                AND snapshot_set.state IN ('ready','partial')
+                AND EXISTS (
+                  SELECT 1
+                  FROM analytics.metric_snapshot_v2 snapshot
+                  JOIN analytics.metric_contribution_v2 contribution
+                    ON contribution.tenant_pub_id=snapshot.tenant_pub_id
+                   AND contribution.project_pub_id=snapshot.project_pub_id
+                   AND contribution.snapshot_pub_id=snapshot.pub_id
+                  WHERE snapshot.tenant_pub_id=snapshot_set.tenant_pub_id
+                    AND snapshot.project_pub_id=snapshot_set.project_pub_id
+                    AND snapshot.snapshot_set_pub_id=snapshot_set.pub_id
+                    AND %s=ANY(contribution.supporting_decision_pub_ids)
+                )
+            )
+            SELECT * FROM ranked WHERE scope_rank=1
+            ORDER BY as_of DESC,created_at DESC,pub_id DESC
+            """,
+            (tenant_pub_id, project_pub_id, decision_pub_id),
+        ).fetchall()
+
+        def date_boundary(value: object) -> str:
+            if isinstance(value, datetime):
+                return value.date().isoformat()
+            return str(value)
+
+        publication_rows = connection.execute(
+            """
+            SELECT scope_hash,publication_channel,generation
+            FROM analytics.metric_publication_v2
+            WHERE tenant_pub_id=%s AND project_pub_id=%s
+              AND scope_hash=ANY(%s::text[])
+            ORDER BY scope_hash,publication_channel
+            """,
+            (tenant_pub_id, project_pub_id, [str(row["scope_hash"]) for row in rows]),
+        ).fetchall()
+        publications_by_scope: dict[str, list[dict[str, Any]]] = {}
+        for publication in publication_rows:
+            publications_by_scope.setdefault(str(publication["scope_hash"]), []).append(
+                {
+                    "publication_channel": str(publication["publication_channel"]),
+                    "expected_generation": int(publication["generation"]),
+                }
+            )
+        answer: list[dict[str, Any]] = []
+        for row in rows:
+            original_scope = _json_object(row.get("original_scope"))
+            scope = original_scope or {
+                "tenant_pub_id": tenant_pub_id,
+                "project_pub_id": project_pub_id,
+                "window": {
+                    "start": date_boundary(row["window_start"]),
+                    "end": date_boundary(row["window_end"]),
+                },
+                "filters": _json_object(row.get("filters")),
+                "focal_entity_ids": list(map(str, row.get("focal_entity_ids") or ())),
+                "aggregation_method": str(row["aggregation_method"]),
+                "publication_channel": "shadow",
+            }
+            if _canonical_hash(scope) != str(row["scope_hash"]):
+                raise RuntimeError("metrics_v2_historical_scope_reconstruction_mismatch")
+            answer.append(
+                scope
+                | {"_publication_targets": publications_by_scope.get(str(row["scope_hash"]), [])}
+            )
+        return tuple(answer)
+
+    @staticmethod
+    def _affected_semantic_scope(
+        connection: Connection[dict[str, Any]],
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        decision_pub_id: str,
+    ) -> dict[str, Any] | None:
+        """Derive a runnable scope when no prior snapshot contribution exists."""
+
+        answer_rows = connection.execute(
+            """
+            WITH impacted_contexts AS (
+              SELECT context.pub_id
+              FROM analytics.query_context_fact_v2 context
+              WHERE context.tenant_pub_id=%s AND context.project_pub_id=%s
+                AND %s=ANY(context.decision_record_pub_ids)
+            ), impacted_manifests AS (
+              SELECT DISTINCT manifest.answer_pub_id,manifest.query_context_fact_pub_id
+              FROM analytics.answer_semantic_manifest_v2 manifest
+              WHERE manifest.tenant_pub_id=%s AND manifest.project_pub_id=%s
+                AND (
+                  %s=ANY(manifest.decision_record_pub_ids)
+                  OR manifest.query_context_fact_pub_id IN (
+                    SELECT pub_id FROM impacted_contexts
+                  )
+                )
+            )
+            SELECT min(answer.capture_time)::date AS window_start,
+                   max(answer.capture_time)::date AS window_end,
+                   array_agg(DISTINCT impacted.query_context_fact_pub_id)
+                     AS context_pub_ids
+            FROM impacted_manifests impacted
+            JOIN analytics.answer answer
+              ON answer.tenant_pub_id=%s
+             AND answer.project_pub_id=%s
+             AND answer.pub_id=impacted.answer_pub_id
+            """,
+            (
+                tenant_pub_id,
+                project_pub_id,
+                decision_pub_id,
+                tenant_pub_id,
+                project_pub_id,
+                decision_pub_id,
+                tenant_pub_id,
+                project_pub_id,
+            ),
+        ).fetchone()
+        if answer_rows is None or answer_rows.get("window_start") is None:
+            return None
+        context_pub_ids = list(map(str, answer_rows.get("context_pub_ids") or ()))
+        focal_rows = connection.execute(
+            """
+            SELECT DISTINCT focal_entity_id
+            FROM analytics.query_entity_exposure_fact_v2
+            WHERE tenant_pub_id=%s AND project_pub_id=%s
+              AND query_context_fact_pub_id=ANY(%s::text[])
+            ORDER BY focal_entity_id
+            """,
+            (tenant_pub_id, project_pub_id, context_pub_ids),
+        ).fetchall()
+        focal_entity_ids = [str(row["focal_entity_id"]) for row in focal_rows]
+        if not focal_entity_ids:
+            return None
+        return {
+            "tenant_pub_id": tenant_pub_id,
+            "project_pub_id": project_pub_id,
+            "window": {
+                "start": answer_rows["window_start"].isoformat(),
+                "end": answer_rows["window_end"].isoformat(),
+            },
+            "filters": {},
+            "focal_entity_ids": focal_entity_ids,
+            "aggregation_method": "query_macro",
+            "publication_channel": "shadow",
+        }
+
+    @classmethod
+    def _refresh_query_contexts_for_successor(
+        cls,
+        connection: Connection[dict[str, Any]],
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        previous_decision_pub_id: str,
+        decision_pub_id: str,
+        override_reason: str,
+    ) -> dict[str, str]:
+        """Derive immutable query-context successors for a corrected query decision."""
+
+        contexts = connection.execute(
+            """
+            SELECT context.*
+            FROM analytics.query_context_fact_v2 context
+            WHERE context.tenant_pub_id=%s AND context.project_pub_id=%s
+              AND %s=ANY(context.decision_record_pub_ids)
+              AND NOT EXISTS (
+                SELECT 1 FROM analytics.query_context_fact_v2 successor
+                WHERE successor.tenant_pub_id=context.tenant_pub_id
+                  AND successor.project_pub_id=context.project_pub_id
+                  AND successor.supersedes_pub_id=context.pub_id
+              )
+            ORDER BY context.created_at,context.pub_id
+            """,
+            (tenant_pub_id, project_pub_id, previous_decision_pub_id),
+        ).fetchall()
+        if not contexts:
+            return {}
+
+        from domain.analysis.v2.decision_models import DecisionStatus, SemanticDecisionRecord
+        from domain.metrics.v2.query_context import (
+            AnalysisLens,
+            BrandStructureType,
+            ExposureRole,
+            RequestedOperation,
+            derive_brand_structure,
+            derive_exposure_role,
+        )
+
+        successors: dict[str, str] = {}
+        now = datetime.now(UTC)
+        for context in contexts:
+            decision_ids = tuple(
+                decision_pub_id if str(item) == previous_decision_pub_id else str(item)
+                for item in (context.get("decision_record_pub_ids") or ())
+            )
+            rows = connection.execute(
+                """
+                SELECT * FROM analytics.semantic_decision_record_v2
+                WHERE tenant_pub_id=%s AND project_pub_id=%s
+                  AND pub_id=ANY(%s::text[])
+                ORDER BY created_at,pub_id
+                """,
+                (tenant_pub_id, project_pub_id, list(decision_ids)),
+            ).fetchall()
+            if len(rows) != len(set(decision_ids)):
+                raise RuntimeError("metrics_v2_query_successor_decision_missing")
+            records = tuple(
+                SemanticDecisionRecord.model_validate(_decision_record_projection(row))
+                for row in rows
+            )
+            accepted = {
+                record.task_name: record
+                for record in records
+                if record.status is DecisionStatus.ACCEPTED
+            }
+            intent = accepted.get("query-intent")
+            entities = accepted.get("query-brand-entity-resolution")
+            query_records = tuple(
+                record
+                for record in records
+                if record.task_name in {"query-intent", "query-brand-entity-resolution"}
+            )
+            if any(record.status is DecisionStatus.FAILED for record in query_records):
+                classification_state = "failed"
+                lenses: set[str] = set()
+                operations: set[str] = set()
+                subtypes: set[str] = set()
+                detected: set[str] = set()
+                unresolved = True
+            elif intent is None or entities is None:
+                classification_state = "review_required"
+                lenses = set()
+                operations = set()
+                subtypes = set()
+                detected = set()
+                unresolved = True
+            else:
+                classification_state = "ready"
+                raw_lenses = set(map(str, intent.result.get("analysis_lenses", ())))
+                lenses = set()
+                if "selection" in raw_lenses:
+                    lenses.add(AnalysisLens.AI_RECOMMENDATION.value)
+                if raw_lenses & {"reputation", "comparison", "factual"}:
+                    lenses.add(AnalysisLens.AI_IMPRESSION.value)
+                if "comparison" in raw_lenses:
+                    lenses.add(AnalysisLens.AI_RECOMMENDATION.value)
+                operation_map = {
+                    "recommend": RequestedOperation.RECOMMEND.value,
+                    "rank": RequestedOperation.RANK.value,
+                    "compare": RequestedOperation.COMPARE.value,
+                    "describe": RequestedOperation.DESCRIBE.value,
+                    "verify": RequestedOperation.FACT_LOOKUP.value,
+                }
+                operations = {
+                    operation_map[item]
+                    for item in map(str, intent.result.get("requested_operations", ()))
+                    if item in operation_map
+                }
+                subtypes = set(map(str, intent.result.get("query_subtypes", ())))
+                resolutions = entities.result.get("resolutions", ())
+                detected = {
+                    str(item["entity_id"])
+                    for item in resolutions
+                    if isinstance(item, dict)
+                    and item.get("resolution_state") == "resolved"
+                    and item.get("entity_id")
+                }
+                unresolved = any(
+                    isinstance(item, dict) and item.get("resolution_state") != "resolved"
+                    for item in resolutions
+                )
+                if not lenses or not operations:
+                    classification_state = "review_required"
+            structure = (
+                BrandStructureType.UNKNOWN
+                if unresolved
+                else derive_brand_structure(tuple(sorted(detected)))
+            )
+            old_primary = context.get("primary_lens")
+            primary_lens = (
+                str(old_primary)
+                if old_primary is not None and str(old_primary) in lenses
+                else (sorted(lenses)[0] if lenses else None)
+            )
+            material = {
+                "tenant_pub_id": tenant_pub_id,
+                "project_pub_id": project_pub_id,
+                "query_key": str(context["query_key"]),
+                "query_pub_id": context.get("query_pub_id"),
+                "query_text_hash": str(context["query_text_hash"]),
+                "primary_lens": primary_lens,
+                "analysis_lenses": sorted(lenses),
+                "requested_operations": sorted(operations),
+                "query_subtypes": sorted(subtypes),
+                "detected_entity_ids": sorted(detected),
+                "brand_structure_type": structure.value,
+                "classification_state": classification_state,
+                "classifier_version": str(context["classifier_version"]),
+                "decision_task_bundle_hash": str(context["decision_task_bundle_hash"]),
+                "entity_dictionary_hash": str(context["entity_dictionary_hash"]),
+                "classification_source": "manual_override",
+                "derivation_method": "human",
+                "decision_record_pub_ids": sorted(decision_ids),
+                "review_status": "overridden",
+                "override_reason": override_reason,
+                "supersedes_pub_id": str(context["pub_id"]),
+            }
+            fact_hash = _canonical_hash(material)
+            fact_pub_id = f"qcf_{fact_hash[:26]}"
+            cls._insert_mapping(
+                connection,
+                "query_context_fact_v2",
+                {"pub_id": fact_pub_id, **material, "fact_hash": fact_hash, "created_at": now},
+            )
+            focal_rows = connection.execute(
+                """
+                SELECT focal_entity_id
+                FROM analytics.query_entity_exposure_fact_v2
+                WHERE tenant_pub_id=%s AND project_pub_id=%s
+                  AND query_context_fact_pub_id=%s
+                ORDER BY focal_entity_id
+                """,
+                (tenant_pub_id, project_pub_id, context["pub_id"]),
+            ).fetchall()
+            for focal_row in focal_rows:
+                focal_entity_id = str(focal_row["focal_entity_id"])
+                role = (
+                    ExposureRole.UNKNOWN
+                    if classification_state != "ready"
+                    else derive_exposure_role(
+                        tuple(sorted(detected)),
+                        focal_entity_id,
+                        has_unresolved_brand_surface=unresolved,
+                    )
+                )
+                exposure_material = {
+                    "query_context_fact_pub_id": fact_pub_id,
+                    "query_key": material["query_key"],
+                    "focal_entity_id": focal_entity_id,
+                    "exposure_role": role.value,
+                    "matched_entity_ids": sorted(detected),
+                }
+                exposure_hash = _canonical_hash(exposure_material)
+                cls._insert_mapping(
+                    connection,
+                    "query_entity_exposure_fact_v2",
+                    {
+                        "pub_id": f"qef_{exposure_hash[:26]}",
+                        "tenant_pub_id": tenant_pub_id,
+                        "project_pub_id": project_pub_id,
+                        **exposure_material,
+                        "fact_hash": exposure_hash,
+                        "created_at": now,
+                    },
+                )
+            cls._insert_outbox(
+                connection,
+                tenant_pub_id=tenant_pub_id,
+                event_type="query.context.classified.v2",
+                aggregate_pub_id=fact_pub_id,
+                project_pub_id=project_pub_id,
+                subject_hash=fact_hash,
+                payload={
+                    "query_key": material["query_key"],
+                    "correlation_id": fact_pub_id,
+                    "causation_id": context["pub_id"],
+                },
+            )
+            successors[str(context["pub_id"])] = fact_pub_id
+        return successors
+
+    def _schedule_recovered_decision_recompute(
+        self,
+        connection: Connection[dict[str, Any]],
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        previous_decision_pub_id: str,
+        decision_pub_id: str,
+        decision_hash: str,
+    ) -> str | None:
+        scope = self._latest_snapshot_scope(
+            connection,
+            tenant_pub_id=tenant_pub_id,
+            project_pub_id=project_pub_id,
+            decision_pub_id=previous_decision_pub_id,
+        )
+        if scope is None:
+            return None
+        scope_hash = _canonical_hash(scope)
+        idempotency_key = _canonical_hash(
+            {
+                "reason": "semantic_decision_recovered",
+                "decision_pub_id": decision_pub_id,
+                "decision_hash": decision_hash,
+            }
+        )
+        recompute_job_pub_id = f"mrj_{idempotency_key[:26]}"
+        inserted = connection.execute(
+            """
+            INSERT INTO analytics.metric_recompute_job_v2
+              (pub_id,tenant_pub_id,project_pub_id,scope,scope_hash,
+               target_definition_refs,status,idempotency_key,requested_by)
+            VALUES (%s,%s,%s,%s,%s,'[]'::jsonb,'pending',%s,%s)
+            ON CONFLICT (idempotency_key) DO NOTHING
+            RETURNING pub_id
+            """,
+            (
+                recompute_job_pub_id,
+                tenant_pub_id,
+                project_pub_id,
+                Jsonb(scope),
+                scope_hash,
+                idempotency_key,
+                "system_semantic_auto_rejudge",
+            ),
+        ).fetchone()
+        if inserted is None:
+            existing = connection.execute(
+                """
+                SELECT pub_id FROM analytics.metric_recompute_job_v2
+                WHERE tenant_pub_id=%s AND idempotency_key=%s
+                """,
+                (tenant_pub_id, idempotency_key),
+            ).fetchone()
+            return str(existing["pub_id"]) if existing is not None else None
+        self._insert_outbox(
+            connection,
+            tenant_pub_id=tenant_pub_id,
+            event_type="metric.snapshot_set.requested.v2",
+            aggregate_pub_id=recompute_job_pub_id,
+            project_pub_id=project_pub_id,
+            subject_hash=scope_hash,
+            payload={
+                "correlation_id": recompute_job_pub_id,
+                "causation_id": decision_pub_id,
+            },
+        )
+        self._insert_workflow_start(
+            connection,
+            tenant_pub_id=tenant_pub_id,
+            workflow_type="metric_snapshot_set_v2",
+            workflow_id=f"metrics-v2:{recompute_job_pub_id}",
+            task_queue="geo-platform-v2-metrics",
+            payload={
+                "tenant_pub_id": tenant_pub_id,
+                "project_pub_id": project_pub_id,
+                "job_pub_id": recompute_job_pub_id,
+                "scope": scope,
+                "as_of": datetime.now(UTC).isoformat(),
+            },
+        )
+        return recompute_job_pub_id
+
+    @classmethod
+    def _refresh_answer_manifests_for_successor(
+        cls,
+        connection: Connection[dict[str, Any]],
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        previous_decision_pub_id: str,
+        decision_pub_id: str,
+        query_context_successors: Mapping[str, str] | None = None,
+    ) -> tuple[str, ...]:
+        """Materialize new manifests/events that consume an immutable successor."""
+
+        context_successors = dict(query_context_successors or {})
+        manifests = connection.execute(
+            """
+            SELECT manifest.*
+            FROM analytics.answer_semantic_manifest_v2 manifest
+            WHERE manifest.tenant_pub_id=%s AND manifest.project_pub_id=%s
+              AND (
+                %s=ANY(manifest.decision_record_pub_ids)
+                OR manifest.query_context_fact_pub_id=ANY(%s::text[])
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM analytics.answer_semantic_manifest_v2 successor
+                WHERE successor.tenant_pub_id=manifest.tenant_pub_id
+                  AND successor.project_pub_id=manifest.project_pub_id
+                  AND successor.supersedes_pub_id=manifest.pub_id
+              )
+            ORDER BY manifest.created_at,manifest.pub_id
+            """,
+            (
+                tenant_pub_id,
+                project_pub_id,
+                previous_decision_pub_id,
+                list(context_successors),
+            ),
+        ).fetchall()
+        if not manifests:
+            return ()
+
+        from domain.analysis.v2.decision_models import SemanticDecisionRecord
+        from domain.analysis.v2.event_derivation import (
+            EventDerivationContext,
+            capability_analyses_from_decisions,
+            derive_answer_semantic_events,
+        )
+
+        created_ids: list[str] = []
+        now = datetime.now(UTC)
+        for manifest in manifests:
+            decision_ids = tuple(
+                decision_pub_id if str(item) == previous_decision_pub_id else str(item)
+                for item in (manifest.get("decision_record_pub_ids") or ())
+            )
+            rows = connection.execute(
+                """
+                SELECT * FROM analytics.semantic_decision_record_v2
+                WHERE tenant_pub_id=%s AND project_pub_id=%s
+                  AND pub_id=ANY(%s::text[])
+                ORDER BY created_at,pub_id
+                """,
+                (tenant_pub_id, project_pub_id, list(decision_ids)),
+            ).fetchall()
+            if len(rows) != len(set(decision_ids)):
+                raise RuntimeError("metrics_v2_manifest_successor_decision_missing")
+            records = tuple(
+                SemanticDecisionRecord.model_validate(_decision_record_projection(row))
+                for row in rows
+            )
+            decision_set_hash = _canonical_hash(
+                sorted((record.decision_pub_id, record.decision_hash) for record in records)
+            )
+            query_context_fact_pub_id = context_successors.get(
+                str(manifest["query_context_fact_pub_id"]),
+                str(manifest["query_context_fact_pub_id"]),
+            )
+            manifest_pub_id = (
+                "asm_"
+                + _canonical_hash(
+                    {
+                        "previous": manifest["pub_id"],
+                        "decision_set_hash": decision_set_hash,
+                        "query_context_fact_pub_id": query_context_fact_pub_id,
+                    }
+                )[:26]
+            )
+            policy_rows = connection.execute(
+                """
+                SELECT policy_hash,name,version FROM analytics.semantic_judge_policy_v2
+                WHERE policy_hash=ANY(%s::text[])
+                """,
+                (sorted({record.judge_policy_hash for record in records}),),
+            ).fetchall()
+            policy_versions = {
+                str(row["policy_hash"]): f"{row['name']}@{row['version']}" for row in policy_rows
+            }
+            old_event = connection.execute(
+                """
+                SELECT extractor_version,scorer_version
+                FROM analytics.answer_semantic_event_v2
+                WHERE tenant_pub_id=%s AND semantic_manifest_pub_id=%s
+                ORDER BY event_index,pub_id LIMIT 1
+                """,
+                (tenant_pub_id, manifest["pub_id"]),
+            ).fetchone()
+            context = EventDerivationContext(
+                tenant_pub_id=tenant_pub_id,
+                project_pub_id=project_pub_id,
+                answer_pub_id=str(manifest["answer_pub_id"]),
+                semantic_manifest_pub_id=manifest_pub_id,
+                extractor_version=str(
+                    (old_event or {}).get("extractor_version") or "semantic-event-deriver-v2.0.0"
+                ),
+                scorer_version=str(
+                    (old_event or {}).get("scorer_version") or "semantic-decision-v2"
+                ),
+                policy_versions_by_hash=policy_versions,
+                created_at=now,
+            )
+            derived_events = derive_answer_semantic_events(records, context=context)
+            event_documents: list[dict[str, Any]] = []
+            for event in derived_events:
+                document = event.model_dump(mode="python")
+                document["pub_id"] = (
+                    "ase_"
+                    + _canonical_hash(
+                        {
+                            "manifest": manifest_pub_id,
+                            "event": event.event_fingerprint,
+                        }
+                    )[:26]
+                )
+                document["semantic_manifest_pub_id"] = manifest_pub_id
+                event_documents.append(document)
+            capabilities = capability_analyses_from_decisions(records)
+            capability_document = _json_object(manifest.get("capability_statuses"))
+            capability_document.update(
+                {name: analysis.model_dump(mode="json") for name, analysis in capabilities.items()}
+            )
+            capability_states = {
+                str(value.get("status"))
+                for value in capability_document.values()
+                if isinstance(value, Mapping)
+            }
+            if capability_states == {"failed"}:
+                status = "failed"
+            elif capability_states & {"failed", "abstained"}:
+                status = "partial"
+            elif "review_required" in capability_states:
+                status = "review_required"
+            else:
+                status = "ready"
+            manifest_values = {
+                key: manifest[key]
+                for key in _INSERT_COLUMNS["answer_semantic_manifest_v2"]
+                if key in manifest
+            }
+            manifest_values.update(
+                {
+                    "pub_id": manifest_pub_id,
+                    "status": status,
+                    "capability_statuses": capability_document,
+                    "decision_record_pub_ids": sorted(decision_ids),
+                    "decision_set_hash": decision_set_hash,
+                    "query_context_fact_pub_id": query_context_fact_pub_id,
+                    "failure_code": None,
+                    "failure_detail": None,
+                    "event_set_hash": (
+                        None
+                        if status == "failed"
+                        else _canonical_hash(
+                            sorted(
+                                (event["pub_id"], event["event_fingerprint"])
+                                for event in event_documents
+                            )
+                        )
+                    ),
+                    "supersedes_pub_id": manifest["pub_id"],
+                    "created_at": now,
+                    "completed_at": now if status != "failed" else None,
+                }
+            )
+            cls._insert_semantic_manifest_rows(
+                connection,
+                tenant_pub_id=tenant_pub_id,
+                project_pub_id=project_pub_id,
+                manifest=manifest_values,
+                events=event_documents,
+            )
+            created_ids.append(manifest_pub_id)
+        return tuple(created_ids)
 
     def request_snapshot(
         self,
@@ -2165,7 +2946,6 @@ class MetricsV2Repository:
                 """
                 SELECT * FROM analytics.metric_snapshot_set_v2
                 WHERE tenant_pub_id=%s AND pub_id=%s
-                FOR SHARE
                 """,
                 (tenant_pub_id, set_pub_id),
             ).fetchone()
@@ -2227,14 +3007,16 @@ class MetricsV2Repository:
                         OR decision.rubric_ref IS DISTINCT FROM task.rubric_ref
                         OR decision.rubric_hash IS DISTINCT FROM task.rubric_hash
                         OR policy.status<>'published' OR policy.policy_hash IS NULL
-                        OR policy.calibration_artifact_hash IS NULL
                         OR NOT (
                           policy.compatible_task_refs ?
                           (decision.task_name || '@' || decision.task_version)
                         )
-                        OR NOT (
-                          policy.calibration_artifact_hash =
-                          ANY(snapshot.calibration_artifact_hashes)
+                        OR (
+                          policy.calibration_artifact_hash IS NOT NULL
+                          AND NOT (
+                            policy.calibration_artifact_hash =
+                            ANY(snapshot.calibration_artifact_hashes)
+                          )
                         )
                       )
                     """,
@@ -2502,6 +3284,9 @@ class MetricsV2Repository:
             event_values = dict(event)
             event_values.setdefault("pub_id", new_pub_id("ase"))
             event_values.setdefault("event_index", index)
+            event_values["review_status"] = _semantic_event_review_status_for_storage(
+                event_values.get("review_status")
+            )
             for field, expected in (
                 ("tenant_pub_id", tenant_pub_id),
                 ("project_pub_id", project_pub_id),
@@ -2616,6 +3401,7 @@ class MetricsV2Repository:
             {
                 "tenant_pub_id": tenant_pub_id,
                 "answer_pub_id": manifest_values.get("answer_pub_id"),
+                "query_context_fact_pub_id": manifest_values.get("query_context_fact_pub_id"),
                 "input_hash": manifest_values.get("input_hash"),
                 "extractor_bundle_hash": manifest_values.get("extractor_bundle_hash"),
                 "decision_task_bundle_hash": manifest_values.get("decision_task_bundle_hash"),
@@ -2634,7 +3420,8 @@ class MetricsV2Repository:
                 WHERE tenant_pub_id=%s AND
                   (pub_id=%s OR
                    (answer_pub_id=%s AND input_hash=%s AND extractor_bundle_hash=%s
-                    AND decision_task_bundle_hash=%s AND entity_dictionary_hash=%s))
+                    AND decision_task_bundle_hash=%s AND entity_dictionary_hash=%s
+                    AND decision_set_hash=%s))
                 ORDER BY (pub_id=%s) DESC LIMIT 1
                 """,
                 (
@@ -2645,6 +3432,7 @@ class MetricsV2Repository:
                     manifest_values.get("extractor_bundle_hash"),
                     manifest_values.get("decision_task_bundle_hash"),
                     manifest_values.get("entity_dictionary_hash"),
+                    manifest_values.get("decision_set_hash"),
                     manifest_values["pub_id"],
                 ),
             ).fetchone()
@@ -2673,11 +3461,7 @@ class MetricsV2Repository:
                 events=events,
             )
             status = str(manifest_values.get("status"))
-            event_type = (
-                "answer.semantic_events.review_required.v2"
-                if status in {"review_required", "failed"}
-                else "answer.semantic_events.completed.v2"
-            )
+            event_type = _semantic_manifest_event_type(status)
             subject_hash = str(
                 result.get("event_set_hash") or manifest_values.get("decision_set_hash")
             )
@@ -2870,6 +3654,9 @@ class MetricsV2Repository:
         models = sorted(set(map(str, filters.get("model") or ())))
         regions = sorted(set(map(str, filters.get("region") or ())))
         modes = sorted(set(map(str, filters.get("mode") or ())))
+        answer_pub_ids = sorted(set(map(str, scope.get("answer_pub_ids") or ())))
+        if len(answer_pub_ids) > 100:
+            raise ValueError("metrics_v2_snapshot_answer_selection_too_large")
         focal_entity_ids = sorted(set(map(str, scope.get("focal_entity_ids") or ())))
         if not focal_entity_ids:
             raise ValueError("metrics_v2_focal_entity_ids_required")
@@ -2890,6 +3677,7 @@ class MetricsV2Repository:
           AND (cardinality(%s::text[])=0 OR answer.model=ANY(%s::text[]))
           AND (cardinality(%s::text[])=0 OR answer.region=ANY(%s::text[]))
           AND (cardinality(%s::text[])=0 OR answer.mode=ANY(%s::text[]))
+          AND (cardinality(%s::text[])=0 OR answer.pub_id=ANY(%s::text[]))
         """
         expanded_parameters = (
             *base_parameters[:5],
@@ -2899,6 +3687,8 @@ class MetricsV2Repository:
             regions,
             modes,
             modes,
+            answer_pub_ids,
+            answer_pub_ids,
         )
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             # tenant_connection sets the RLS GUC in its initial transaction;
@@ -2982,7 +3772,14 @@ class MetricsV2Repository:
             context_ids = sorted({str(row["context_pub_id"]) for row in rows})
             manifest_ids = sorted({str(row["manifest_pub_id"]) for row in rows})
             decision_ids = sorted(
-                {str(item) for row in rows for item in (row.get("decision_record_pub_ids") or ())}
+                {
+                    str(item)
+                    for row in rows
+                    for item in (
+                        *(row.get("context_decision_pub_ids") or ()),
+                        *(row.get("decision_record_pub_ids") or ()),
+                    )
+                }
             )
             exposure_rows = (
                 connection.execute(
@@ -3023,13 +3820,50 @@ class MetricsV2Repository:
             decision_rows = (
                 connection.execute(
                     """
-                    SELECT pub_id,task_name,task_version,status,result,method,
-                           calibrated_confidence,evidence_refs,decision_hash
-                    FROM analytics.semantic_decision_record_v2
-                    WHERE tenant_pub_id=%s AND pub_id=ANY(%s::text[])
-                    ORDER BY created_at,pub_id
+                    WITH RECURSIVE lineage AS (
+                      SELECT decision.pub_id AS root_pub_id,decision.pub_id,
+                             decision.task_name,decision.task_version,decision.status,
+                             decision.result,decision.method,
+                             decision.calibrated_confidence,decision.evidence_refs,
+                             decision.decision_hash,decision.reason_codes,
+                             decision.created_at
+                      FROM analytics.semantic_decision_record_v2 decision
+                      WHERE decision.tenant_pub_id=%s AND decision.project_pub_id=%s
+                        AND decision.pub_id=ANY(%s::text[])
+                      UNION ALL
+                      SELECT lineage.root_pub_id,successor.pub_id,
+                             successor.task_name,successor.task_version,successor.status,
+                             successor.result,successor.method,
+                             successor.calibrated_confidence,successor.evidence_refs,
+                             successor.decision_hash,successor.reason_codes,
+                             successor.created_at
+                      FROM lineage
+                      JOIN analytics.semantic_decision_record_v2 successor
+                        ON successor.tenant_pub_id=%s
+                       AND successor.project_pub_id=%s
+                       AND successor.supersedes_pub_id=lineage.pub_id
+                       AND successor.created_at <= %s
+                    ), ranked AS (
+                      SELECT lineage.*,
+                             row_number() OVER (
+                               PARTITION BY root_pub_id
+                               ORDER BY created_at DESC,pub_id DESC
+                             ) AS leaf_rank
+                      FROM lineage
+                    )
+                    SELECT root_pub_id,pub_id,task_name,task_version,status,result,method,
+                           calibrated_confidence,evidence_refs,decision_hash,reason_codes
+                    FROM ranked WHERE leaf_rank=1
+                    ORDER BY root_pub_id
                     """,
-                    (tenant_pub_id, decision_ids),
+                    (
+                        tenant_pub_id,
+                        project_pub_id,
+                        decision_ids,
+                        tenant_pub_id,
+                        project_pub_id,
+                        as_of_at,
+                    ),
                 ).fetchall()
                 if decision_ids
                 else []
@@ -3046,7 +3880,7 @@ class MetricsV2Repository:
             events_by_manifest.setdefault(str(row["semantic_manifest_pub_id"]), []).append(
                 _wire_value(dict(row))
             )
-        decisions_by_id = {str(row["pub_id"]): row for row in decision_rows}
+        decisions_by_id = {str(row["root_pub_id"]): row for row in decision_rows}
         subjects: list[dict[str, Any]] = []
         coordinates: dict[str, dict[str, str]] = {}
         planned_counts: dict[str, int] = {}
@@ -3077,7 +3911,15 @@ class MetricsV2Repository:
                 for name, value in raw_capabilities.items()
             }
             decisions: dict[str, dict[str, Any]] = {}
-            for decision_id in row.get("decision_record_pub_ids") or ():
+            bound_decision_ids = tuple(
+                dict.fromkeys(
+                    (
+                        *(row.get("context_decision_pub_ids") or ()),
+                        *(row.get("decision_record_pub_ids") or ()),
+                    )
+                )
+            )
+            for decision_id in bound_decision_ids:
                 decision = decisions_by_id.get(str(decision_id))
                 if decision is None:
                     continue
@@ -3087,6 +3929,7 @@ class MetricsV2Repository:
                     "value": _wire_value(decision["result"]),
                     "decision_pub_id": decision["pub_id"],
                     "method": decision["method"],
+                    "reason_codes": list(decision.get("reason_codes") or ()),
                     "calibrated": decision.get("calibrated_confidence") is not None
                     or decision["method"] == "human",
                     "policy_matches": True,
@@ -3222,11 +4065,17 @@ class MetricsV2Repository:
         limit: int,
         as_of: str | None,
         dry_run: bool = False,
+        answer_pub_ids: Sequence[str] = (),
     ) -> dict[str, Any]:
         """Load a stable reference-only answer page for semantic replay."""
 
         if not 1 <= limit <= 1000:
             raise ValueError("metrics_v2_backfill_limit_invalid")
+        selected_answer_ids = sorted(set(map(str, answer_pub_ids)))
+        if len(selected_answer_ids) > 100:
+            raise ValueError("metrics_v2_backfill_selection_too_large")
+        if selected_answer_ids and cursor is not None:
+            raise ValueError("metrics_v2_backfill_selection_cursor_conflict")
         decoded = _cursor_decode(cursor)
         if decoded is not None and decoded.get("kind") != "decision-backfill":
             raise ValueError("metrics_v2_cursor_scope_mismatch")
@@ -3249,15 +4098,26 @@ class MetricsV2Repository:
                 WHERE answer.tenant_pub_id=%s
                   AND (%s::text IS NULL OR answer.project_pub_id=%s)
                   AND answer.capture_time <= %s::timestamptz
+                  AND (cardinality(%s::text[])=0 OR answer.pub_id=ANY(%s::text[]))
                 """,
-                (tenant_pub_id, project_pub_id, project_pub_id, bound),
+                (
+                    tenant_pub_id,
+                    project_pub_id,
+                    project_pub_id,
+                    bound,
+                    selected_answer_ids,
+                    selected_answer_ids,
+                ),
             ).fetchone()
             assert total_row is not None
             rows = connection.execute(
                 """
                 SELECT answer.pub_id AS answer_pub_id,answer.project_pub_id,
                        answer.query_pub_id,
-                       answer.capture_time,answer.query_text,
+                       answer.capture_time,answer.query_text,answer.model,
+                       answer.region,answer.mode,answer.channel,
+                       char_length(COALESCE(answer.query_text,''))
+                         + char_length(COALESCE(answer.response_text,'')) AS source_char_count,
                        COALESCE(answer.response_hash,
                          encode(public.digest(answer.response_text,'sha256'),'hex'))
                          AS input_hash,
@@ -3291,6 +4151,7 @@ class MetricsV2Repository:
                 WHERE answer.tenant_pub_id=%s
                   AND (%s::text IS NULL OR answer.project_pub_id=%s)
                   AND answer.capture_time <= %s::timestamptz
+                  AND (cardinality(%s::text[])=0 OR answer.pub_id=ANY(%s::text[]))
                   AND (%s::timestamptz IS NULL OR
                        (answer.capture_time,answer.pub_id) >
                        (%s::timestamptz,%s::text))
@@ -3304,6 +4165,8 @@ class MetricsV2Repository:
                     project_pub_id,
                     project_pub_id,
                     bound,
+                    selected_answer_ids,
+                    selected_answer_ids,
                     after_capture,
                     after_capture,
                     after_pub_id,
@@ -3425,6 +4288,15 @@ class MetricsV2Repository:
                 "preparation_state": "unknown" if reason_codes else "ready",
                 "reason_codes": sorted(reason_codes),
             }
+            if dry_run:
+                item["display"] = {
+                    "query_text": query_text[:500],
+                    "model": str(row.get("model") or "unknown"),
+                    "region": str(row.get("region") or "unknown"),
+                    "mode": str(row.get("mode") or "unknown"),
+                    "channel": str(row.get("channel") or "unknown"),
+                    "source_char_count": max(0, int(row.get("source_char_count") or 0)),
+                }
             if not reason_codes:
                 try:
                     workflow_payload = build_answer_semantic_workflow_request(
@@ -3457,7 +4329,7 @@ class MetricsV2Repository:
             prepared_items.append(item)
         ready_items = [item for item in prepared_items if item["preparation_state"] == "ready"]
         unknown_items = [item for item in prepared_items if item["preparation_state"] == "unknown"]
-        has_more = len(rows) > limit
+        has_more = not selected_answer_ids and len(rows) > limit
         next_cursor = None
         if has_more and page:
             last = page[-1]
@@ -3493,6 +4365,7 @@ class MetricsV2Repository:
         limit: int,
         as_of: str | None,
         dry_run: bool = False,
+        answer_pub_ids: Sequence[str] = (),
     ) -> dict[str, Any]:
         """Load one stable metrics replay page using frozen semantic facts."""
 
@@ -3503,6 +4376,7 @@ class MetricsV2Repository:
             limit=limit,
             as_of=as_of,
             dry_run=dry_run,
+            answer_pub_ids=answer_pub_ids,
         )
         if dry_run:
             return {
@@ -3513,9 +4387,13 @@ class MetricsV2Repository:
         if project_pub_id is None:
             raise ValueError("metrics_v2_backfill_project_required")
         answer_ids = [str(item["answer_pub_id"]) for item in page["items"]]
+        # Decision backfill items contain the full reference-only semantic
+        # workflow payload. Metrics replay only needs their answer IDs; never
+        # return those large payloads through Temporal activity history.
+        page_metadata = {key: value for key, value in page.items() if key != "items"}
         if not answer_ids:
             return {
-                **page,
+                **page_metadata,
                 "subjects": [],
                 "unknown_count": int(page["preparation_unknown_count"]),
             }
@@ -3555,7 +4433,7 @@ class MetricsV2Repository:
         focal_ids = [str(row["focal_entity_id"]) for row in focal_rows]
         if not focal_ids or coordinate["first_capture"] is None:
             return {
-                **page,
+                **page_metadata,
                 "subjects": [],
                 "unknown_count": int(page["preparation_unknown_count"]) + len(answer_ids),
                 "skipped_reason": "missing_query_exposure",
@@ -3582,7 +4460,7 @@ class MetricsV2Repository:
             if str(subject["answer_pub_id"]) in set(answer_ids)
         ]
         return {
-            **page,
+            **page_metadata,
             "subjects": selected,
             "definition_documents": frozen["definition_documents"],
             "definition_refs": frozen["definition_refs"],
@@ -3755,6 +4633,7 @@ class MetricsV2Repository:
         self,
         *,
         tenant_pub_id: str,
+        project_pub_id: str,
         decision_pub_id: str,
         result: Mapping[str, Any],
         rationale_summary: str,
@@ -3767,51 +4646,144 @@ class MetricsV2Repository:
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             previous = connection.execute(
                 """
-                SELECT project_pub_id,decision_hash
-                FROM analytics.semantic_decision_record_v2
-                WHERE tenant_pub_id=%s AND pub_id=%s
+                SELECT decision.*,task.output_schema,job.rejudge_generation
+                FROM analytics.semantic_decision_record_v2 decision
+                JOIN analytics.semantic_decision_task_definition_v2 task
+                  ON task.name=decision.task_name
+                 AND task.version=decision.task_version
+                 AND task.definition_hash=decision.task_definition_hash
+                JOIN analytics.semantic_decision_job_v2 job
+                  ON job.tenant_pub_id=decision.tenant_pub_id
+                 AND job.project_pub_id=decision.project_pub_id
+                 AND job.pub_id=decision.decision_job_pub_id
+                WHERE decision.tenant_pub_id=%s AND decision.project_pub_id=%s
+                  AND decision.pub_id=%s
                 """,
-                (tenant_pub_id, decision_pub_id),
+                (tenant_pub_id, project_pub_id, decision_pub_id),
             ).fetchone()
             if previous is None:
                 raise LookupError("metrics_v2_semantic_decision_not_found")
+            from domain.analysis.v2.output_validation import validate_structured_output
+
+            validated = validate_structured_output(result, previous["output_schema"])
+            if not validated.is_valid:
+                raise ValueError("metrics_v2_override_result_invalid")
             if previous["decision_hash"] != expected_decision_hash:
                 raise RuntimeError("metrics_v2_decision_hash_conflict")
             successor = connection.execute(
                 """
                 SELECT pub_id FROM analytics.semantic_decision_record_v2
-                WHERE tenant_pub_id=%s AND supersedes_pub_id=%s
+                WHERE tenant_pub_id=%s AND project_pub_id=%s AND supersedes_pub_id=%s
                 """,
-                (tenant_pub_id, decision_pub_id),
+                (tenant_pub_id, project_pub_id, decision_pub_id),
             ).fetchone()
             if successor is not None:
                 raise RuntimeError("metrics_v2_decision_already_superseded")
-            command = connection.execute(
-                """
-                INSERT INTO analytics.semantic_decision_override_command_v2
-                  (tenant_pub_id,previous_decision_pub_id,result,rationale_summary,
-                   reason_codes,expected_decision_hash,actor_pub_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)
-                RETURNING decision_job_pub_id,new_decision_pub_id,
-                          new_decision_hash,recompute_job_pub_id
-                """,
-                (
-                    tenant_pub_id,
-                    decision_pub_id,
-                    Jsonb(dict(result)),
-                    rationale_summary,
-                    sorted(set(reason_codes)),
-                    expected_decision_hash,
-                    actor_pub_id,
-                ),
-            ).fetchone()
+            from domain.analysis.v2.decision_models import SemanticDecisionRecord
+
+            generation = int(previous["rejudge_generation"]) + 1
+            planned_job_pub_id = (
+                "sdj_"
+                + _canonical_hash(
+                    {
+                        "actor_pub_id": actor_pub_id,
+                        "generation": generation,
+                        "previous_decision_pub_id": decision_pub_id,
+                        "project_pub_id": project_pub_id,
+                        "tenant_pub_id": tenant_pub_id,
+                    }
+                )[:26]
+            )
+            planned_attempt_pub_id = (
+                "sda_"
+                + _canonical_hash({"decision_job_pub_id": planned_job_pub_id, "role": "human"})[:26]
+            )
+            planned_decision_pub_id = (
+                "sdr_"
+                + _canonical_hash(
+                    {
+                        "decision_job_pub_id": planned_job_pub_id,
+                        "selected_attempt_pub_id": planned_attempt_pub_id,
+                        "supersedes_pub_id": decision_pub_id,
+                    }
+                )[:26]
+            )
+            planned_record = SemanticDecisionRecord.model_validate(
+                _decision_record_projection(previous)
+                | {
+                    "decision_pub_id": planned_decision_pub_id,
+                    "decision_job_pub_id": planned_job_pub_id,
+                    "method": "human",
+                    "status": "accepted",
+                    "result": dict(result),
+                    "rationale_summary": rationale_summary,
+                    "calibrated_confidence": None,
+                    "calibration_bucket": None,
+                    "reason_codes": sorted(set(reason_codes)),
+                    "selected_attempt_pub_ids": [planned_attempt_pub_id],
+                    "supersedes_pub_id": decision_pub_id,
+                    "decision_hash": "",
+                    "created_at": datetime.now(UTC),
+                }
+            )
+            try:
+                command = connection.execute(
+                    """
+                    INSERT INTO analytics.semantic_decision_override_command_v2
+                      (tenant_pub_id,project_pub_id,previous_decision_pub_id,result,
+                       rationale_summary,reason_codes,expected_decision_hash,actor_pub_id,
+                       decision_job_pub_id,human_attempt_pub_id,new_decision_pub_id,
+                       new_decision_hash)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    RETURNING decision_job_pub_id,new_decision_pub_id,
+                              new_decision_hash,recompute_job_pub_id
+                    """,
+                    (
+                        tenant_pub_id,
+                        project_pub_id,
+                        decision_pub_id,
+                        Jsonb(dict(result)),
+                        rationale_summary,
+                        sorted(set(reason_codes)),
+                        expected_decision_hash,
+                        actor_pub_id,
+                        planned_job_pub_id,
+                        planned_attempt_pub_id,
+                        planned_decision_pub_id,
+                        planned_record.decision_hash,
+                    ),
+                ).fetchone()
+            except (errors.SerializationFailure, errors.UniqueViolation) as exc:
+                raise RuntimeError("metrics_v2_decision_already_superseded") from exc
             if command is None:
                 raise RuntimeError("metrics_v2_override_command_failed")
             new_decision_pub_id = str(command["new_decision_pub_id"])
             decision_hash = str(command["new_decision_hash"])
             recompute_pub_id = str(command["recompute_job_pub_id"])
             job_pub_id = str(command["decision_job_pub_id"])
+            if (
+                new_decision_pub_id != planned_decision_pub_id
+                or decision_hash != planned_record.decision_hash
+                or job_pub_id != planned_job_pub_id
+            ):
+                raise RuntimeError("metrics_v2_override_command_contract_mismatch")
             project_pub_id = str(previous["project_pub_id"])
+            context_successors = self._refresh_query_contexts_for_successor(
+                connection,
+                tenant_pub_id=tenant_pub_id,
+                project_pub_id=project_pub_id,
+                previous_decision_pub_id=decision_pub_id,
+                decision_pub_id=new_decision_pub_id,
+                override_reason=rationale_summary,
+            )
+            self._refresh_answer_manifests_for_successor(
+                connection,
+                tenant_pub_id=tenant_pub_id,
+                project_pub_id=project_pub_id,
+                previous_decision_pub_id=decision_pub_id,
+                decision_pub_id=new_decision_pub_id,
+                query_context_successors=context_successors,
+            )
             self._insert_outbox(
                 connection,
                 tenant_pub_id=tenant_pub_id,
@@ -3825,46 +4797,163 @@ class MetricsV2Repository:
                     "causation_id": decision_pub_id,
                 },
             )
-            recompute_scope = {
-                "reason": "semantic_decision_override",
-                "decision_pub_id": new_decision_pub_id,
-            }
-            self._insert_outbox(
-                connection,
-                tenant_pub_id=tenant_pub_id,
-                event_type="metric.snapshot_set.requested.v2",
-                aggregate_pub_id=recompute_pub_id,
-                project_pub_id=project_pub_id,
-                subject_hash=_canonical_hash(
-                    {
-                        "decision_pub_id": new_decision_pub_id,
-                        "decision_hash": decision_hash,
+            affected_scopes = list(
+                self._affected_snapshot_scopes(
+                    connection,
+                    tenant_pub_id=tenant_pub_id,
+                    project_pub_id=project_pub_id,
+                    decision_pub_id=decision_pub_id,
+                )
+            )
+            if not affected_scopes:
+                derived_scope = self._affected_semantic_scope(
+                    connection,
+                    tenant_pub_id=tenant_pub_id,
+                    project_pub_id=project_pub_id,
+                    decision_pub_id=decision_pub_id,
+                )
+                if derived_scope is not None:
+                    affected_scopes.append(derived_scope)
+            work_items: dict[
+                tuple[str, str | None], tuple[dict[str, Any], dict[str, Any] | None]
+            ] = {}
+            for annotated_scope in affected_scopes:
+                scope = {
+                    key: value for key, value in annotated_scope.items() if not key.startswith("_")
+                }
+                scope_hash = _canonical_hash(scope)
+                raw_targets = annotated_scope.get("_publication_targets")
+                targets = list(raw_targets) if isinstance(raw_targets, list) else []
+                if not targets:
+                    work_items[(scope_hash, None)] = (scope, None)
+                    continue
+                for target in targets:
+                    if not isinstance(target, dict):
+                        continue
+                    channel = str(target.get("publication_channel") or "")
+                    if channel not in {"shadow", "official"}:
+                        continue
+                    work_items[(scope_hash, channel)] = (scope, target)
+            recompute_job_pub_ids: list[str] = []
+            if not work_items:
+                no_op_scope = {
+                    "reason": "semantic_decision_override_no_impacted_metric_scope",
+                    "decision_pub_id": new_decision_pub_id,
+                }
+                no_op_scope_hash = _canonical_hash(no_op_scope)
+                connection.execute(
+                    """
+                    INSERT INTO analytics.metric_recompute_job_v2
+                      (pub_id,tenant_pub_id,project_pub_id,scope,scope_hash,
+                       target_definition_refs,status,cursor_state,idempotency_key,
+                       requested_by,completed_at)
+                    VALUES (%s,%s,%s,%s,%s,'[]'::jsonb,'succeeded',%s,%s,%s,%s)
+                    """,
+                    (
+                        recompute_pub_id,
+                        tenant_pub_id,
+                        project_pub_id,
+                        Jsonb(no_op_scope),
+                        no_op_scope_hash,
+                        Jsonb({"noop_reason": "no_impacted_metric_scope"}),
+                        _canonical_hash(
+                            {
+                                "decision_hash": decision_hash,
+                                "decision_pub_id": new_decision_pub_id,
+                                "operation": "semantic_override_noop",
+                            }
+                        ),
+                        actor_pub_id,
+                        datetime.now(UTC),
+                    ),
+                )
+                recompute_job_pub_ids.append(recompute_pub_id)
+            else:
+                for index, (
+                    (recompute_scope_hash, publication_channel),
+                    (recompute_scope, publication_target),
+                ) in enumerate(work_items.items()):
+                    scope_job_pub_id = (
+                        recompute_pub_id
+                        if index == 0
+                        else "mrj_"
+                        + _canonical_hash(
+                            {
+                                "decision_pub_id": new_decision_pub_id,
+                                "publication_channel": publication_channel,
+                                "scope_hash": recompute_scope_hash,
+                            }
+                        )[:26]
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO analytics.metric_recompute_job_v2
+                          (pub_id,tenant_pub_id,project_pub_id,scope,scope_hash,
+                           target_definition_refs,status,idempotency_key,requested_by)
+                        VALUES (%s,%s,%s,%s,%s,'[]'::jsonb,'pending',%s,%s)
+                        """,
+                        (
+                            scope_job_pub_id,
+                            tenant_pub_id,
+                            project_pub_id,
+                            Jsonb(recompute_scope),
+                            recompute_scope_hash,
+                            _canonical_hash(
+                                {
+                                    "decision_hash": decision_hash,
+                                    "decision_pub_id": new_decision_pub_id,
+                                    "operation": "semantic_override_recompute",
+                                    "publication_channel": publication_channel,
+                                    "scope_hash": recompute_scope_hash,
+                                }
+                            ),
+                            actor_pub_id,
+                        ),
+                    )
+                    self._insert_outbox(
+                        connection,
+                        tenant_pub_id=tenant_pub_id,
+                        event_type="metric.snapshot_set.requested.v2",
+                        aggregate_pub_id=scope_job_pub_id,
+                        project_pub_id=project_pub_id,
+                        subject_hash=recompute_scope_hash,
+                        payload={
+                            "correlation_id": scope_job_pub_id,
+                            "causation_id": new_decision_pub_id,
+                        },
+                    )
+                    workflow_payload: dict[str, Any] = {
+                        "tenant_pub_id": tenant_pub_id,
+                        "project_pub_id": project_pub_id,
+                        "job_pub_id": scope_job_pub_id,
+                        "scope": recompute_scope,
+                        "as_of": datetime.now(UTC).isoformat(),
                     }
-                ),
-                payload={
-                    "correlation_id": recompute_pub_id,
-                    "causation_id": new_decision_pub_id,
-                },
-            )
-            self._insert_workflow_start(
-                connection,
-                tenant_pub_id=tenant_pub_id,
-                workflow_type="metric_snapshot_set_v2",
-                workflow_id=f"metrics-v2:{recompute_pub_id}",
-                task_queue="geo-platform-v2-metrics",
-                payload={
-                    "tenant_pub_id": tenant_pub_id,
-                    "project_pub_id": project_pub_id,
-                    "job_pub_id": recompute_pub_id,
-                    "scope": recompute_scope,
-                    "as_of": datetime.now(UTC).isoformat(),
-                },
-            )
+                    if publication_target is not None:
+                        workflow_payload.update(
+                            {
+                                "publication_channel": publication_channel,
+                                "expected_generation": int(
+                                    publication_target["expected_generation"]
+                                ),
+                                "published_by": actor_pub_id,
+                            }
+                        )
+                    self._insert_workflow_start(
+                        connection,
+                        tenant_pub_id=tenant_pub_id,
+                        workflow_type="metric_snapshot_set_v2",
+                        workflow_id=f"metrics-v2:{scope_job_pub_id}",
+                        task_queue="geo-platform-v2-metrics",
+                        payload=workflow_payload,
+                    )
+                    recompute_job_pub_ids.append(scope_job_pub_id)
         return {
             "decision_pub_id": new_decision_pub_id,
             "supersedes_pub_id": decision_pub_id,
             "decision_hash": decision_hash,
             "recompute_job_pub_id": recompute_pub_id,
+            "recompute_job_pub_ids": recompute_job_pub_ids,
         }
 
     def _create_override_legacy_owner(
@@ -4252,7 +5341,8 @@ class MetricsV2Repository:
         exclusions = [
             dict(row)
             for row in answers
-            if row["eligibility_status"] in {"excluded", "not_applicable", "analysis_unknown"}
+            if row["eligibility_status"]
+            in {"excluded", "not_applicable", "analysis_unknown", "analysis_failed"}
         ]
         hashes: list[dict[str, Any]] = [
             {

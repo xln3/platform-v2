@@ -13,6 +13,12 @@ from geo_platform.identity.policy import Principal, get_principal
 from geo_platform.tenancy.ids import new_pub_id
 
 from ..config import get_settings
+from .backfill_control import (
+    backfill_options,
+    backfill_status,
+    build_backfill_plan,
+    start_backfill,
+)
 from .repository import MetricsV2Repository
 from .schemas import (
     ContributionPageView,
@@ -27,12 +33,19 @@ from .schemas import (
     PublishRequest,
     QueryContributionPageView,
     RecomputeRequest,
+    SemanticBackfillOptionsView,
+    SemanticBackfillPlanRequest,
+    SemanticBackfillPlanView,
+    SemanticBackfillStartRequest,
+    SemanticBackfillStartView,
+    SemanticBackfillStatusView,
     SemanticDecisionDetailView,
     SemanticEventDetailView,
     SnapshotRequest,
     SnapshotRequestAccepted,
     SnapshotSetView,
 )
+from .semantic_models import SemanticModelNotAllowed
 from .service import (
     MetricsV2Conflict,
     MetricsV2Invalid,
@@ -46,6 +59,7 @@ PublicIdPath = Annotated[
     str,
     Path(min_length=5, max_length=120, pattern=r"^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$"),
 ]
+SelectionHashPath = Annotated[str, Path(pattern=r"^[0-9a-f]{64}$")]
 
 
 def _dsn() -> str:
@@ -273,7 +287,12 @@ def metric_contributions_v2(
     cursor: str | None = Query(default=None, min_length=8, max_length=2_000),
     limit: int = Query(default=50, ge=1, le=100),
     eligibility_status: Literal[
-        "included_hit", "included_miss", "excluded", "not_applicable", "analysis_unknown"
+        "included_hit",
+        "included_miss",
+        "excluded",
+        "not_applicable",
+        "analysis_unknown",
+        "analysis_failed",
     ]
     | None = Query(default=None),
     reason_code: str | None = Query(default=None, min_length=1, max_length=120),
@@ -468,6 +487,136 @@ def recompute_metrics_v2(
         raise _not_found(exc) from exc
 
 
+@router.get(
+    "/operations/projects/{project_pub_id}/semantic-backfill/options",
+    response_model=SemanticBackfillOptionsView,
+    operation_id="getSemanticBackfillOptionsV2",
+)
+def semantic_backfill_options_v2(
+    response: Response,
+    project_pub_id: PublicIdPath,
+    cursor: str | None = Query(default=None, min_length=8, max_length=2_000),
+    limit: int = Query(default=100, ge=1, le=200),
+    as_of: datetime | None = Query(default=None),
+    principal: Principal = Depends(get_principal),
+) -> SemanticBackfillOptionsView:
+    principal.require("metrics:recompute")
+    _private(response)
+    try:
+        return backfill_options(
+            _repository(),
+            get_settings(),
+            tenant_pub_id=principal.tenant_pub_id,
+            project_pub_id=project_pub_id,
+            cursor=cursor,
+            limit=limit,
+            as_of=as_of.isoformat() if as_of else None,
+        )
+    except (ValueError, SemanticModelNotAllowed) as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
+
+
+@router.post(
+    "/operations/projects/{project_pub_id}/semantic-backfill/plan",
+    response_model=SemanticBackfillPlanView,
+    operation_id="planSemanticBackfillV2",
+)
+def plan_semantic_backfill_v2(
+    response: Response,
+    body: SemanticBackfillPlanRequest,
+    project_pub_id: PublicIdPath,
+    principal: Principal = Depends(get_principal),
+) -> SemanticBackfillPlanView:
+    principal.require("metrics:recompute")
+    _private(response)
+    try:
+        return build_backfill_plan(
+            _repository(),
+            get_settings(),
+            tenant_pub_id=principal.tenant_pub_id,
+            project_pub_id=project_pub_id,
+            request=body,
+        )
+    except (ValueError, SemanticModelNotAllowed) as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
+
+
+@router.post(
+    "/operations/projects/{project_pub_id}/semantic-backfill/start",
+    response_model=SemanticBackfillStartView,
+    status_code=202,
+    operation_id="startSemanticBackfillV2",
+)
+async def start_semantic_backfill_v2(
+    response: Response,
+    body: SemanticBackfillStartRequest,
+    project_pub_id: PublicIdPath,
+    principal: Principal = Depends(get_principal),
+) -> SemanticBackfillStartView:
+    principal.require("metrics:recompute")
+    _private(response)
+    try:
+        plan_request = SemanticBackfillPlanRequest(
+            answer_pub_ids=body.answer_pub_ids,
+            model=body.model,
+            as_of=body.as_of,
+        )
+        plan = build_backfill_plan(
+            _repository(),
+            get_settings(),
+            tenant_pub_id=principal.tenant_pub_id,
+            project_pub_id=project_pub_id,
+            request=plan_request,
+        )
+        if (
+            body.selection_hash != plan.selection_hash
+            or body.confirmation_token != plan.confirmation_token
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "semantic_backfill_selection_changed"},
+            )
+        if not plan.start_allowed:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "semantic_backfill_plan_blocked",
+                    "blocker_codes": plan.blocker_codes,
+                },
+            )
+        return await start_backfill(
+            get_settings(),
+            tenant_pub_id=principal.tenant_pub_id,
+            project_pub_id=project_pub_id,
+            plan=plan,
+            answer_pub_ids=body.answer_pub_ids,
+        )
+    except HTTPException:
+        raise
+    except (ValueError, SemanticModelNotAllowed) as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
+
+
+@router.get(
+    "/operations/projects/{project_pub_id}/semantic-backfill/status/{selection_hash}",
+    response_model=SemanticBackfillStatusView,
+    operation_id="getSemanticBackfillStatusV2",
+)
+async def semantic_backfill_status_v2(
+    response: Response,
+    project_pub_id: PublicIdPath,
+    selection_hash: SelectionHashPath,
+    principal: Principal = Depends(get_principal),
+) -> SemanticBackfillStatusView:
+    principal.require("metrics:recompute")
+    _private(response)
+    return await backfill_status(
+        get_settings(),
+        project_pub_id=project_pub_id,
+        selection_hash=selection_hash,
+    )
+
+
 @router.post(
     "/operations/semantic-decisions/{decision_pub_id}/overrides",
     response_model=DecisionOverrideView,
@@ -491,6 +640,11 @@ def override_semantic_decision_v2(
         )
     except LookupError as exc:
         raise _not_found(exc) from exc
+    except MetricsV2Conflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "semantic_decision_override_conflict"},
+        ) from exc
     except MetricsV2Invalid as exc:
         raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
 

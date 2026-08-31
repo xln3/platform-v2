@@ -121,5 +121,7 @@ def test_request_builder_freezes_all_applicable_static_and_dynamic_task_fanout()
     first = instantiate_decision_task_request(template, subject)
     second = instantiate_decision_task_request(dict(reversed(list(template.items()))), subject)
     assert first == second
-    assert "input_material_hashes" not in first
+    assert first["input_material_hashes"] == template["input_material_hashes"]
+    assert first["source_answer_pub_id"] == "ans_fixture"
+    assert "answer_text" not in first and "query_text" not in first
     assert len(first["input_hash"]) == len(first["idempotency_key"]) == 64
