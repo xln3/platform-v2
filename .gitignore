@@ -19,6 +19,7 @@ __pycache__/
 *.sqlite-wal
 tests/s04-evidence/backups/
 .production-backups/
+.db-repair-backups/
 tests/e2e-results/
 tests/e2e-results-*/
 tests/e2e-results-*.json
