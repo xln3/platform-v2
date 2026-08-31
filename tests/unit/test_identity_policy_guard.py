@@ -78,6 +78,7 @@ class _FakeSession:
 
 def _call_principal(session: _FakeSession, **headers: object) -> object:
     defaults: dict[str, object] = {
+        "request": None,
         "x_tenant_id": None,
         "x_actor_id": None,
         "x_actor_role": None,

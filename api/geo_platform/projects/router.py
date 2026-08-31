@@ -15,6 +15,7 @@ from domain.brandrank.rules import load_domain
 
 from ..contracts import PageMeta, ProjectPage, ProjectSummary
 from ..identity.policy import Principal, get_principal
+from ..identity.project_access import customer_allowed_project_ids
 from ..pagination import decode_keyset_cursor, encode_keyset_cursor
 from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
@@ -143,11 +144,20 @@ def list_projects(
     session: Session = Depends(get_db),
 ) -> ProjectPage:
     principal.require("project:read")
+    allowed_project_ids = customer_allowed_project_ids(
+        role=principal.role.value,
+        tenant_pub_id=principal.tenant_pub_id,
+        user_pub_id=principal.user_pub_id,
+    )
     try:
         repository = TenantRepository(session, principal.tenant_pub_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail={"code": "tenant_not_found"}) from exc
     filters: dict[str, str | None] = {}
+    if allowed_project_ids is not None:
+        filters["customer_project_scope_sha256"] = hashlib.sha256(
+            "\n".join(sorted(allowed_project_ids)).encode()
+        ).hexdigest()
     anchor = (
         decode_keyset_cursor(
             cursor,
@@ -159,6 +169,8 @@ def list_projects(
         else None
     )
     statement = select(Project).where(Project.tenant_id == repository.tenant.id)
+    if allowed_project_ids is not None:
+        statement = statement.where(Project.pub_id.in_(allowed_project_ids))
     if anchor is not None:
         statement = statement.where(
             or_(
