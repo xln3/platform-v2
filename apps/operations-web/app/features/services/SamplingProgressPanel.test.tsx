@@ -75,6 +75,61 @@ describe('SamplingProgressPanel', () => {
     expect(requestedPages).toEqual(['1', '2']);
   });
 
+  it('opens every question in one scrollable panorama without pagination', async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        const page = Number(url.searchParams.get('page') ?? '1');
+        const pageSize = Number(url.searchParams.get('page_size') ?? '4');
+        requests.push(`${page}:${pageSize}`);
+        const allRows = Array.from({ length: 30 }, (_, index) => ({
+          appendix: null,
+          group: `G${String(index + 1).padStart(2, '0')}`,
+          group_name: `问题组 ${index + 1}`,
+          expression: '原词',
+          query_text: `全景问题 ${index + 1}`,
+          cells: [],
+        }));
+        return new Response(
+          JSON.stringify({
+            project_pub_id: 'prj_test',
+            config_revision_start: 2,
+            config_revision_end: 2,
+            columns: [
+              { key: 'leg-1', model: 'doubao', region: '北京', mode: 'normal', modes: ['normal'] },
+            ],
+            rows: allRows.slice((page - 1) * pageSize, page * pageSize),
+            page: {
+              page,
+              page_size: pageSize,
+              total_count: allRows.length,
+              total_pages: Math.ceil(allRows.length / pageSize),
+            },
+            observed_cells: 0,
+            total_cells: 30,
+            answer_count: 0,
+            latest_capture_time: null,
+            live_runs: 0,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }),
+    );
+
+    render(<SamplingProgressPanel session={session} projectPubId="prj_test" />);
+    fireEvent.click(await screen.findByRole('button', { name: '查看全景' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '采样进度全景' });
+    const table = within(dialog).getByRole('table', { name: '采样进度全景表' });
+    expect(within(table).getAllByRole('row')).toHaveLength(31);
+    expect(within(table).getByText('全景问题 30')).toBeTruthy();
+    expect(within(dialog).getByLabelText('采样进度全景滚动区域')).toBeTruthy();
+    expect(within(dialog).queryByRole('navigation', { name: '采样进度问题分页' })).toBeNull();
+    expect(requests).toEqual(['1:4', '1:25', '2:25']);
+  });
+
   it('renders the overview matrix with repeat counts and latest Shanghai time', async () => {
     vi.stubGlobal(
       'fetch',

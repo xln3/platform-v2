@@ -249,6 +249,141 @@ export type BrandVisibilityResult =
   | { kind: 'llm_disabled' }
   | { kind: 'unavailable' };
 
+// ── official V2 指标快照（运营页正式口径）──
+export type OfficialMetricSnapshot = {
+  snapshot_pub_id: string;
+  focal_entity_id: string;
+  metric_name: string;
+  metric_version: string;
+  state: 'ready' | 'limited' | 'insufficient' | 'experimental' | 'failed';
+  state_reason_codes?: string[];
+  value?: number | null;
+  raw_numerator: number;
+  raw_denominator: number;
+  coverage: { known: number; unknown: number; total: number; ratio: number | null };
+  unique_query_count: number;
+  known_answer_count: number;
+  unknown_answer_count: number;
+};
+
+export type OfficialMetricSnapshotSet = {
+  schema_version: 'metric-snapshot-set-v2';
+  snapshot_set_pub_id: string;
+  snapshot_set_hash: string;
+  project_pub_id: string;
+  state: 'ready' | 'partial' | 'failed';
+  as_of: string;
+  window: { start: string; end: string };
+  filters: { model: string[]; region: string[]; mode: string[] };
+  focal_entity_ids: string[];
+  metrics: OfficialMetricSnapshot[];
+};
+
+export type OfficialMetricDefinition = {
+  metric_name: string;
+  metric_version: string;
+  status: 'published' | 'experimental' | 'retired';
+  required_semantic_capabilities: string[];
+};
+
+export type OfficialMetricCatalog = {
+  schema_version: 'metric-catalog-v2';
+  definitions: OfficialMetricDefinition[];
+};
+
+export type SemanticBackfillCandidate = {
+  answer_pub_id: string;
+  query_text: string;
+  model: string;
+  region: string;
+  mode: string;
+  channel: string;
+  capture_time: string;
+  preparation_state: 'ready' | 'unknown';
+  reason_codes: string[];
+};
+
+export type SemanticBackfillModel = {
+  model: string;
+  label: string;
+  provider: string;
+  tier: 'economy' | 'premium';
+  input_usd_per_million_tokens: number;
+  output_usd_per_million_tokens: number;
+  context_window_tokens: number;
+  recommended: boolean;
+  catalog_revision: string;
+  pricing_observed_at: string;
+  pricing_source_url: string;
+  pricing_currency: 'USD';
+  token_price_unit: 'per_million_tokens';
+  pricing_notice: 'catalog_snapshot_provider_invoice_authoritative';
+};
+
+export type SemanticBackfillOptions = {
+  schema_version: 'semantic-backfill-options-v2';
+  project_pub_id: string;
+  as_of: string;
+  candidate_count: number;
+  candidates: SemanticBackfillCandidate[];
+  next_cursor: string | null;
+  max_batch_size: number;
+  default_model: string;
+  models: SemanticBackfillModel[];
+};
+
+export type SemanticBackfillPlan = {
+  schema_version: 'semantic-backfill-plan-v2';
+  project_pub_id: string;
+  model: string;
+  as_of: string;
+  window: { start: string; end: string };
+  focal_entity_ids: string[];
+  selected_answer_count: number;
+  executable_answer_count: number;
+  preparation_unknown_count: number;
+  estimated_atomic_decisions: number;
+  estimated_input_tokens: number;
+  estimated_output_tokens: number;
+  estimated_cost_usd: number;
+  estimated_cost_high_usd: number;
+  budget_limit_usd: number;
+  selection_hash: string;
+  confirmation_token: string;
+  start_allowed: boolean;
+  blocker_codes: string[];
+  estimate_notice: 'bounded_estimate_provider_invoice_authoritative';
+};
+
+export type SemanticBackfillStart = {
+  schema_version: 'semantic-backfill-start-v2';
+  project_pub_id: string;
+  workflow_id: string;
+  job_pub_id: string;
+  selection_hash: string;
+  status: 'started' | 'reused';
+  selected_answer_count: number;
+  model: string;
+};
+
+export type SemanticBackfillStatus = {
+  schema_version: 'semantic-backfill-status-v2';
+  project_pub_id: string;
+  selection_hash: string;
+  workflow_id: string;
+  status: 'running' | 'succeeded' | 'failed';
+  processed_answer_count: number;
+  metric_evaluation_count: number;
+  snapshot_set_pub_id: string | null;
+  failure_code: string | null;
+};
+
+export type ProjectEntityResource = {
+  pub_id: string;
+  resource_kind: 'brands' | 'competitors';
+  data: { name?: string };
+};
+
 // ── 采样进度（最新完整题库 + 同批拆腿/补采配置）──
 export type SamplingProgressColumn = {
   key: string;
@@ -979,6 +1114,102 @@ export const servicesApi = {
       if (code === 'llm_disabled' || code === 'http_503') return { kind: 'llm_disabled' };
       return { kind: 'unavailable' };
     }
+  },
+  officialMetricSnapshotSet: (
+    session: SessionContext,
+    projectPubId: string,
+  ): Promise<OfficialMetricSnapshotSet> =>
+    servicesGet(
+      session,
+      `/api/v2/metrics/projects/${encodeURIComponent(projectPubId)}/snapshot-sets/current`,
+      { publication_channel: 'official' },
+    ),
+  officialMetricCatalog: (session: SessionContext): Promise<OfficialMetricCatalog> =>
+    servicesGet(session, '/api/v2/metrics/catalog', {}),
+  metricSnapshotSet: (
+    session: SessionContext,
+    snapshotSetPubId: string,
+  ): Promise<OfficialMetricSnapshotSet> =>
+    servicesGet(
+      session,
+      `/api/v2/metrics/snapshot-sets/${encodeURIComponent(snapshotSetPubId)}`,
+      {},
+    ),
+  semanticBackfillOptions: (
+    session: SessionContext,
+    input: { projectPubId: string; cursor?: string; asOf?: string; limit?: number },
+  ): Promise<SemanticBackfillOptions> =>
+    servicesGet(
+      session,
+      `/api/v2/metrics/operations/projects/${encodeURIComponent(input.projectPubId)}/semantic-backfill/options`,
+      {
+        limit: input.limit ?? 100,
+        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...(input.asOf ? { as_of: input.asOf } : {}),
+      },
+    ),
+  planSemanticBackfill: (
+    session: SessionContext,
+    input: { projectPubId: string; answerPubIds: string[]; model: string; asOf: string },
+  ): Promise<SemanticBackfillPlan> =>
+    servicesPost(
+      session,
+      `/api/v2/metrics/operations/projects/${encodeURIComponent(input.projectPubId)}/semantic-backfill/plan`,
+      {
+        answer_pub_ids: input.answerPubIds,
+        model: input.model,
+        as_of: input.asOf,
+      },
+    ),
+  startSemanticBackfill: (
+    session: SessionContext,
+    input: {
+      projectPubId: string;
+      answerPubIds: string[];
+      model: string;
+      asOf: string;
+      selectionHash: string;
+      confirmationToken: string;
+    },
+  ): Promise<SemanticBackfillStart> =>
+    servicesPost(
+      session,
+      `/api/v2/metrics/operations/projects/${encodeURIComponent(input.projectPubId)}/semantic-backfill/start`,
+      {
+        answer_pub_ids: input.answerPubIds,
+        model: input.model,
+        as_of: input.asOf,
+        selection_hash: input.selectionHash,
+        confirmation_token: input.confirmationToken,
+      },
+    ),
+  semanticBackfillStatus: (
+    session: SessionContext,
+    input: { projectPubId: string; selectionHash: string },
+  ): Promise<SemanticBackfillStatus> =>
+    servicesGet(
+      session,
+      `/api/v2/metrics/operations/projects/${encodeURIComponent(input.projectPubId)}/semantic-backfill/status/${encodeURIComponent(input.selectionHash)}`,
+      {},
+    ),
+  projectEntities: async (
+    session: SessionContext,
+    projectPubId: string,
+  ): Promise<ProjectEntityResource[]> => {
+    const encodedProject = encodeURIComponent(projectPubId);
+    const [brands, competitors] = await Promise.all([
+      servicesGet<ProjectEntityResource[]>(
+        session,
+        `/api/v2/projects/${encodedProject}/resources/brands`,
+        { limit: 100 },
+      ),
+      servicesGet<ProjectEntityResource[]>(
+        session,
+        `/api/v2/projects/${encodedProject}/resources/competitors`,
+        { limit: 100 },
+      ),
+    ]);
+    return [...brands, ...competitors];
   },
   sourceAudit: async (
     session: SessionContext,

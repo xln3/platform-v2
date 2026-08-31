@@ -104,8 +104,8 @@ export function ReadonlyConfigSummary({
   return (
     <section className="execution-card readonly-config-summary">
       <div className="section-title">
-        <h2>本次评测配置</h2>
-        <span>只读 · 以服务端冻结版本和哈希为准</span>
+        <h2>项目生效配置</h2>
+        <span>项目总配置 · 只读 · 以服务端冻结版本和哈希为准</span>
       </div>
       {state.kind === 'loading' ? (
         <p className="empty">正在读取生效配置…</p>

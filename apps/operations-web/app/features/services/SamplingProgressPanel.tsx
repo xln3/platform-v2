@@ -1,5 +1,5 @@
 import { Pagination } from '@geo/design-system';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PlatformBadge, platformDisplayName } from '../../platforms';
 import { usePageWindow } from '../../pagination';
 import { executionApi, type AnswerRow } from '../execution/api';
@@ -40,6 +40,14 @@ type AnswerLoadState =
   | { kind: 'loading' }
   | { kind: 'ready'; answers: AnswerRow[]; missing: number }
   | { kind: 'failed' };
+
+type PanoramaState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; progress: SamplingProgress }
+  | { kind: 'failed' };
+
+const SAMPLING_PROGRESS_PANORAMA_PAGE_SIZE = 25;
+const SAMPLING_PROGRESS_PANORAMA_MAX_PAGES = 100;
 
 function datePart(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
   return parts.find((part) => part.type === type)?.value ?? '';
@@ -93,6 +101,118 @@ function modeBreakdownLabel(column: SamplingProgressColumn, cell: SamplingProgre
   return breakdown
     .map((item) => `${MODE_LABELS[item.mode] ?? item.mode} ${item.completed_samples}遍`)
     .join(' · ');
+}
+
+function SamplingProgressSummary({ progress }: { progress: SamplingProgress }) {
+  return (
+    <div className="sampling-progress-summary" aria-label="采样进度摘要">
+      <span>{samplingRevisionLabel(progress)}</span>
+      <span>{progress.page.total_count} 问</span>
+      <span>{progress.columns.length} 个采样位</span>
+      <span>
+        已观测 {progress.observed_cells}/{progress.total_cells} 格
+      </span>
+      <span>共 {progress.answer_count} 条有效回答</span>
+    </div>
+  );
+}
+
+function SamplingProgressTable({
+  progress,
+  rows = progress.rows,
+  ariaLabel,
+  onAnswerTarget,
+}: {
+  progress: SamplingProgress;
+  rows?: SamplingProgress['rows'];
+  ariaLabel: string;
+  onAnswerTarget: (target: SamplingAnswerTarget) => void;
+}) {
+  const formalLegCounts = new Map<string, number>();
+  for (const column of progress.columns) {
+    const leg = `${column.model}\u0000${column.region}`;
+    formalLegCounts.set(leg, (formalLegCounts.get(leg) ?? 0) + 1);
+  }
+  const multiModeFormalLegs = new Set(
+    [...formalLegCounts.entries()].filter(([, count]) => count > 1).map(([leg]) => leg),
+  );
+  return (
+    <table className="sampling-progress-table" aria-label={ariaLabel}>
+      <thead>
+        <tr>
+          <th>附录</th>
+          <th>组</th>
+          <th>表述</th>
+          <th>问题</th>
+          {progress.columns.map((column) => (
+            <th
+              key={column.key}
+              aria-label={`${platformDisplayName(column.model)}×${column.region}`}
+            >
+              <span>
+                <PlatformBadge platform={column.model} />×{column.region}
+              </span>
+              {multiModeFormalLegs.has(`${column.model}\u0000${column.region}`) ? (
+                <small>{MODE_LABELS[column.mode] ?? column.mode}</small>
+              ) : null}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => {
+          const cells = cellByColumn(row.cells);
+          return (
+            <tr key={`${row.group}-${row.expression}-${row.query_text}`}>
+              <td>{row.appendix ?? '—'}</td>
+              <td title={row.group_name}>{row.group}</td>
+              <td>{row.expression}</td>
+              <td>{row.query_text}</td>
+              {progress.columns.map((column) => {
+                const cell = cells.get(column.key);
+                return (
+                  <td
+                    key={column.key}
+                    className={cell ? 'sampling-progress-observed' : 'sampling-progress-empty'}
+                  >
+                    {cell ? (
+                      <>
+                        {cell.answer_pub_ids?.length ? (
+                          <button
+                            type="button"
+                            className="sampling-progress-count"
+                            aria-label={`${row.query_text}，${platformDisplayName(column.model)}×${column.region}，${cell.completed_samples}遍，${modeBreakdownLabel(column, cell)}，查看具体回答`}
+                            onClick={() =>
+                              onAnswerTarget({ queryText: row.query_text, column, cell })
+                            }
+                          >
+                            {cell.completed_samples}遍
+                          </button>
+                        ) : (
+                          <strong>{cell.completed_samples}遍</strong>
+                        )}
+                        <time
+                          dateTime={cell.latest_capture_time}
+                          title={fullSamplingTime(cell.latest_capture_time)}
+                        >
+                          {formatSamplingTime(cell.latest_capture_time)}
+                        </time>
+                        <small className="sampling-progress-mode-breakdown">
+                          {modeBreakdownLabel(column, cell)}
+                        </small>
+                      </>
+                    ) : (
+                      <span aria-label="尚无观测">—</span>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
 }
 
 function newestSamplingAnswerFirst(left: AnswerRow, right: AnswerRow): number {
@@ -228,12 +348,80 @@ function SamplingAnswersDialog({
   );
 }
 
+function SamplingProgressPanoramaDialog({
+  state,
+  onClose,
+  onRetry,
+  onAnswerTarget,
+}: {
+  state: PanoramaState;
+  onClose: () => void;
+  onRetry: () => void;
+  onAnswerTarget: (target: SamplingAnswerTarget) => void;
+}) {
+  return (
+    <div
+      className="answer-detail-overlay sampling-progress-panorama-overlay"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="answer-detail sampling-progress-panorama"
+        role="dialog"
+        aria-modal="true"
+        aria-label="采样进度全景"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onClose();
+        }}
+      >
+        <div className="answer-detail-head">
+          <div>
+            <h3>采样进度全景</h3>
+            <p>完整问题 × 全部采样位，不分页展示</p>
+          </div>
+          <button type="button" autoFocus onClick={onClose}>
+            关闭
+          </button>
+        </div>
+        {state.kind === 'loading' ? (
+          <p className="empty">正在加载全部采样进度…</p>
+        ) : state.kind === 'failed' ? (
+          <p className="empty">
+            全景加载失败。<button onClick={onRetry}>重试</button>
+          </p>
+        ) : (
+          <>
+            <SamplingProgressSummary progress={state.progress} />
+            <p className="sampling-progress-note">
+              横向滚动查看全部采样位，纵向滚动查看全部问题；固定表头和问题列用于对照。
+            </p>
+            <div
+              className="table-scroll sampling-progress-table-scroll sampling-progress-panorama-scroll"
+              tabIndex={0}
+              aria-label="采样进度全景滚动区域"
+            >
+              <SamplingProgressTable
+                progress={state.progress}
+                ariaLabel="采样进度全景表"
+                onAnswerTarget={onAnswerTarget}
+              />
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SamplingProgressPanel({ session, projectPubId }: Props) {
   const [state, setState] = useState<LoadState>('loading');
   const [progress, setProgress] = useState<SamplingProgress | null>(null);
   const [page, setPage] = useState(1);
   const [answerTarget, setAnswerTarget] = useState<SamplingAnswerTarget | null>(null);
+  const [panorama, setPanorama] = useState<PanoramaState | null>(null);
   const requestSerial = useRef(0);
+  const panoramaRequestSerial = useRef(0);
 
   const refresh = useCallback(
     async (background = false) => {
@@ -261,8 +449,10 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
   useEffect(() => {
     setPage(1);
     setProgress(null);
+    setPanorama(null);
     setState('loading');
     requestSerial.current += 1;
+    panoramaRequestSerial.current += 1;
   }, [projectPubId]);
 
   useEffect(() => {
@@ -278,23 +468,84 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
     return () => window.clearInterval(timer);
   }, [progress, refresh]);
 
-  const multiModeFormalLegs = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const column of progress?.columns ?? []) {
-      const leg = `${column.model}\u0000${column.region}`;
-      counts.set(leg, (counts.get(leg) ?? 0) + 1);
+  const openPanorama = useCallback(async () => {
+    const requestId = ++panoramaRequestSerial.current;
+    setPanorama({ kind: 'loading' });
+    try {
+      const first = await servicesApi.samplingProgress(
+        session,
+        projectPubId,
+        1,
+        SAMPLING_PROGRESS_PANORAMA_PAGE_SIZE,
+      );
+      if (first.page.total_pages > SAMPLING_PROGRESS_PANORAMA_MAX_PAGES || first.page.page !== 1) {
+        throw new Error('sampling_progress_panorama_page_limit');
+      }
+      const remaining = await Promise.all(
+        Array.from({ length: Math.max(0, first.page.total_pages - 1) }, (_, index) =>
+          servicesApi.samplingProgress(
+            session,
+            projectPubId,
+            index + 2,
+            SAMPLING_PROGRESS_PANORAMA_PAGE_SIZE,
+          ),
+        ),
+      );
+      if (requestId !== panoramaRequestSerial.current) return;
+      const pages = [first, ...remaining];
+      if (
+        pages.some(
+          (item, index) =>
+            item.project_pub_id !== projectPubId ||
+            item.page.page !== index + 1 ||
+            item.page.total_count !== first.page.total_count ||
+            item.page.total_pages !== first.page.total_pages,
+        )
+      ) {
+        throw new Error('sampling_progress_panorama_page_mismatch');
+      }
+      const rows = pages.flatMap((item) => item.rows);
+      if (rows.length !== first.page.total_count) {
+        throw new Error('sampling_progress_panorama_incomplete');
+      }
+      setPanorama({
+        kind: 'ready',
+        progress: {
+          ...first,
+          rows,
+          page: {
+            ...first.page,
+            page: 1,
+            page_size: rows.length,
+            total_pages: rows.length ? 1 : 0,
+          },
+        },
+      });
+    } catch {
+      if (requestId === panoramaRequestSerial.current) setPanorama({ kind: 'failed' });
     }
-    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([leg]) => leg));
-  }, [progress]);
+  }, [session, projectPubId]);
+
+  const closePanorama = () => {
+    panoramaRequestSerial.current += 1;
+    setPanorama(null);
+  };
   return (
     <section className="execution-card sampling-progress-panel">
       <div className="section-title">
         <h2>采样进度</h2>
-        <span>
-          {progress?.live_runs
-            ? `${progress.live_runs} 个 run 进行中，每 15 秒自动刷新`
-            : '按最新完整采样批次汇总'}
-        </span>
+        <div className="sampling-progress-title-actions">
+          <span>
+            {progress?.live_runs
+              ? `${progress.live_runs} 个 run 进行中，每 15 秒自动刷新`
+              : '按最新完整采样批次汇总'}
+          </span>
+          {state === 'ready' && progress && progress.page.total_count > 0 ? (
+            <button type="button" onClick={() => void openPanorama()}>
+              查看全景
+            </button>
+          ) : null}
+        </div>
       </div>
       {state === 'loading' ? (
         <p className="empty">正在汇总采样进度…</p>
@@ -306,100 +557,16 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
         <p className="empty">该项目尚无可展示的冻结采样配置。</p>
       ) : (
         <>
-          <div className="sampling-progress-summary" aria-label="采样进度摘要">
-            <span>{samplingRevisionLabel(progress)}</span>
-            <span>{progress.page.total_count} 问</span>
-            <span>{progress.columns.length} 个采样位</span>
-            <span>
-              已观测 {progress.observed_cells}/{progress.total_cells} 格
-            </span>
-            <span>共 {progress.answer_count} 条有效回答</span>
-          </div>
+          <SamplingProgressSummary progress={progress} />
           <p className="sampling-progress-note">
             每格仅汇总合格且非降级的有效回答，并保留平台×地域及实际模式明细；— = 尚无有效观测
           </p>
           <div className="table-scroll sampling-progress-table-scroll">
-            <table className="sampling-progress-table" aria-label="问题采样进度总览">
-              <thead>
-                <tr>
-                  <th>附录</th>
-                  <th>组</th>
-                  <th>表述</th>
-                  <th>问题</th>
-                  {progress.columns.map((column) => (
-                    <th
-                      key={column.key}
-                      aria-label={`${platformDisplayName(column.model)}×${column.region}`}
-                    >
-                      <span>
-                        <PlatformBadge platform={column.model} />×{column.region}
-                      </span>
-                      {multiModeFormalLegs.has(`${column.model}\u0000${column.region}`) ? (
-                        <small>{MODE_LABELS[column.mode] ?? column.mode}</small>
-                      ) : null}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {progress.rows.map((row) => {
-                  const cells = cellByColumn(row.cells);
-                  return (
-                    <tr key={`${row.group}-${row.expression}-${row.query_text}`}>
-                      <td>{row.appendix ?? '—'}</td>
-                      <td title={row.group_name}>{row.group}</td>
-                      <td>{row.expression}</td>
-                      <td>{row.query_text}</td>
-                      {progress.columns.map((column) => {
-                        const cell = cells.get(column.key);
-                        return (
-                          <td
-                            key={column.key}
-                            className={
-                              cell ? 'sampling-progress-observed' : 'sampling-progress-empty'
-                            }
-                          >
-                            {cell ? (
-                              <>
-                                {cell.answer_pub_ids?.length ? (
-                                  <button
-                                    type="button"
-                                    className="sampling-progress-count"
-                                    aria-label={`${row.query_text}，${platformDisplayName(column.model)}×${column.region}，${cell.completed_samples}遍，${modeBreakdownLabel(column, cell)}，查看具体回答`}
-                                    onClick={() =>
-                                      setAnswerTarget({
-                                        queryText: row.query_text,
-                                        column,
-                                        cell,
-                                      })
-                                    }
-                                  >
-                                    {cell.completed_samples}遍
-                                  </button>
-                                ) : (
-                                  <strong>{cell.completed_samples}遍</strong>
-                                )}
-                                <time
-                                  dateTime={cell.latest_capture_time}
-                                  title={fullSamplingTime(cell.latest_capture_time)}
-                                >
-                                  {formatSamplingTime(cell.latest_capture_time)}
-                                </time>
-                                <small className="sampling-progress-mode-breakdown">
-                                  {modeBreakdownLabel(column, cell)}
-                                </small>
-                              </>
-                            ) : (
-                              <span aria-label="尚无观测">—</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <SamplingProgressTable
+              progress={progress}
+              ariaLabel="问题采样进度总览"
+              onAnswerTarget={setAnswerTarget}
+            />
           </div>
           <Pagination
             page={progress.page.page}
@@ -411,6 +578,14 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
           />
         </>
       )}
+      {panorama ? (
+        <SamplingProgressPanoramaDialog
+          state={panorama}
+          onClose={closePanorama}
+          onRetry={() => void openPanorama()}
+          onAnswerTarget={setAnswerTarget}
+        />
+      ) : null}
       {answerTarget ? (
         <SamplingAnswersDialog
           session={session}
