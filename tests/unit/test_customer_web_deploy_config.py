@@ -14,4 +14,14 @@ def test_customer_web_redirects_missing_trailing_slash_to_canonical_route() -> N
     assert (
         "alias /home/xln/geo-system/platform-v2/apps/customer-web/build/client/;" in customer_server
     )
+    assert "location = /platform/customer/login {" in customer_server
+    assert (
+        "alias /home/xln/geo-system/platform-v2/deploy/production/customer-login.html;"
+        in customer_server
+    )
+    assert "default_type text/html;" in customer_server
+    assert "charset utf-8;" in customer_server
+    assert "location = /platform/customer/login/ {" in customer_server
+    assert "location = /platform/operations/login {" in customer_server
+    assert "return 308 /platform/customer/login$is_args$args;" in customer_server
     assert "return 308 https://39.105.175.14:8787/platform/customer/;" in locations

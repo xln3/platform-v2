@@ -44,6 +44,8 @@ def test_browser_roles_have_distinct_https_ports_and_public_backend_hop() -> Non
 
     customer_server = edges.split("listen 8787 ssl;", 1)[1].split("\n}\n", 1)[0]
     assert "apps/customer-web/build/client/" in customer_server
+    assert "location = /platform/customer/index.html {" in customer_server
+    assert "expires -1;" in customer_server
     assert "geo-platform-v2-customer-answer-edge.conf" in customer_server
     assert "https://39.105.175.14:8788$request_uri" in customer_server
 
@@ -56,6 +58,8 @@ def test_browser_roles_have_distinct_https_ports_and_public_backend_hop() -> Non
 
     operations_server = edges.split("listen 8788 ssl;", 1)[1]
     assert "apps/operations-web/build/client/" in operations_server
+    assert "location = /platform/operations/index.html {" in operations_server
+    assert "expires -1;" in operations_server
     assert "https://39.105.175.14:8787$request_uri" in operations_server
 
     assert "https://39.105.175.14:8787/platform/customer/" in backend
