@@ -6,6 +6,8 @@ import {
 } from '@geo/api-client';
 import { getValidatedIdentityHeaders } from '@geo/auth';
 import { Badge, StatePanel, useOptionalExperienceContext } from '@geo/design-system';
+import { CustomerProjectOverview } from './customer-project-overview';
+import { CustomerSamplingProgressEntry } from './customer-sampling-progress';
 
 const fixtureServices: CustomerFiveServices = {
   projectPubId: 'prj_fixture',
@@ -141,7 +143,13 @@ function ServiceResult({ service }: { service: CustomerFiveService }) {
   );
 }
 
-export function CustomerServicesWorkspace({ focus }: { focus?: 1 | 2 | 3 | 4 | 5 }) {
+export function CustomerServicesWorkspace({
+  focus,
+  mode = 'services',
+}: {
+  focus?: 1 | 2 | 3 | 4 | 5;
+  mode?: 'overview' | 'services';
+}) {
   const experience = useOptionalExperienceContext();
   const fixture = experience?.source !== 'live';
   const [state, setState] = useState<'loading' | 'ready' | 'failed' | 'forbidden'>(
@@ -179,8 +187,31 @@ export function CustomerServicesWorkspace({ focus }: { focus?: 1 | 2 | 3 | 4 | 5
     };
   }, [experience?.projectPubId, fixture]);
 
-  if (state !== 'ready') return <StatePanel state={state} />;
-  if (!view) return <StatePanel state="empty" />;
+  const samplingProgressEntry = focus === 1 ? <CustomerSamplingProgressEntry /> : null;
+  if (state !== 'ready') {
+    return (
+      <div className="workspace-stack">
+        {samplingProgressEntry}
+        <StatePanel state={state} />
+      </div>
+    );
+  }
+  if (!view) {
+    return (
+      <div className="workspace-stack">
+        {samplingProgressEntry}
+        <StatePanel state="empty" />
+      </div>
+    );
+  }
+  if (mode === 'overview') {
+    return (
+      <CustomerProjectOverview
+        projectLabel={experience?.projectLabel ?? '当前客户项目'}
+        services={view.services}
+      />
+    );
+  }
   const services = focus
     ? view.services.filter((service) => service.serviceNumber === focus)
     : view.services;
@@ -193,6 +224,7 @@ export function CustomerServicesWorkspace({ focus }: { focus?: 1 | 2 | 3 | 4 | 5
           每项服务独立授权、审核和交付。未开通服务只显示状态，不返回内部分析结果。
         </p>
       </section>
+      {samplingProgressEntry}
       <div className="source-grid">
         {services.map((service) => (
           <article key={service.serviceCode}>

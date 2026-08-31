@@ -1050,14 +1050,14 @@ describe('Customer platform account lifecycle', () => {
         state: 'ready',
         metric_version: 'metric-v1',
         scorer_version: 'scorer-v1',
-        filter_hash: 'safe',
+        filter_hash: 'a'.repeat(64),
       })) as AnalyticsOverviewSafeResponse,
     );
     expect(overview).toMatchObject({
       total: 5,
-      invalid: false,
+      invalid: true,
     });
-    expect(overview.data).toHaveLength(customerMonitoringProjectionLimits.overview);
+    expect(overview.data).toHaveLength(4);
 
     const competitors = projectAnalyticsCompetitors(
       Array.from({ length: 51 }, (_, index) => ({

@@ -212,6 +212,7 @@ export function buildCustomerDashboardV2Fixture(
       candidate_answer_count: 4,
       known_answer_count: 4,
       unknown_answer_count: 0,
+      failed_answer_count: 0,
       not_applicable_answer_count: 0,
       excluded_answer_count: 0,
       design_cell_count: 4,
@@ -370,12 +371,15 @@ export function buildCustomerMetricTraceV2Fixture(
           supporting_decisions: [
             {
               decision_pub_id: 'sdr_customer_trace_01',
+              decision_hash: fixtureHash('6'),
               task: 'recommendation_relation_v2',
               version: '2.0.0',
               method: 'model' as const,
               status: 'accepted' as const,
               calibrated_confidence: 0.96,
               rubric_hash: fixtureHash('4'),
+              result: { relation: 'recommended', stance: 'positive' },
+              reason_codes: ['accepted_recommendation_relation'],
               evidence_refs: [{ event_pub_id: 'sev_customer_trace_01' }],
               rationale_summary: '回答明确把焦点品牌作为正向推荐候选。',
             },

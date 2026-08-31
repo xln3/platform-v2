@@ -54,6 +54,7 @@ const metric = (name: string, index: number) => ({
   candidate_answer_count: 2,
   known_answer_count: 2,
   unknown_answer_count: 0,
+  failed_answer_count: 0,
   not_applicable_answer_count: 0,
   excluded_answer_count: 0,
   design_cell_count: 2,
@@ -149,7 +150,7 @@ describe('CustomerAnalyticsWorkspace V2', () => {
           source: 'live',
         }}
       >
-        <CustomerAnalyticsWorkspace focus="overview" />
+        <CustomerAnalyticsWorkspace focus="overview" contract="metrics-v2" />
       </ExperienceProvider>,
     );
 
@@ -183,11 +184,12 @@ describe('CustomerAnalyticsWorkspace V2', () => {
           source: 'live',
         }}
       >
-        <CustomerAnalyticsWorkspace focus="overview" />
+        <CustomerAnalyticsWorkspace focus="overview" contract="metrics-v2" />
       </ExperienceProvider>,
     );
 
     expect(screen.getByText('加载失败', { exact: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '查看采样进度' })).toBeTruthy();
     expect(apiSpies.dashboardV2).not.toHaveBeenCalled();
     expect(apiSpies.legacyDashboard).not.toHaveBeenCalled();
     expect(apiSpies.legacyCatalog).not.toHaveBeenCalled();

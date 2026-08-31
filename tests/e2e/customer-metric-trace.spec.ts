@@ -16,11 +16,10 @@ const neutralRecommendationMetrics = [
   'ai_recommendation_entity_share_v2',
 ];
 
-test('customer V2 cohort cards open a frozen evidence trace without legacy or model reads', async ({
-  page,
-}) => {
+test('customer V2 trace corrects one fact without legacy or model reads', async ({ page }) => {
   const dashboardRequests: URL[] = [];
   const forbiddenReads: string[] = [];
+  const correctionRequests: Array<{ url: URL; body: unknown }> = [];
   await page.addInitScript(() => {
     localStorage.setItem('geo.session.tenant', 'tnt_customer_metric_trace');
     localStorage.setItem('geo.session.actor', 'customer-metric-trace');
@@ -57,12 +56,34 @@ test('customer V2 cohort cards open a frozen evidence trace without legacy or mo
       }),
     }),
   );
+  await page.route('**/api/v2/metrics/operations/semantic-decisions/*/overrides', async (route) => {
+    correctionRequests.push({
+      url: new URL(route.request().url()),
+      body: route.request().postDataJSON(),
+    });
+    return route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema_version: 'semantic-decision-override-v2',
+        decision_pub_id: 'sdr_customer_trace_corrected',
+        supersedes_pub_id: 'sdr_customer_trace_01',
+        decision_hash: '7'.repeat(64),
+        recompute_job_pub_id: 'mrj_customer_trace_corrected',
+      }),
+    });
+  });
   page.on('request', (request) => {
     const url = new URL(request.url());
     if (url.pathname.includes('/api/v2/customer-dashboard/')) dashboardRequests.push(url);
+    const expectedCorrection =
+      request.method() === 'POST' &&
+      url.pathname.endsWith(
+        '/api/v2/metrics/operations/semantic-decisions/sdr_customer_trace_01/overrides',
+      );
     if (
       (url.pathname.includes('/api/v2/customer-dashboard/') && request.method() !== 'GET') ||
-      url.pathname.includes('/semantic-decisions') ||
+      (url.pathname.includes('/semantic-decisions') && !expectedCorrection) ||
       url.pathname.includes('/decision-jobs') ||
       url.pathname.includes('/recompute')
     ) {
@@ -91,19 +112,50 @@ test('customer V2 cohort cards open a frozen evidence trace without legacy or mo
   await page.getByRole('button', { name: '查看计算明细' }).first().click();
   const dialog = page.getByRole('dialog', { name: /ai_recommendation_/ });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText('accepted_recommendation_relation')).toBeVisible();
+  await expect(
+    dialog.getByRole('cell', { name: 'accepted_recommendation_relation', exact: true }),
+  ).toBeVisible();
   await expect(dialog.getByText('query 0.250000')).toBeVisible();
   await expect(
     dialog.getByText(/design 1\.000000 × repeat 1\.000000 = final 0\.250000/),
   ).toBeVisible();
   await expect(dialog.getByText('recommendation_relation_v2@2.0.0')).toBeVisible();
-  await expect(dialog.getByText(/model · accepted · 已校准置信度 96\.0%/)).toBeVisible();
+  await expect(dialog.getByText(/model · accepted · 模型自动判定 · 置信度 96\.0%/)).toBeVisible();
   await expect(dialog.getByText('回答明确把焦点品牌作为正向推荐候选。')).toBeVisible();
   await expect(dialog.getByText('云岫智能值得优先考虑。')).toBeVisible();
   await expect(dialog.getByText('mss_customer_dashboard_fixture')).toBeVisible();
   await expect(dialog.getByText('a'.repeat(64))).toBeVisible();
   await expect(dialog.getByText('e'.repeat(64))).toBeVisible();
   await expect(dialog.getByRole('button', { name: '关闭计算明细' })).toBeFocused();
+  await dialog.getByRole('button', { name: '纠错' }).click();
+  const correctionForm = dialog.getByRole('form', {
+    name: '纠正 recommendation_relation_v2 判定',
+  });
+  await expect(correctionForm).toBeVisible();
+  await expect(correctionForm.getByText(/只修正这一条具体事实/u)).toBeVisible();
+  await expect(correctionForm.getByLabel('修正后的结构化判定')).toHaveValue(
+    JSON.stringify({ relation: 'recommended', stance: 'positive' }, null, 2),
+  );
+  await correctionForm
+    .getByLabel('修正后的结构化判定')
+    .fill(JSON.stringify({ relation: 'mentioned', stance: 'neutral' }, null, 2));
+  await correctionForm.getByLabel('纠错理由').fill('原文只是中性提及，不构成推荐。');
+  await correctionForm.getByRole('button', { name: '提交纠错并重算' }).click();
+  await expect(correctionForm.getByRole('status')).toContainText(
+    '纠错已提交，受影响指标正在自动重算',
+  );
+  expect(correctionRequests).toHaveLength(1);
+  expect(correctionRequests[0]?.url.pathname).toBe(
+    '/api/v2/metrics/operations/semantic-decisions/sdr_customer_trace_01/overrides',
+  );
+  expect(correctionRequests[0]?.body).toEqual({
+    project_pub_id: projectPubId,
+    result: { relation: 'mentioned', stance: 'neutral' },
+    rationale_summary: '原文只是中性提及，不构成推荐。',
+    reason_codes: ['customer_correction'],
+    expected_decision_hash: '6'.repeat(64),
+  });
+  await correctionForm.getByRole('button', { name: '完成' }).click();
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
 

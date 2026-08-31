@@ -10159,6 +10159,7 @@ export default function Shell() {
         description="围绕已授权五项服务、报告交付和项目资料的客户安全入口。"
         nav={experience?.source === 'live' ? liveNav : nav}
         additionalSectionIds={customerLegacyAnalyticsSectionIds}
+        allowProjectSwitching={false}
         probe={getHealth}
       >
         {(active) => (
@@ -10189,11 +10190,11 @@ export default function Shell() {
             ].includes(active) ? (
               <StatePanel state="insufficient" />
             ) : active === 'home' ? (
-              <CustomerAnalyticsWorkspace focus="overview" />
+              <CustomerServicesWorkspace mode="overview" />
             ) : active === 'services' ? (
               <CustomerServicesWorkspace />
             ) : active === 'service-1' ? (
-              <CustomerServicesWorkspace focus={1} />
+              <CustomerAnalyticsWorkspace focus="overview" />
             ) : active === 'service-2' ? (
               <CustomerServicesWorkspace focus={2} />
             ) : active === 'service-3' ? (

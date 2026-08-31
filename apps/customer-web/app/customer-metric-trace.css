@@ -148,6 +148,7 @@
 }
 
 .geo-metric-trace [data-state='analysis_unknown'],
+.geo-metric-trace [data-state='analysis_failed'],
 .geo-metric-v2-card [data-state='insufficient'],
 .geo-metric-v2-card [data-state='experimental'] {
   color: #b45309;

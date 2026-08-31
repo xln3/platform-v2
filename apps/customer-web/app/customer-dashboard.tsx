@@ -60,6 +60,7 @@ import {
   type MetricV2Definition,
   type MetricV2Summary,
 } from './customer-metric-trace';
+import { CustomerSamplingProgressEntry } from './customer-sampling-progress';
 import './customer-dashboard.css';
 
 export type CustomerAnalyticsFocus =
@@ -2327,6 +2328,7 @@ const projectMetricV2Summary = (
   candidate_answer_count: metric.candidate_answer_count,
   known_answer_count: metric.known_answer_count,
   unknown_answer_count: metric.unknown_answer_count,
+  failed_answer_count: metric.failed_answer_count,
   not_applicable_answer_count: metric.not_applicable_answer_count,
   excluded_answer_count: metric.excluded_answer_count,
   design_cell_count: metric.design_cell_count,
@@ -2411,6 +2413,7 @@ const projectMetricV2ContributionPage = (
       calibrated_confidence: decision.calibrated_confidence ?? null,
       rubric_hash: decision.rubric_hash,
       result: decision.result,
+      reason_codes: decision.reason_codes ?? [],
       evidence_refs: decision.evidence_refs ?? [],
     })),
     answer_excerpt: row.answer_excerpt ?? null,
@@ -2764,6 +2767,7 @@ function CustomerAnalyticsV2LiveWorkspace({
       const headers = getValidatedIdentityHeaders();
       if (!headers) return { kind: 'forbidden' };
       const result = await overrideSemanticDecisionV2(
+        projectPubId,
         request.decisionPubId,
         {
           result: request.result,
@@ -2777,7 +2781,7 @@ function CustomerAnalyticsV2LiveWorkspace({
         ? { kind: 'submitted', recomputeJobPubId: result.data.recomputeJobPubId }
         : { kind: result.kind };
     },
-    [],
+    [projectPubId],
   );
 
   const filterOptions: DashboardFilterOptions = {
@@ -2825,7 +2829,6 @@ function CustomerAnalyticsV2LiveWorkspace({
           </small>
         </div>
       </section>
-
       <nav className="geo-metric-v2-navigation" aria-label="客户指标业务入口与暴露范围">
         <div role="group" aria-label="业务入口">
           {(Object.keys(customerBusinessViewLabels) as CustomerBusinessViewV2[]).map((value) => (
@@ -2939,18 +2942,39 @@ function CustomerAnalyticsV2LiveWorkspace({
 
 export function CustomerAnalyticsWorkspace({
   focus = 'overview',
+  contract = 'stable-v1',
 }: {
   focus?: CustomerAnalyticsFocus;
+  contract?: 'stable-v1' | 'metrics-v2';
 }) {
   const experience = useOptionalExperienceContext();
-  if (experience?.source === 'live') {
-    return experience.projectPubId ? (
+  // The V2 UI must be opted into only by a release that also ships its API route,
+  // database schema and published snapshots. Customer routes stay on the stable
+  // customer-dashboard-v1 contract until that release boundary is complete.
+  if (contract === 'metrics-v2' && experience?.source === 'live') {
+    const workspace = experience.projectPubId ? (
       <CustomerAnalyticsV2LiveWorkspace focus={focus} projectPubId={experience.projectPubId} />
     ) : (
       <div className="geo-customer-dashboard geo-customer-dashboard--v2">
         <StatePanel state="failed" />
       </div>
     );
+    return focus === 'overview' ? (
+      <div className="geo-customer-dashboard customer-service-one-workspace">
+        <CustomerSamplingProgressEntry />
+        {workspace}
+      </div>
+    ) : (
+      workspace
+    );
   }
-  return <CustomerAnalyticsLegacyWorkspace focus={focus} />;
+  const workspace = <CustomerAnalyticsLegacyWorkspace focus={focus} />;
+  return focus === 'overview' ? (
+    <div className="geo-customer-dashboard customer-service-one-workspace">
+      <CustomerSamplingProgressEntry />
+      {workspace}
+    </div>
+  ) : (
+    workspace
+  );
 }
