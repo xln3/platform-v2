@@ -119,6 +119,16 @@ def test_metrics_v2_physical_contract_is_installed_at_head() -> None:
             "semantic_decision_task_definition_v2.decision_method_policy": "text",
             "semantic_judge_policy_v2.disagreement_policy": "text",
         }
+        snapshot_columns = {
+            str(row[0])
+            for row in connection.execute(
+                """
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema='analytics' AND table_name='metric_snapshot_v2'
+                """
+            ).fetchall()
+        }
+        assert "failed_answer_count" in snapshot_columns
 
 
 def test_metrics_v2_ratios_use_fixed_precision_and_history_has_guards() -> None:
@@ -154,7 +164,7 @@ def test_metrics_v2_ratios_use_fixed_precision_and_history_has_guards() -> None:
         } <= triggers
 
 
-def test_judge_policy_requires_calibration_only_when_published() -> None:
+def test_judge_policy_publication_requires_timestamp_but_not_calibration() -> None:
     token = uuid4().hex
     insert = """
         INSERT INTO analytics.semantic_judge_policy_v2 (
@@ -186,17 +196,24 @@ def test_judge_policy_requires_calibration_only_when_published() -> None:
                 "DELETE FROM analytics.semantic_judge_policy_v2 WHERE name=%s",
                 (f"experimental-{token}",),
             )
-        with pytest.raises(psycopg.errors.CheckViolation):
-            connection.execute(
-                insert,
-                (
-                    f"published-{token}",
-                    None,
-                    uuid4().hex * 2,
-                    "published",
-                    "2026-01-01T00:00:00Z",
-                ),
-            )
+        published_name = f"published-{token}"
+        connection.execute(
+            insert,
+            (
+                published_name,
+                None,
+                uuid4().hex * 2,
+                "published",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+        assert connection.execute(
+            """
+            SELECT status,calibration_artifact_hash
+            FROM analytics.semantic_judge_policy_v2 WHERE name=%s
+            """,
+            (published_name,),
+        ).fetchone() == ("published", None)
 
         lifecycle_name = f"lifecycle-{token}"
         calibration_hash = uuid4().hex * 2
