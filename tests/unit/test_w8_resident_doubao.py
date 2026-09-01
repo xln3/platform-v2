@@ -277,7 +277,7 @@ def test_resident_config_from_env_valid_and_defaults(tmp_path: Path) -> None:
     assert config.cdp_port == 19222
     assert config.display == ":1"  # 缺省
     assert config.health_interval_s == 15.0
-    assert config.health_timeout_s == 15.0
+    assert config.health_timeout_s == 60.0
     assert config.cdp_url == "http://127.0.0.1:19222"
     with_proxy = ResidentBrowserConfig.from_env(
         _env(

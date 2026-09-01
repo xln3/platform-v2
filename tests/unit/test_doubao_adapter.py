@@ -70,6 +70,7 @@ class _ScopedCapturePage:
         mutate_fingerprint_at: int | None = None,
         mutate_layout_at: int | None = None,
         state_error_at: int | None = None,
+        state_error: str = "message_content_count:1,0",
         restore_ok: bool = True,
     ) -> None:
         self.scroll_top = 178.0
@@ -78,6 +79,7 @@ class _ScopedCapturePage:
         self.mutate_fingerprint_at = mutate_fingerprint_at
         self.mutate_layout_at = mutate_layout_at
         self.state_error_at = state_error_at
+        self.state_error = state_error
         self.restore_ok = restore_ok
         self.screenshot_calls = 0
         self.probe_calls = 0
@@ -130,7 +132,7 @@ class _ScopedCapturePage:
         assert script == doubao_adapter._DOUBAO_CAPTURE_STATE_JS
         self.probe_calls += 1
         if self.state_error_at == self.probe_calls:
-            return {"ok": False, "error": "message_content_count:1,0"}
+            return {"ok": False, "error": self.state_error}
         if isinstance(argument, dict) and argument.get("scrollTop") is not None:
             self.scroll_top = float(argument["scrollTop"])
         fingerprint = "1265:answer"
@@ -242,8 +244,80 @@ def test_scoped_capture_restarts_after_same_answer_layout_hydrates(tmp_path: Pat
     assert out_path.exists()
 
 
+def test_scoped_capture_waits_for_chat_scroller_hydration(tmp_path: Path) -> None:
+    """正文先出现、虚拟列表稍后挂载时等待同一语义 scroller，不降级全页截图。"""
+    page = _ScopedCapturePage()
+    original_evaluate = page.evaluate
+    missing = 2
+
+    def evaluate(script: str, argument: Any = None) -> dict[str, Any]:
+        nonlocal missing
+        if script == doubao_adapter._DOUBAO_CAPTURE_STATE_JS and missing > 0:
+            missing -= 1
+            return {"ok": False, "error": "chat_scroller_count:0"}
+        return original_evaluate(script, argument)
+
+    page.evaluate = evaluate  # type: ignore[method-assign]
+    out_path = tmp_path / "hydrated-scroller.png"
+
+    audit = _capture_full_page(page, out_path, expected_question="本次问题")
+
+    assert missing == 0
+    assert audit["method"] == "doubao_scoped_message_tiles"
+    assert out_path.exists()
+
+
+def test_scoped_capture_waits_for_answer_content_hydration(tmp_path: Path) -> None:
+    """回答 root 已出现但正文仍是三点动画时，等待 data-message-id 挂载。"""
+    page = _ScopedCapturePage()
+    original_evaluate = page.evaluate
+    missing = 2
+
+    def evaluate(script: str, argument: Any = None) -> dict[str, Any]:
+        nonlocal missing
+        if script == doubao_adapter._DOUBAO_CAPTURE_STATE_JS and missing > 0:
+            missing -= 1
+            return {"ok": False, "error": "message_content_count:1,0"}
+        return original_evaluate(script, argument)
+
+    page.evaluate = evaluate  # type: ignore[method-assign]
+    out_path = tmp_path / "hydrated-answer.png"
+
+    audit = _capture_full_page(page, out_path, expected_question="本次问题")
+
+    assert missing == 0
+    assert audit["method"] == "doubao_scoped_message_tiles"
+    assert out_path.exists()
+
+
+@pytest.mark.parametrize("transient_error", ["question_role_unproven", "answer_role_unproven"])
+def test_scoped_capture_waits_for_role_action_bar_hydration(
+    tmp_path: Path, transient_error: str
+) -> None:
+    """可见问答 root 的 action bar 晚挂载时等待，不把生成中页面固化为失败。"""
+    page = _ScopedCapturePage()
+    original_evaluate = page.evaluate
+    missing = 2
+
+    def evaluate(script: str, argument: Any = None) -> dict[str, Any]:
+        nonlocal missing
+        if script == doubao_adapter._DOUBAO_CAPTURE_STATE_JS and missing > 0:
+            missing -= 1
+            return {"ok": False, "error": transient_error}
+        return original_evaluate(script, argument)
+
+    page.evaluate = evaluate  # type: ignore[method-assign]
+    out_path = tmp_path / f"hydrated-{transient_error}.png"
+
+    audit = _capture_full_page(page, out_path, expected_question="本次问题")
+
+    assert missing == 0
+    assert audit["method"] == "doubao_scoped_message_tiles"
+    assert out_path.exists()
+
+
 def test_scoped_capture_fails_closed_on_ambiguous_message_nodes(tmp_path: Path) -> None:
-    page = _ScopedCapturePage(state_error_at=1)
+    page = _ScopedCapturePage(state_error_at=1, state_error="message_content_count:2,1")
 
     with pytest.raises(
         doubao_adapter._DoubaoScopedCaptureError,
@@ -1666,7 +1740,7 @@ def test_share_answer_sequence_coverage_rejects_material_truncation() -> None:
     assert tail_ok is True
 
 
-def test_official_share_page_allows_table_ocr_floor_without_relaxing_generated_card(
+def test_official_share_page_uses_order_independent_table_coverage_without_relaxing_card(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "official-thread.png"
@@ -1683,6 +1757,11 @@ def test_official_share_page_allows_table_ocr_floor_without_relaxing_generated_c
         "_share_answer_sequence_coverage",
         lambda *_args, **_kwargs: (0.82, True, True, 82, 100),
     )
+    monkeypatch.setattr(
+        doubao_adapter,
+        "_share_answer_ngram_coverage",
+        lambda *_args, **_kwargs: (0.92, 92, 100),
+    )
 
     official_audit = {
         "channel": "official_share_page_screenshot",
@@ -1698,7 +1777,11 @@ def test_official_share_page_allows_table_ocr_floor_without_relaxing_generated_c
         )
         is True
     )
-    assert official_audit["content_verification"]["answer_coverage_threshold"] == 0.80
+    assert official_audit["content_verification"]["answer_coverage"] == 0.92
+    assert official_audit["content_verification"]["answer_coverage_threshold"] == 0.90
+    assert (
+        official_audit["content_verification"]["answer_coverage_metric"] == "bigram_multiset_recall"
+    )
     assert official_audit["content_verification"]["dom_content_verified"] is True
 
     unproven_official_audit = {"channel": "official_share_page_screenshot"}
@@ -1712,9 +1795,10 @@ def test_official_share_page_allows_table_ocr_floor_without_relaxing_generated_c
         )
         is False
     )
+    assert unproven_official_audit["content_verification"]["answer_coverage_threshold"] == 0.85
     assert (
-        unproven_official_audit["content_verification"]["answer_coverage_threshold"]
-        == 0.85
+        unproven_official_audit["content_verification"]["answer_coverage_metric"]
+        == "sequence_recall"
     )
 
     generated_audit = {"channel": "download"}
@@ -1812,7 +1896,8 @@ def test_official_share_page_capture_verifies_current_qa_and_writes_png(
     assert audit["question_verified"] is True
     assert audit["answer_verified"] is True
     assert audit["dom_content_verification"]["ok"] is True
-    assert audit["dom_content_verification"]["answer_coverage"] >= 0.95
+    assert audit["dom_content_verification"]["answer_coverage"] >= 0.90
+    assert audit["dom_content_verification"]["answer_coverage_metric"] == "bigram_multiset_recall"
     assert audit["dims"] == {"width": 640, "height": 480}
     assert audit["capture_method"] == "official_share_page_screenshot"
     assert audit["page_capture_method"] == "cdp_capture_beyond_viewport"
@@ -2052,6 +2137,116 @@ def test_collect_batch_wall_aborts_remaining_items(
     # 优雅关闭仍发生（撞墙后 finally close + 崩溃清理）
     assert len([e for e in events if e[0] == "context_close"]) == 1
     assert events[-1] == ("clean",)
+
+
+def test_collect_batch_retries_when_resident_browser_closes_during_share_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TargetClosed 是 session 基建故障，必须逃出 batch 触发 Temporal activity 重试。"""
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    monkeypatch.setattr(
+        doubao_adapter,
+        "capture_share_image",
+        lambda _page, _path: {"ok": False, "error": "share_tooltip_not_found"},
+    )
+    monkeypatch.setattr(
+        doubao_adapter,
+        "_verify_doubao_generated_share_image",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        doubao_adapter,
+        "capture_share_link",
+        lambda _page: {
+            "ok": False,
+            "error": (
+                "TargetClosedError: Page.wait_for_timeout: "
+                "Target page, context or browser has been closed"
+            ),
+        },
+    )
+
+    with pytest.raises(
+        doubao_adapter._BrowserSessionLost,
+        match="browser-session-lost-during-share-export",
+    ):
+        session.collect_batch(_batch_specs(1), on_stage=lambda _stage: None)
+
+
+def test_submit_falls_back_to_keyboard_when_button_click_is_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """鼠标事件成功但 composer 未清空时，必须再走键盘提交并确认受理。"""
+    page = _FakePage(composer_value="这是一条待发送的问题")
+    input_loc = page.locator(doubao_adapter._INPUT_SELECTORS[0])
+    keyboard_calls: list[str] = []
+
+    monkeypatch.setattr(doubao_adapter, "_click_send_button", lambda *_a, **_kw: True)
+
+    def keyboard_submit(_page: Any, _input_loc: Any) -> bool:
+        keyboard_calls.append("called")
+        page.composer_value = ""
+        return True
+
+    monkeypatch.setattr(doubao_adapter, "_send_via_keyboard", keyboard_submit)
+
+    result = doubao_adapter._submit_and_confirm(
+        page,
+        input_loc,
+        random.Random(17),
+        pace=lambda _lo, _hi: 0.0,
+        attempts=1,
+        settle_ms=200,
+        poll_ms=200,
+    )
+
+    assert result == {"submitted": True, "attempts": 1}
+    assert keyboard_calls == ["called"]
+
+
+def test_submit_waits_for_delayed_prosemirror_acceptance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """北京新版页面可在点击数秒后才清空 composer；此时不能提前补发或报墙。"""
+    page = _FakePage(composer_value="这是一条待发送的问题")
+    input_loc = page.locator(doubao_adapter._INPUT_SELECTORS[0])
+    waited_ms = 0.0
+    keyboard_calls: list[str] = []
+    original_wait = page.wait_for_timeout
+
+    monkeypatch.setattr(doubao_adapter, "_click_send_button", lambda *_a, **_kw: True)
+
+    def delayed_wait(timeout: float) -> None:
+        nonlocal waited_ms
+        original_wait(timeout)
+        waited_ms += timeout
+        if waited_ms >= 2400:
+            page.composer_value = ""
+
+    def keyboard_submit(_page: Any, _input_loc: Any) -> bool:
+        keyboard_calls.append("called")
+        return False
+
+    page.wait_for_timeout = delayed_wait  # type: ignore[method-assign]
+    monkeypatch.setattr(doubao_adapter, "_send_via_keyboard", keyboard_submit)
+
+    result = doubao_adapter._submit_and_confirm(
+        page,
+        input_loc,
+        random.Random(19),
+        pace=lambda _lo, _hi: 0.0,
+        attempts=1,
+        poll_ms=200,
+    )
+
+    assert result == {"submitted": True, "attempts": 1}
+    assert keyboard_calls == []
+
+
+def test_send_button_probe_supports_live_prosemirror_composer() -> None:
+    """20260831 live composer 已从 textarea 漂到 ProseMirror contenteditable。"""
+    assert 'div[contenteditable="true"][role="textbox"]' in doubao_adapter._TAG_JS
 
 
 # ---------------------------------------------------------------------------

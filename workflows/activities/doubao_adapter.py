@@ -150,6 +150,7 @@ import os
 import random
 import re
 import time
+from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from hashlib import sha256
@@ -466,13 +467,16 @@ _TRAILING_NOISE_MARKERS: tuple[str, ...] = (
     "发消息",
 )
 
-# JS：在 textarea 右侧/下方找方形带 svg 的发送按钮并打 data 标记（旧链 _TAG_JS）
+# JS：在 composer 右侧/下方找方形带 svg 的发送按钮并打 data 标记（旧链
+# textarea + 20260831 live ProseMirror contenteditable 两种 DOM 均覆盖）。
 _TAG_JS = """() => {
     document.querySelectorAll('[data-proxyllm-send]').forEach(
         e => e.removeAttribute('data-proxyllm-send'));
-    const ta = document.querySelector('textarea[placeholder*="发消息"]');
-    if (!ta) return false;
-    const tar = ta.getBoundingClientRect();
+    const composer = document.querySelector('textarea[placeholder*="发消息"]')
+      || document.querySelector('div[contenteditable="true"][role="textbox"]')
+      || document.querySelector('div[contenteditable="true"]');
+    if (!composer) return false;
+    const tar = composer.getBoundingClientRect();
     const cands = Array.from(document.querySelectorAll('button, [role="button"]'));
     const scored = [];
     for (const el of cands) {
@@ -838,6 +842,10 @@ class _IncompleteCapture(RuntimeError):
         super().__init__(message)
         self.evidence_path = evidence_path
         self.evidence_refs: list[CollectionEvidenceRef] = []
+
+
+class _BrowserSessionLost(_IncompleteCapture):
+    """常驻浏览器在题内断开；必须提升为 activity 级重试，不能固化成题级失败。"""
 
 
 class _DeepThinkToggleFailed(RuntimeError):
@@ -1625,6 +1633,12 @@ class _PlaywrightDoubaoSession:
                     )
                     mode_toggle_blocked[spec.mode] = (spec, "mode_toggle_failed")
                     continue
+                except _BrowserSessionLost:
+                    # 常驻 Chromium 被 supervisor 重启或崩溃时，当前 page/context
+                    # 已整体失效。把它留在题级 outcome 会直接落 failed，Temporal
+                    # 也就失去重连后重做本题的机会；向 activity 边界提升，使用
+                    # 已发布的 maximum_attempts=2 在新浏览器上重试整条 item。
+                    raise
                 except _IncompleteCapture as inc:
                     # 同上：截图为题级 flake，记 incomplete 后续跑，不中止整批。
                     outcomes.append(
@@ -2254,6 +2268,11 @@ class _PlaywrightDoubaoSession:
                 }
             share_url = _validated_doubao_share_url(share_link_audit.get("url"))
             share_link_ok = bool(share_link_audit.get("ok")) and share_url is not None
+            if _share_export_lost_browser(page, share_image_audit, share_link_audit):
+                raise _BrowserSessionLost(
+                    "browser-session-lost-during-share-export: the resident browser "
+                    "closed while collecting the official share evidence"
+                )
             if not share_image_ok and share_link_ok and share_url:
                 generated_failure = {
                     "capture_method": share_image_audit.get("capture_method"),
@@ -2576,6 +2595,38 @@ class _HumanizedPageFacade:
         return getattr(self._page, name)
 
 
+_TARGET_CLOSED_MARKERS = (
+    "TargetClosedError",
+    "Target page, context or browser has been closed",
+    "Browser has been closed",
+    "Connection closed",
+)
+
+
+def _share_export_lost_browser(page: Any, *audits: dict[str, Any]) -> bool:
+    """Recognize a dead CDP target without weakening official-share validation.
+
+    The legacy exporter deliberately returns audit dictionaries instead of
+    propagating UI exceptions.  When the resident-browser supervisor restarts
+    Chromium mid-export, that would otherwise be flattened into the same
+    ``answer_capture_incomplete`` outcome as an ordinary missing tooltip and be
+    persisted permanently.  A closed page or an explicit TargetClosed audit is
+    infrastructure loss, so the batch activity must reconnect and retry it.
+    """
+
+    try:
+        if bool(page.is_closed()):
+            return True
+    except Exception:
+        # Older/fake Page implementations need not expose ``is_closed``.
+        pass
+    try:
+        rendered = json.dumps(audits, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        rendered = " ".join(str(audit) for audit in audits)
+    return any(marker in rendered for marker in _TARGET_CLOSED_MARKERS)
+
+
 def _validated_doubao_share_url(value: object) -> str | None:
     url = _external_http_url(value)
     if not url:
@@ -2634,6 +2685,38 @@ def _share_answer_sequence_coverage(
     )
 
 
+def _share_answer_ngram_coverage(
+    expected_answer: str,
+    recognized_text: str,
+    *,
+    ngram_width: int = 2,
+) -> tuple[float, int, int]:
+    """Measure content recall without assuming table-cell reading order.
+
+    Official thread pages render Markdown tables as visual columns.  OCR may
+    visit those columns in a different order from the SSE Markdown while still
+    preserving adjacent characters inside every cell.  A multiset of compact
+    character bigrams therefore measures whether the answer content is present
+    without rewarding arbitrary single-character overlap or requiring a false
+    one-dimensional table order.
+    """
+
+    expected = _share_text_compact(expected_answer)
+    recognized = _share_text_compact(recognized_text)
+    width = max(int(ngram_width), 1)
+    if not expected or not recognized or len(expected) < width:
+        return 0.0, 0, max(len(expected) - width + 1, 0)
+    expected_ngrams = Counter(
+        expected[index : index + width] for index in range(len(expected) - width + 1)
+    )
+    recognized_ngrams = Counter(
+        recognized[index : index + width] for index in range(max(len(recognized) - width + 1, 0))
+    )
+    total = sum(expected_ngrams.values())
+    matched = sum((expected_ngrams & recognized_ngrams).values())
+    return (matched / total if total else 0.0), matched, total
+
+
 def _verify_doubao_generated_share_image(
     path: Path,
     audit: dict[str, Any],
@@ -2688,36 +2771,44 @@ def _verify_share_image_ocr_content(
     compact_ocr = _share_text_compact(recognized)
     compact_question = _share_text_compact(expected_question)
     question_ok = bool(compact_question) and compact_question in compact_ocr
-    coverage, head_ok, tail_ok, matched_chars, total_chars = _share_answer_sequence_coverage(
+    sequence_coverage, head_ok, tail_ok, matched_chars, total_chars = (
+        _share_answer_sequence_coverage(expected_answer, recognized)
+    )
+    ngram_coverage, matched_ngrams, total_ngrams = _share_answer_ngram_coverage(
         expected_answer, recognized
     )
     # The official public thread is rendered as a wide HTML table before the
     # full-page screenshot is OCRed.  Column-wise OCR can reorder or omit a
     # small part of the middle even when the screenshot visibly contains the
     # complete answer.  Keep generated cards on the stricter threshold.  The
-    # measured 80% floor is available only when the independently URL-bound
-    # official page has already passed the separate high-coverage DOM proof;
-    # setting the channel name alone must never relax image admission.
+    # order-independent bigram metric is available only when the independently
+    # URL-bound official page has already passed the same structural DOM proof;
+    # setting the channel name alone must never change image admission.
     dom_verification = audit.get("dom_content_verification")
     official_dom_verified = (
         audit.get("channel") == "official_share_page_screenshot"
         and isinstance(dom_verification, dict)
         and dom_verification.get("ok") is True
     )
-    coverage_threshold = (
-        0.80 if official_dom_verified else 0.85
-    )
+    coverage = ngram_coverage if official_dom_verified else sequence_coverage
+    coverage_threshold = 0.90 if official_dom_verified else 0.85
+    coverage_metric = "bigram_multiset_recall" if official_dom_verified else "sequence_recall"
     verification.update(
         {
             "ocr_text_length": len(recognized),
             "question_verified": question_ok,
             "answer_coverage": round(coverage, 4),
             "answer_coverage_threshold": coverage_threshold,
+            "answer_coverage_metric": coverage_metric,
+            "answer_sequence_coverage": round(sequence_coverage, 4),
+            "answer_bigram_coverage": round(ngram_coverage, 4),
             "dom_content_verified": official_dom_verified,
             "answer_head_verified": head_ok,
             "answer_tail_verified": tail_ok,
             "answer_characters_verified": matched_chars,
             "answer_characters_total": total_chars,
+            "answer_bigrams_verified": matched_ngrams,
+            "answer_bigrams_total": total_ngrams,
         }
     )
     failure_reasons: list[str] = []
@@ -2796,10 +2887,13 @@ def _capture_official_share_page(
         audit["answer_probe_length"] = len(answer_probe)
         audit["question_verified"] = bool(compact_question) and compact_question in compact_body
         audit["answer_probe_verified"] = bool(answer_probe) and answer_probe in compact_body
-        dom_coverage, dom_head_ok, dom_tail_ok, dom_matched, dom_total = (
+        _dom_sequence_coverage, dom_head_ok, dom_tail_ok, _dom_matched, _dom_total = (
             _share_answer_sequence_coverage(expected_answer, body_text)
         )
-        dom_threshold = 0.95
+        dom_coverage, dom_matched, dom_total = _share_answer_ngram_coverage(
+            expected_answer, body_text
+        )
+        dom_threshold = 0.90
         dom_ok = (
             audit["question_verified"]
             and audit["answer_probe_verified"]
@@ -2811,10 +2905,11 @@ def _capture_official_share_page(
             "ok": dom_ok,
             "answer_coverage": round(dom_coverage, 4),
             "answer_coverage_threshold": dom_threshold,
+            "answer_coverage_metric": "bigram_multiset_recall",
             "answer_head_verified": dom_head_ok,
             "answer_tail_verified": dom_tail_ok,
-            "answer_characters_verified": dom_matched,
-            "answer_characters_total": dom_total,
+            "answer_bigrams_verified": dom_matched,
+            "answer_bigrams_total": dom_total,
         }
         audit["answer_verified"] = dom_ok
         if not dom_ok:
@@ -3273,22 +3368,34 @@ def _submit_and_confirm(
     pace: Callable[[float, float], float],
     start: tuple[float, float] | None = None,
     attempts: int = 2,
-    settle_ms: int = 1600,
+    settle_ms: int = 5000,
     poll_ms: int = 200,
 ) -> dict[str, Any]:
     """拟人化点击发送并确认提交真正生效，被吞时像真人一样顿一下再试一次
-    （2026-07-15 live 风控间歇性吞点击）。"""
+    （2026-07-15 live 风控间歇性吞点击）。20260831 北京新版页面在点击后可延迟
+    数秒才清空 ProseMirror；等待不足会误判 wall_send，继而补发并制造重复会话。"""
     used = 0
     for i in range(max(1, attempts)):
         used = i + 1
         _try_close_overlays(page, rng)
-        if not _click_send_button(page, rng, start=start):
-            _send_via_keyboard(page, input_loc)
+        clicked = _click_send_button(page, rng, start=start)
+        if not clicked and _send_via_keyboard(page, input_loc):
+            return {"submitted": True, "attempts": used}
         waited = 0
         while waited < settle_ms:
             page.wait_for_timeout(poll_ms)
             waited += poll_ms
             if _composer_cleared(input_loc):
+                return {"submitted": True, "attempts": used}
+        # 新版工作任务页会偶发吞掉看似成功的发送按钮点击。按钮点击返回值只说明
+        # 浏览器完成了鼠标事件，不代表页面受理了问题；输入框仍有内容时，必须在
+        # 本轮内走已有的键盘提交路径，再以输入框清空作为同一真值确认。
+        if clicked:
+            try:
+                input_loc.focus()
+            except Exception:
+                pass
+            if _send_via_keyboard(page, input_loc):
                 return {"submitted": True, "attempts": used}
         if used < attempts:
             # 发送被吞：真人会愣一下、重新点回输入框再试（原实现 200ms 机械重击）。
@@ -3452,6 +3559,35 @@ def _read_doubao_capture_state(
     if total_height <= 0 or total_height > _DOUBAO_CAPTURE_MAX_HEIGHT_CSS_PX:
         raise _DoubaoScopedCaptureError("Doubao message capture height was unsafe")
     return state
+
+
+def _wait_for_doubao_capture_state(
+    page: Any, *, expected_question: str, attempts: int = 40
+) -> dict[str, Any]:
+    """等待新版虚拟列表在回答流结束后挂载聊天 scroller。
+
+    20260831 北京 live 实证：SSE 已结束时，虚拟列表 scroller 仍可能短暂为 0，
+    或问答 root 已存在但角色 action bar / ``data-message-id`` 正文尚未挂载
+    （页面只显示生成中的三点动画）。这些都是两个 message root 已唯一定位后的
+    hydration 空窗，可以有界等待；其他消息数量、指纹错误仍立即 fail-closed，
+    不能用等待掩盖歧义证据。
+    """
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            return _read_doubao_capture_state(page, expected_question=expected_question)
+        except _DoubaoScopedCaptureError as exc:
+            reason = str(exc)
+            transient_markers = (
+                "chat_scroller_count:0",
+                "question_role_unproven",
+                "answer_role_unproven",
+                "message_content_count:1,0",
+            )
+            transient = any(marker in reason for marker in transient_markers)
+            if not transient or attempt >= attempts:
+                raise
+            page.wait_for_timeout(300)
+    raise _DoubaoScopedCaptureError("Doubao scoped capture state wait exhausted")
 
 
 def _assert_doubao_capture_stable(
@@ -3687,7 +3823,7 @@ def _capture_full_page(page: Any, out_path: Path, *, expected_question: str) -> 
     whole-page/flatten fallback because that would create misleading evidence.
     """
 
-    initial = _read_doubao_capture_state(page, expected_question=expected_question)
+    initial = _wait_for_doubao_capture_state(page, expected_question=expected_question)
     original_scroll_top = initial["scroll_top"]
     final_image: Image.Image | None = None
     tile_count = 0

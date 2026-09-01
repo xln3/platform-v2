@@ -58,7 +58,11 @@ ENV_HEALTH_TIMEOUT_S = "RESIDENT_HEALTH_TIMEOUT_SECONDS"
 
 _DEFAULT_DISPLAY = ":1"
 _HEALTH_INTERVAL_S = 15.0
-_HEALTH_TIMEOUT_S = 15.0
+# 豆包官方分享图生成会短时占满 Chromium（2026-08-31 北京补采实证：浏览器
+# 级 /json/version 在 15s 截止内未返回，supervisor 随即误杀了仍在取证的浏览器）。
+# 保留 15s 巡检频率，但给单次浏览器级探活 60s；真崩溃仍由 systemd 重启，
+# 短时渲染阻塞则不再把已生成答案打成 TargetClosed 残缺。
+_HEALTH_TIMEOUT_S = 60.0
 _PLATFORM_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
 
