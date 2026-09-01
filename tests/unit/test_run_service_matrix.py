@@ -76,3 +76,36 @@ class TestTaskMatrixModeCapabilities:
         baseline = _task_matrix(_config(models=["deepseek"], modes=["normal", "deep_think"]))
         filtered_keys = {task.business_key for task in filtered}
         assert all(task.business_key in filtered_keys for task in baseline)
+
+
+class TestTaskMatrixProviderApiSurface:
+    """provider_api 模态（2026-08-31 起）：官方 API slug 无地域出口维度，
+    region 折叠为哨兵 "api"（一题一任务）；mode 仅 normal。"""
+
+    def test_api_models_collapse_regions_to_sentinel(self) -> None:
+        config = _config(
+            models=["doubao", "doubao_api"],
+            modes=["normal"],
+            regions=["北京", "上海"],
+        )
+        tasks = _task_matrix(config)
+        web = [task for task in tasks if task.model == "doubao"]
+        api = [task for task in tasks if task.model == "doubao_api"]
+        assert {task.region for task in web} == {"北京", "上海"}
+        assert [(task.region, task.mode, task.adapter) for task in api] == [
+            ("api", "normal", "doubao_api")
+        ]
+
+    def test_api_models_filter_to_normal_mode(self) -> None:
+        config = _config(models=["doubao_api"], modes=["normal", "deep_think"])
+        tasks = _task_matrix(config)
+        assert [(task.model, task.mode) for task in tasks] == [("doubao_api", "normal")]
+
+    def test_api_only_matrix_with_all_modes_filtered_raises(self) -> None:
+        with pytest.raises(ValueError, match="collection_matrix_empty"):
+            _task_matrix(_config(models=["doubao_api"], modes=["deep_think"]))
+
+    def test_api_business_keys_distinct_from_web(self) -> None:
+        config = _config(models=["doubao", "doubao_api"], modes=["normal"], regions=["北京"])
+        tasks = _task_matrix(config)
+        assert len({task.business_key for task in tasks}) == 2

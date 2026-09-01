@@ -23,11 +23,16 @@ with workflow.unsafe.imports_passed_through():
         CollectionBatchResult,
         CollectionTaskInput,
         CollectionTaskResult,
+        collect_deepseek_api_batch,
         collect_deepseek_batch,
+        collect_doubao_api_batch,
         collect_doubao_batch,
+        collect_tongyi_api_batch,
         collect_tongyi_batch,
         collect_with_adapter,
+        collect_yiyan_api_batch,
         collect_yiyan_batch,
+        collect_yuanbao_api_batch,
         collect_yuanbao_batch,
         mark_collection_run_terminal,
         persist_collection_result,
@@ -179,7 +184,22 @@ def plan_collection_segments(
 # 派发的结果只会转成 dict，workflow 任务随即异常并被 Temporal 无限重试，表现
 # 为静默挂起，2026-08-06 实测坑）；不在词表的 slug（如测试用 "fixed"）保持
 # per-task 老路径。
-BATCH_CAPABLE_ADAPTERS = frozenset({"doubao", "deepseek", "tongyi", "yiyan", "yuanbao"})
+BATCH_CAPABLE_ADAPTERS = frozenset(
+    {
+        "doubao",
+        "deepseek",
+        "tongyi",
+        "yiyan",
+        "yuanbao",
+        # provider_api 模态（2026-08-31 起）：官方 API 直连五 slug，batch 契约相同
+        # （无浏览器会话/captcha pause；provider_api_adapter.py）。
+        "doubao_api",
+        "deepseek_api",
+        "tongyi_api",
+        "yiyan_api",
+        "yuanbao_api",
+    }
+)
 ADAPTER_BATCH_MODE_SEGMENTS_PATCH = "adapter-batch-mode-segments-v3"
 BATCH_ACTIVITY_BY_SLUG: dict[
     str, Callable[[CollectionBatchInput], Coroutine[Any, Any, CollectionBatchResult]]
@@ -189,6 +209,11 @@ BATCH_ACTIVITY_BY_SLUG: dict[
     "tongyi": collect_tongyi_batch,
     "yiyan": collect_yiyan_batch,
     "yuanbao": collect_yuanbao_batch,
+    "doubao_api": collect_doubao_api_batch,
+    "deepseek_api": collect_deepseek_api_batch,
+    "tongyi_api": collect_tongyi_api_batch,
+    "yiyan_api": collect_yiyan_api_batch,
+    "yuanbao_api": collect_yuanbao_api_batch,
 }
 
 

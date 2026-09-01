@@ -18,11 +18,16 @@ from workflows.activities.captcha_assist import (
     captcha_assist_stop,
 )
 from workflows.activities.collection import (
+    collect_deepseek_api_batch,
     collect_deepseek_batch,
+    collect_doubao_api_batch,
     collect_doubao_batch,
+    collect_tongyi_api_batch,
     collect_tongyi_batch,
     collect_with_adapter,
+    collect_yiyan_api_batch,
     collect_yiyan_batch,
+    collect_yuanbao_api_batch,
     collect_yuanbao_batch,
     finalize_account_revocation,
     mark_collection_run_terminal,
@@ -68,6 +73,14 @@ _collect_deepseek_batch_impl = collect_deepseek_batch
 _collect_tongyi_batch_impl = collect_tongyi_batch
 _collect_yiyan_batch_impl = collect_yiyan_batch
 _collect_yuanbao_batch_impl = collect_yuanbao_batch
+# provider_api 模态五 slug（2026-08-31 起）：默认= collection.py 的 fail-closed
+# 实现；multi 模式替换为 provider_api_adapter 的 live 实现（Key 未配置时题级
+# adapter_not_configured 诚实占位，不炸整 run——见该模块 docstring）。
+_collect_doubao_api_batch_impl = collect_doubao_api_batch
+_collect_deepseek_api_batch_impl = collect_deepseek_api_batch
+_collect_tongyi_api_batch_impl = collect_tongyi_api_batch
+_collect_yiyan_api_batch_impl = collect_yiyan_api_batch
+_collect_yuanbao_api_batch_impl = collect_yuanbao_api_batch
 _adapter_mode = os.environ.get("GEO_COLLECTION_ADAPTER", "").strip()
 if _adapter_mode == "doubao":
     from workflows.activities.doubao_adapter import (
@@ -89,6 +102,21 @@ elif _adapter_mode == "multi":
     from workflows.activities.platform_registry import (
         collect_with_adapter as _multi_collect_with_adapter,
     )
+    from workflows.activities.provider_api_adapter import (
+        collect_deepseek_api_batch as _live_collect_deepseek_api_batch,
+    )
+    from workflows.activities.provider_api_adapter import (
+        collect_doubao_api_batch as _live_collect_doubao_api_batch,
+    )
+    from workflows.activities.provider_api_adapter import (
+        collect_tongyi_api_batch as _live_collect_tongyi_api_batch,
+    )
+    from workflows.activities.provider_api_adapter import (
+        collect_yiyan_api_batch as _live_collect_yiyan_api_batch,
+    )
+    from workflows.activities.provider_api_adapter import (
+        collect_yuanbao_api_batch as _live_collect_yuanbao_api_batch,
+    )
     from workflows.activities.tongyi_adapter import (
         collect_tongyi_batch as _live_collect_tongyi_batch,
     )
@@ -105,6 +133,11 @@ elif _adapter_mode == "multi":
     _collect_tongyi_batch_impl = _live_collect_tongyi_batch
     _collect_yiyan_batch_impl = _live_collect_yiyan_batch
     _collect_yuanbao_batch_impl = _live_collect_yuanbao_batch
+    _collect_doubao_api_batch_impl = _live_collect_doubao_api_batch
+    _collect_deepseek_api_batch_impl = _live_collect_deepseek_api_batch
+    _collect_tongyi_api_batch_impl = _live_collect_tongyi_api_batch
+    _collect_yiyan_api_batch_impl = _live_collect_yiyan_api_batch
+    _collect_yuanbao_api_batch_impl = _live_collect_yuanbao_api_batch
 
 
 COLLECTION_WORKFLOWS = (
@@ -121,6 +154,11 @@ COLLECTION_ACTIVITIES: tuple[Callable[..., Any], ...] = (
     _collect_tongyi_batch_impl,
     _collect_yiyan_batch_impl,
     _collect_yuanbao_batch_impl,
+    _collect_doubao_api_batch_impl,
+    _collect_deepseek_api_batch_impl,
+    _collect_tongyi_api_batch_impl,
+    _collect_yiyan_api_batch_impl,
+    _collect_yuanbao_api_batch_impl,
     captcha_assist_start,
     captcha_assist_stop,
     finalize_account_revocation,

@@ -9,7 +9,12 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from workflows.activities.collection import PLATFORM_MODE_CAPABILITIES, CollectionTaskInput
+from workflows.activities.collection import (
+    API_SURFACE_REGION,
+    PLATFORM_MODE_CAPABILITIES,
+    PROVIDER_API_ADAPTER_SLUGS,
+    CollectionTaskInput,
+)
 
 from ..config import get_settings
 from ..projects.models import MonitoringConfig, MonitoringConfigVersion, Project
@@ -39,10 +44,21 @@ def _task_matrix(config: MonitoringConfigVersion) -> list[CollectionTaskInput]:
         if isinstance(item, dict) and isinstance(item.get("text"), str) and item["text"].strip()
     ]
     dropped: set[tuple[str, str]] = set()
+    api_region_collapsed: list[str] = []
     for query in queries:
         for model in snapshot.get("models", []):
             capabilities = PLATFORM_MODE_CAPABILITIES.get(model)
-            for region in snapshot.get("regions", []):
+            # provider_api 模态（官方 API 直连）无地域出口维度：region 折叠为哨兵
+            # API_SURFACE_REGION（一题一任务，不按所选地域展开），诚实标注而非
+            # 伪装地域出口。INV-1 侧这些 slug 无出口声明 → 测量分母自动排除。
+            regions = (
+                [API_SURFACE_REGION]
+                if model in PROVIDER_API_ADAPTER_SLUGS
+                else snapshot.get("regions", [])
+            )
+            if model in PROVIDER_API_ADAPTER_SLUGS and snapshot.get("regions"):
+                api_region_collapsed.append(model)
+            for region in regions:
                 for mode in snapshot.get("modes", []):
                     if capabilities is not None and mode not in capabilities:
                         # 平台不支持该 mode（如 yiyan×deep_think）→ 矩阵剔除，
@@ -66,6 +82,13 @@ def _task_matrix(config: MonitoringConfigVersion) -> list[CollectionTaskInput]:
         log.warning(
             "collection_matrix_mode_filtered",
             dropped=sorted(f"{model}:{mode}" for model, mode in dropped),
+            config_version_pub_id=config.pub_id,
+        )
+    if api_region_collapsed:
+        log.info(
+            "collection_matrix_provider_api_region_collapsed",
+            models=sorted(set(api_region_collapsed)),
+            surface_region=API_SURFACE_REGION,
             config_version_pub_id=config.pub_id,
         )
     if not tasks:

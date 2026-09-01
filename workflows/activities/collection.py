@@ -97,13 +97,32 @@ class CollectionTaskInput:
 # deep_think=composer radix 菜单选「思考研究」（20260810 live 探针实证键盘路径，
 # 见 tongyi_adapter docstring）。
 # 未知平台 slug 不在表内 → 不过滤（dispatcher 会诚实报 unsupported adapter）。
+# provider_api 模态（2026-08-31 起，provider_api_adapter.py）：官方 API 只采
+# normal——API 侧没有「网页交互模式」语义；deep_think 待各家 reasoning 参数
+# 逐平台校准后再开。
 PLATFORM_MODE_CAPABILITIES: dict[str, frozenset[str]] = {
     "doubao": frozenset({"normal", "deep_think"}),
     "deepseek": frozenset({"normal", "deep_think"}),
     "tongyi": frozenset({"normal", "deep_think"}),
     "yiyan": frozenset({"normal", "deep_think"}),
     "yuanbao": frozenset({"normal", "deep_think"}),
+    "doubao_api": frozenset({"normal"}),
+    "deepseek_api": frozenset({"normal"}),
+    "tongyi_api": frozenset({"normal"}),
+    "yiyan_api": frozenset({"normal"}),
+    "yuanbao_api": frozenset({"normal"}),
 }
+
+# provider_api 采集模态（ADR-0008 三采集面之一）的 v1 管线 adapter slug 集
+# （2026-08-31 起）：官方 API 直连、无浏览器/无地域出口。run_service
+# ._task_matrix 据此把 region 折叠为哨兵 API_SURFACE_REGION（不做地域伪装）；
+# INV-1 geo provenance 对这些 slug 无出口声明 → geo_source=unverified →
+# measurement_eligible=False，测量读面（answer_agg_blind/brandrank eligible
+# 过滤）自动排除，consumer_web 分母零污染。执行体=provider_api_adapter.py。
+PROVIDER_API_ADAPTER_SLUGS = frozenset(
+    {"doubao_api", "deepseek_api", "yiyan_api", "tongyi_api", "yuanbao_api"}
+)
+API_SURFACE_REGION = "api"
 
 
 @dataclass
@@ -289,6 +308,14 @@ collect_tongyi_batch = _make_fail_closed_batch("tongyi")
 collect_yiyan_batch = _make_fail_closed_batch("yiyan")
 collect_yuanbao_batch = _make_fail_closed_batch("yuanbao")
 
+# provider_api 模态五个 fail-closed 默认（2026-08-31 起）；live 实现=
+# provider_api_adapter.py，workers/main.py 在 GEO_COLLECTION_ADAPTER=multi 下替换。
+collect_doubao_api_batch = _make_fail_closed_batch("doubao_api")
+collect_deepseek_api_batch = _make_fail_closed_batch("deepseek_api")
+collect_yiyan_api_batch = _make_fail_closed_batch("yiyan_api")
+collect_tongyi_api_batch = _make_fail_closed_batch("tongyi_api")
+collect_yuanbao_api_batch = _make_fail_closed_batch("yuanbao_api")
+
 
 @dataclass
 class SessionPreparation:
@@ -322,6 +349,9 @@ _EVIDENCE_KINDS = {
     # 硬过滤 kind='sse' AND relation='answer_sse_trace'，复用会污染读面。
     "sse_raw",
     "har",
+    # provider_api 模态（2026-08-31 起）：官方 API 原始响应 JSON 原文，
+    # sse_raw 的 API 对照物（provider_api_adapter.py）。
+    "provider_api_raw",
 }
 _EVIDENCE_RELATIONS = {
     "answer_page",
@@ -334,6 +364,7 @@ _EVIDENCE_RELATIONS = {
     "answer_sse_trace",
     "answer_sse_raw",
     "answer_har",
+    "answer_provider_api_raw",
 }
 _SAFE_TOKEN_RE = re.compile(r"^[a-z][a-z0-9_]{1,79}$")
 _MAX_EVIDENCE_BYTES = 30 * 1024 * 1024
