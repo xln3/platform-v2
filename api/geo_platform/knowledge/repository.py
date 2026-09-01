@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from functools import wraps
 from typing import Any
 
-from sqlalchemy import Text, distinct, func, select
+from sqlalchemy import Text, and_, case, distinct, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -28,6 +28,8 @@ from .models import (
     InferenceTrace,
     KnowledgeObject,
     KnowledgeRelease,
+    KnowledgeReleaseAssertion,
+    KnowledgeReleaseObject,
     Observation,
     Proposal,
     ReleaseActivation,
@@ -217,8 +219,12 @@ class KnowledgeRepository:
                 prompt_id=trace.get("prompt_id"),
                 prompt_version=trace.get("prompt_version"),
                 model_provider=trace.get("model_provider"),
+                requested_model_name=trace.get("requested_model"),
                 model_name=trace.get("model"),
                 model_version=trace.get("model_version"),
+                model_identity_source=trace.get("model_identity_source"),
+                model_catalog_revision=trace.get("model_catalog_revision"),
+                model_call_attempted=bool(trace.get("model_call_attempted")),
                 tool_version=str(trace["tool_version"]),
                 adopt_model_inferred=bool(trace["adopt_model_inferred"]),
                 adopted_model_decisions=int(trace["adopted_model_decisions"]),
@@ -809,30 +815,98 @@ class KnowledgeRepository:
                 receipt={"release_id": release_id, "proposal_pub_id": proposal.pub_id},
             )
 
-    def current_objects(self, *, namespace: str, domain: str) -> list[KnowledgeObject]:
-        rows = self.session.scalars(
-            select(KnowledgeObject)
+    def active_release_id(self, *, namespace: str, domain: str) -> str | None:
+        return self.session.scalar(
+            select(ReleaseActivation.release_id)
             .where(
-                KnowledgeObject.tenant_pub_id == self.tenant_pub_id,
-                KnowledgeObject.namespace == namespace,
-                KnowledgeObject.domain == domain,
+                ReleaseActivation.tenant_pub_id == self.tenant_pub_id,
+                ReleaseActivation.namespace == namespace,
+                ReleaseActivation.domain == domain,
             )
-            .order_by(KnowledgeObject.stable_id, KnowledgeObject.version.desc())
-            .distinct(KnowledgeObject.stable_id)
-        ).all()
-        return list(rows)
+            .order_by(
+                ReleaseActivation.occurred_at.desc(),
+                ReleaseActivation.pub_id.desc(),
+            )
+            .limit(1)
+        )
 
-    def assertions(self, *, namespace: str, domain: str) -> list[Assertion]:
+    def scoped_release(
+        self,
+        *,
+        namespace: str,
+        domain: str,
+        release_id: str | None,
+    ) -> KnowledgeRelease | None:
+        selected = release_id or self.active_release_id(namespace=namespace, domain=domain)
+        if selected is None:
+            return None
+        row = self.session.scalar(
+            select(KnowledgeRelease).where(
+                KnowledgeRelease.tenant_pub_id == self.tenant_pub_id,
+                KnowledgeRelease.namespace == namespace,
+                KnowledgeRelease.domain == domain,
+                KnowledgeRelease.release_id == selected,
+            )
+        )
+        if row is None:
+            raise KnowledgeConflict("active_release_database_record_missing")
+        return row
+
+    def current_objects(
+        self,
+        *,
+        namespace: str,
+        domain: str,
+        release_id: str | None = None,
+    ) -> list[KnowledgeObject]:
+        release = self.scoped_release(
+            namespace=namespace,
+            domain=domain,
+            release_id=release_id,
+        )
+        if release is None:
+            return []
+        return list(
+            self.session.scalars(
+                select(KnowledgeObject)
+                .join(
+                    KnowledgeReleaseObject,
+                    KnowledgeReleaseObject.knowledge_object_id == KnowledgeObject.id,
+                )
+                .where(
+                    KnowledgeReleaseObject.tenant_pub_id == self.tenant_pub_id,
+                    KnowledgeReleaseObject.knowledge_release_id == release.id,
+                )
+                .order_by(KnowledgeReleaseObject.stable_id)
+            ).all()
+        )
+
+    def assertions(
+        self,
+        *,
+        namespace: str,
+        domain: str,
+        release_id: str | None = None,
+    ) -> list[Assertion]:
+        release = self.scoped_release(
+            namespace=namespace,
+            domain=domain,
+            release_id=release_id,
+        )
+        if release is None:
+            return []
         return list(
             self.session.scalars(
                 select(Assertion)
-                .where(
-                    Assertion.tenant_pub_id == self.tenant_pub_id,
-                    Assertion.namespace == namespace,
-                    Assertion.domain == domain,
+                .join(
+                    KnowledgeReleaseAssertion,
+                    KnowledgeReleaseAssertion.assertion_id == Assertion.id,
                 )
-                .order_by(Assertion.assertion_key, Assertion.version.desc())
-                .distinct(Assertion.assertion_key)
+                .where(
+                    KnowledgeReleaseAssertion.tenant_pub_id == self.tenant_pub_id,
+                    KnowledgeReleaseAssertion.knowledge_release_id == release.id,
+                )
+                .order_by(KnowledgeReleaseAssertion.assertion_key)
             ).all()
         )
 
@@ -842,9 +916,26 @@ class KnowledgeRepository:
         namespace: str,
         domain: str,
         changes: Sequence[Mapping[str, Any]],
+        release: KnowledgeRelease,
+        base_release_id: str | None,
     ) -> None:
+        if release.namespace != namespace or release.domain != domain:
+            raise KnowledgeConflict("release_scope_mismatch")
         current = {
-            row.stable_id: row for row in self.current_objects(namespace=namespace, domain=domain)
+            row.stable_id: row
+            for row in self.current_objects(
+                namespace=namespace,
+                domain=domain,
+                release_id=base_release_id,
+            )
+        }
+        current_assertions = {
+            row.assertion_key: row
+            for row in self.assertions(
+                namespace=namespace,
+                domain=domain,
+                release_id=base_release_id,
+            )
         }
         for change in changes:
             kind = str(change.get("kind") or "")
@@ -860,6 +951,14 @@ class KnowledgeRepository:
                 attributes = dict(change.get("attributes") or {})
                 if operation == "retire" and previous is not None:
                     attributes = dict(previous.attributes)
+                latest_version = self.session.scalar(
+                    select(func.max(KnowledgeObject.version)).where(
+                        KnowledgeObject.tenant_pub_id == self.tenant_pub_id,
+                        KnowledgeObject.namespace == namespace,
+                        KnowledgeObject.domain == domain,
+                        KnowledgeObject.stable_id == stable_id,
+                    )
+                )
                 row = KnowledgeObject(
                     pub_id=new_pub_id("kno"),
                     tenant_pub_id=self.tenant_pub_id,
@@ -878,10 +977,13 @@ class KnowledgeRepository:
                     sync_status=str(change.get("sync_status") or "local_ahead"),
                     valid_from=change.get("valid_from"),
                     valid_until=change.get("valid_until"),
-                    version=(previous.version + 1 if previous is not None else 1),
+                    version=int(latest_version or 0) + 1,
                 )
                 self.session.add(row)
-                current[stable_id] = row
+                if operation == "retire":
+                    current.pop(stable_id, None)
+                else:
+                    current[stable_id] = row
                 continue
             if kind in {"relation", "assertion"}:
                 if operation not in {"append", "assert"}:
@@ -906,40 +1008,60 @@ class KnowledgeRepository:
                         )
                     )
                     assertion_key = "assertion:" + hashlib.sha256(identity.encode()).hexdigest()
-                previous_assertion = self.session.scalar(
-                    select(Assertion)
-                    .where(
+                latest_assertion_version = self.session.scalar(
+                    select(func.max(Assertion.version)).where(
                         Assertion.tenant_pub_id == self.tenant_pub_id,
                         Assertion.namespace == namespace,
                         Assertion.domain == domain,
                         Assertion.assertion_key == assertion_key,
                     )
-                    .order_by(Assertion.version.desc())
-                    .limit(1)
                 )
-                self.session.add(
-                    Assertion(
-                        pub_id=new_pub_id("kas"),
-                        tenant_pub_id=self.tenant_pub_id,
-                        namespace=namespace,
-                        domain=domain,
-                        assertion_key=assertion_key,
-                        subject_stable_id=subject,
-                        predicate=predicate,
-                        object_stable_id=change.get("object_stable_id"),
-                        object_value=dict(change.get("object_value") or {}),
-                        scope=dict(change.get("scope") or {}),
-                        evidence_refs=list(change.get("evidence_refs") or []),
-                        epistemic_status=str(change.get("epistemic_status") or "reviewed_local"),
-                        review_status=str(change.get("review_status") or "reviewed"),
-                        confidence_ppm=int(change.get("confidence_ppm") or 1_000_000),
-                        valid_from=change.get("valid_from"),
-                        valid_until=change.get("valid_until"),
-                        version=(previous_assertion.version + 1 if previous_assertion else 1),
-                    )
+                assertion = Assertion(
+                    pub_id=new_pub_id("kas"),
+                    tenant_pub_id=self.tenant_pub_id,
+                    namespace=namespace,
+                    domain=domain,
+                    assertion_key=assertion_key,
+                    subject_stable_id=subject,
+                    predicate=predicate,
+                    object_stable_id=change.get("object_stable_id"),
+                    object_value=dict(change.get("object_value") or {}),
+                    scope=dict(change.get("scope") or {}),
+                    evidence_refs=list(change.get("evidence_refs") or []),
+                    epistemic_status=str(change.get("epistemic_status") or "reviewed_local"),
+                    review_status=str(change.get("review_status") or "reviewed"),
+                    confidence_ppm=int(change.get("confidence_ppm") or 1_000_000),
+                    valid_from=change.get("valid_from"),
+                    valid_until=change.get("valid_until"),
+                    version=int(latest_assertion_version or 0) + 1,
                 )
+                self.session.add(assertion)
+                current_assertions[assertion_key] = assertion
                 continue
             raise KnowledgeConflict("unsupported_change_kind")
+        self.session.flush()
+        for stable_id, object_row in sorted(current.items()):
+            self.session.add(
+                KnowledgeReleaseObject(
+                    tenant_pub_id=self.tenant_pub_id,
+                    namespace=namespace,
+                    domain=domain,
+                    knowledge_release_id=release.id,
+                    knowledge_object_id=object_row.id,
+                    stable_id=stable_id,
+                )
+            )
+        for assertion_key, assertion_row in sorted(current_assertions.items()):
+            self.session.add(
+                KnowledgeReleaseAssertion(
+                    tenant_pub_id=self.tenant_pub_id,
+                    namespace=namespace,
+                    domain=domain,
+                    knowledge_release_id=release.id,
+                    assertion_id=assertion_row.id,
+                    assertion_key=assertion_key,
+                )
+            )
 
     def add_release(
         self,
@@ -1102,6 +1224,93 @@ class KnowledgeRepository:
     def metrics(self) -> dict[str, Any]:
         tenant = self.tenant_pub_id
         now = datetime.now(UTC)
+        degradation_text = InferenceTrace.degradation.cast(Text)
+        model_error = or_(
+            degradation_text.like('%"model\\_%', escape="\\"),
+            degradation_text.like('%"knowledge_model\\_%', escape="\\"),
+            degradation_text.like('%"invalid_model_output"%'),
+            degradation_text.like('%"tool\\_%', escape="\\"),
+        )
+        # Rows written before the lineage migration have no requested model or
+        # explicit call bit.  Preserve their former metrics semantics without
+        # miscounting known cache hits as fresh provider calls.
+        provider_call = or_(
+            InferenceTrace.model_call_attempted.is_(True),
+            and_(
+                InferenceTrace.requested_model_name.is_(None),
+                InferenceTrace.model_provider.is_not(None),
+                InferenceTrace.model_name.is_not(None),
+                InferenceTrace.cache_status != "hit",
+            ),
+        )
+
+        def model_metrics(column: Any) -> list[dict[str, Any]]:
+            rows = self.session.execute(
+                select(
+                    column.label("model"),
+                    func.count().label("inference_count"),
+                    func.coalesce(
+                        func.sum(case((provider_call, 1), else_=0)),
+                        0,
+                    ).label("provider_call_count"),
+                    func.coalesce(func.sum(case((model_error, 1), else_=0)), 0).label(
+                        "error_count"
+                    ),
+                    func.coalesce(
+                        func.sum(case((InferenceTrace.cache_status == "hit", 1), else_=0)),
+                        0,
+                    ).label("cache_hit_count"),
+                    func.avg(
+                        case(
+                            (
+                                provider_call,
+                                InferenceTrace.model_latency_ms,
+                            ),
+                            else_=None,
+                        )
+                    ).label("provider_latency_avg_ms"),
+                    func.coalesce(func.sum(InferenceTrace.input_tokens), 0).label("input_tokens"),
+                    func.coalesce(func.sum(InferenceTrace.output_tokens), 0).label("output_tokens"),
+                    func.coalesce(func.sum(InferenceTrace.cost_microusd), 0).label("cost_microusd"),
+                    func.coalesce(
+                        func.sum(
+                            case(
+                                (
+                                    provider_call & InferenceTrace.cost_microusd.is_(None),
+                                    1,
+                                ),
+                                else_=0,
+                            )
+                        ),
+                        0,
+                    ).label("cost_unknown_count"),
+                )
+                .where(InferenceTrace.tenant_pub_id == tenant, column.is_not(None))
+                .group_by(column)
+                .order_by(column)
+            ).all()
+            return [
+                {
+                    "model": str(row.model),
+                    "inference_count": int(row.inference_count or 0),
+                    "provider_call_count": int(row.provider_call_count or 0),
+                    "error_count": int(row.error_count or 0),
+                    "cache_hit_count": int(row.cache_hit_count or 0),
+                    "cache_hit_rate": float(row.cache_hit_count or 0)
+                    / int(row.inference_count or 1),
+                    "provider_latency_avg_ms": (
+                        float(row.provider_latency_avg_ms)
+                        if row.provider_latency_avg_ms is not None
+                        else None
+                    ),
+                    "input_tokens": int(row.input_tokens or 0),
+                    "output_tokens": int(row.output_tokens or 0),
+                    "cost_usd": float(row.cost_microusd or 0) / 1_000_000,
+                    "cost_unknown_count": int(row.cost_unknown_count or 0),
+                }
+                for row in rows
+            ]
+
         observations = self.session.scalar(
             select(func.count()).select_from(Observation).where(Observation.tenant_pub_id == tenant)
         )
@@ -1137,7 +1346,7 @@ class KnowledgeRepository:
             .select_from(InferenceTrace)
             .where(
                 InferenceTrace.tenant_pub_id == tenant,
-                InferenceTrace.degradation.cast(Text).like('%"model\\_%', escape="\\"),
+                model_error,
             )
         )
         cache_hits = self.session.scalar(
@@ -1180,16 +1389,14 @@ class KnowledgeRepository:
             )
         )
         model_calls = self.session.scalar(
-            select(func.count())
-            .select_from(InferenceTrace)
-            .where(
+            select(func.coalesce(func.sum(case((provider_call, 1), else_=0)), 0)).where(
                 InferenceTrace.tenant_pub_id == tenant,
-                InferenceTrace.model_provider.is_not(None),
             )
         )
         model_latency = self.session.scalar(
             select(func.avg(InferenceTrace.model_latency_ms)).where(
                 InferenceTrace.tenant_pub_id == tenant,
+                provider_call,
                 InferenceTrace.model_latency_ms.is_not(None),
             )
         )
@@ -1233,6 +1440,8 @@ class KnowledgeRepository:
             "connector_last_attempt_at": last_attempt,
             "connector_last_success_at": last_success,
             "export_lag_seconds": export_lag,
+            "requested_model_metrics": model_metrics(InferenceTrace.requested_model_name),
+            "actual_model_metrics": model_metrics(InferenceTrace.model_name),
         }
 
 

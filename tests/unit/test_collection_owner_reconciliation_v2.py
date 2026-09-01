@@ -61,10 +61,27 @@ TENANT_ID = UUID("00000000-0000-0000-0000-000000000701")
 PROJECT_ID = UUID("00000000-0000-0000-0000-000000000702")
 OTHER_TENANT_ID = UUID("00000000-0000-0000-0000-000000000799")
 OWNER_GATEWAY_REVISION = "owner-gateway-v1"
+DB_RESOURCE_PUB_ID = "rrg_10000000000000000000000000"
+DB_LEASE_PUB_ID = "rle_10000000000000000000000000"
+DB_FENCE_GENERATION = 1
 
 
 def _hash(value: str) -> str:
     return sha256(value.encode()).hexdigest()
+
+
+def _fence_set_hash() -> str:
+    material = (
+        '{"fences":[{"binding_resource_pub_id":"'
+        + DB_RESOURCE_PUB_ID
+        + '","generation":'
+        + str(DB_FENCE_GENERATION)
+        + ',"lease_pub_id":"'
+        + DB_LEASE_PUB_ID
+        + '","owner_handle":"owner-provider-api","resource_role":"credential"}]'
+        + ',"version":"lease-fence-identity-v1"}'
+    )
+    return sha256(material.encode()).hexdigest()
 
 
 def _identity(
@@ -125,7 +142,7 @@ def _sending_operation(
         grant_pub_id="grant-owner-reconciliation",
         grant_revision=4,
         authority_sha256=_hash("authority"),
-        fence_set_sha256=_hash("fence-set"),
+        fence_set_sha256=_fence_set_hash(),
         dispatch_key=deterministic_dispatch_key(ref),
         owner_dispatch_ref="owner-dispatch-reconciliation",
         owner_wal_evidence_sha256=_hash("owner-authorization-wal"),
@@ -508,6 +525,8 @@ def _postgres_steps(
     authority_updates: Mapping[int, object] | None = None,
     proof_updates: Mapping[int, object] | None = None,
 ) -> tuple[SqlStep, ...]:
+    post_function_updates = dict(authority_updates or {})
+    post_function_updates[6] = "in_progress"
     return (
         SqlStep(reconciliation_module.SET_OWNER_NOT_SENT_TIMEZONE_SQL),
         SqlStep(reconciliation_module.SET_OWNER_NOT_SENT_TENANT_SQL),
@@ -518,7 +537,7 @@ def _postgres_steps(
         SqlStep(reconciliation_module.RECORD_OWNER_NOT_SENT_PROOF_SQL, one=(DB_PROOF_ID,)),
         SqlStep(
             reconciliation_module.LOCK_OWNER_NOT_SENT_AUTHORITY_SQL,
-            many=(_authority_row(request, updates=authority_updates),),
+            many=(_authority_row(request, updates=post_function_updates),),
         ),
         SqlStep(
             reconciliation_module.LOCK_OWNER_NOT_SENT_LEASES_SQL,
@@ -526,11 +545,18 @@ def _postgres_steps(
         ),
         SqlStep(
             reconciliation_module.LOCK_OWNER_NOT_SENT_CAPACITY_SQL,
-            many=(("credential", 0, DB_LEASE_ID, True),),
-        ),
-        SqlStep(
-            reconciliation_module.LOAD_OWNER_NOT_SENT_FENCE_HASH_SQL,
-            one=(request.terminated_fence_set_sha256,),
+            many=(
+                (
+                    "credential",
+                    0,
+                    DB_LEASE_ID,
+                    True,
+                    DB_RESOURCE_PUB_ID,
+                    DB_FENCE_GENERATION,
+                    DB_LEASE_PUB_ID,
+                    request.claim.owner_handle,
+                ),
+            ),
         ),
         SqlStep(
             reconciliation_module.LOAD_ACCEPTED_OWNER_NOT_SENT_PROOF_SQL,
@@ -978,7 +1004,7 @@ def test_boundary_without_outcome_is_conservatively_send_unknown() -> None:
                 evidence_ref="provider-not-sent-evidence",
                 evidence_sha256=_hash("provider-not-sent-evidence"),
                 non_submission_proof_ref="owner-original-not-sent-proof",
-                terminated_fence_set_sha256=_hash("fence-set"),
+                terminated_fence_set_sha256=_fence_set_hash(),
                 resolved_at=NOW + timedelta(seconds=2),
             ),
             None,

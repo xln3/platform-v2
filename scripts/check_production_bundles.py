@@ -2,7 +2,13 @@
 
 from pathlib import Path
 
-APPS = ("customer-web", "operations-web", "report-studio", "intelligence-web")
+APPS = (
+    "customer-web",
+    "operations-web",
+    "report-studio",
+    "intelligence-web",
+    "intake-form",
+)
 FORBIDDEN = (
     b"CONTRACTFIXTURE",
     b"customer-contract-fixture",

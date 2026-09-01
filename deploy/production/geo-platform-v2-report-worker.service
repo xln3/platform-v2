@@ -8,18 +8,21 @@ Requires=docker.service
 Type=simple
 User=xln
 Group=xln
-WorkingDirectory=/home/xln/geo-system/platform-v2
+WorkingDirectory=/opt/geo-platform-v2/current
 EnvironmentFile=/etc/geo-platform-v2/platform.env
-EnvironmentFile=-/etc/geo-platform-v2/report-worker.env
-ExecStartPre=/home/xln/geo-system/platform-v2/.venv/bin/python -c "from domain.reporting.libreoffice import report_runtime_preflight; report_runtime_preflight()"
-ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python -m workflows.workers.report
+# Required so snapshot-bound report work cannot silently run with a
+# development environment or an unreviewed task queue.
+EnvironmentFile=/etc/geo-platform-v2/report-worker.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/opt/geo-platform-v2/current/.venv/bin/python -c "from domain.reporting.libreoffice import report_runtime_preflight; report_runtime_preflight()"
+ExecStart=/opt/geo-platform-v2/current/.venv/bin/python -m workflows.workers.report
 Restart=on-failure
 RestartSec=3
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/home/xln/geo-system/platform-v2
+ReadOnlyPaths=/opt/geo-platform-v2/current
 
 [Install]
 WantedBy=multi-user.target

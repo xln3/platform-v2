@@ -65,7 +65,7 @@ def run() -> dict[str, Any]:
             "reason_codes": ["llm_api_auth_missing"],
         }
 
-    task = load_builtin_task_definitions().get("substantive-entity-mention@2.0.0")
+    task = load_builtin_task_definitions().get("substantive-entity-mention@2.1.0")
     synthetic_query = "请推荐一家示例网络安全公司"
     synthetic_answer = "示例品牌提供网络安全服务，适合本次合成测试。"
     candidate_set = CandidateSet(

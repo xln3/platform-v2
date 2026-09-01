@@ -39,6 +39,7 @@ describe('operations UVW information architecture', () => {
       'service-site-audit',
       'service-pilot',
       'formal-reports',
+      'knowledge-runtime',
     ]) {
       expect(byId.get(id)?.projectAware).toBe(true);
     }

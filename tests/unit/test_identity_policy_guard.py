@@ -57,7 +57,7 @@ class _Result:
 
 
 class _FakeSession:
-    """按调用序喂 scalar（Tenant → ServiceCredential），execute 恒回 membership 行。"""
+    """按调用序喂 scalar（Tenant → credential verifier），execute 恒回 membership 行。"""
 
     def __init__(
         self,
@@ -134,7 +134,7 @@ def test_production_service_account_with_valid_token_passes(monkeypatch) -> None
             _FakeMembership(tenant.id, "worker"),
             _FakeUser("svc-worker", "usr_worker", is_service_account=True),
         ),
-        credential=object(),  # ServiceCredential 查询命中即视为有效
+        credential=True,
     )
     principal = _call_principal(
         session,
@@ -146,6 +146,33 @@ def test_production_service_account_with_valid_token_passes(monkeypatch) -> None
     assert principal.role is Role.WORKER
     assert principal.tenant_pub_id == "ten_acme"
     assert principal.user_pub_id == "usr_worker"
+
+
+def test_production_service_account_with_invalid_token_is_rejected(monkeypatch) -> None:
+    monkeypatch.setattr(
+        policy_module,
+        "get_settings",
+        lambda: _settings(env="production", identity_mode="native_session"),
+    )
+    tenant = _FakeTenant(uuid.uuid4(), "ten_acme")
+    session = _FakeSession(
+        tenant=tenant,
+        row=(
+            _FakeMembership(tenant.id, "worker"),
+            _FakeUser("svc-worker", "usr_worker", is_service_account=True),
+        ),
+        credential=False,
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        _call_principal(
+            session,
+            x_tenant_id="ten_acme",
+            x_actor_id="svc-worker",
+            x_actor_role="worker",
+            x_service_token="invalid-service-token",
+        )
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail["code"] == "service_token_invalid"
 
 
 def test_production_without_cookie_rejected(monkeypatch) -> None:

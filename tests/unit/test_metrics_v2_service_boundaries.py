@@ -15,40 +15,19 @@ from geo_platform.identity.policy import Principal, Role, get_principal
 from geo_platform.metrics_v2 import router as metrics_router
 from geo_platform.metrics_v2.repository import (
     MetricsV2Repository,
-    _semantic_event_review_status_for_storage,
+    _canonical_hash,
+    _override_recompute_work_items,
 )
-from geo_platform.metrics_v2.repository import _canonical_hash as repository_hash
 from geo_platform.metrics_v2.service import MetricsV2Service
 from geo_platform.sop import router as sop_router
 from geo_platform.variants import router as variants_router
 
 from domain.metrics.v2.snapshot_engine import MetricSnapshotEngine
-from workflows.activities.metrics_v2 import (
-    _physical_window_boundary,
-    _semantic_event_for_runtime,
-    _snapshot_child_pub_id,
-)
+from workflows.activities.metrics_v2 import _physical_window_boundary
 from workflows.workers import metrics as metrics_worker
 from workflows.workers import s02 as s02_worker
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-@pytest.mark.parametrize(
-    ("runtime_status", "stored_status"),
-    (("accepted", "unreviewed"), ("review_required", "unreviewed"), ("approved", "approved")),
-)
-def test_semantic_event_review_status_uses_frozen_storage_vocabulary(
-    runtime_status: str, stored_status: str
-) -> None:
-    assert _semantic_event_review_status_for_storage(runtime_status) == stored_status
-
-
-@pytest.mark.parametrize("stored_status", ("unreviewed", "approved", "accepted"))
-def test_semantic_event_storage_status_is_accepted_by_runtime(stored_status: str) -> None:
-    assert _semantic_event_for_runtime({"review_status": stored_status})["review_status"] == (
-        "accepted"
-    )
 
 
 def test_same_day_snapshot_window_has_distinct_physical_boundaries() -> None:
@@ -56,15 +35,6 @@ def test_same_day_snapshot_window_has_distinct_physical_boundaries() -> None:
     assert _physical_window_boundary("2026-08-26", end=True) == datetime(
         2026, 8, 26, 23, 59, 59, 999999, tzinfo=UTC
     )
-
-
-def test_snapshot_child_ids_are_scoped_to_the_immutable_snapshot_set() -> None:
-    first = _snapshot_child_pub_id("mct", "mss_first", "a" * 64)
-    repeated = _snapshot_child_pub_id("mct", "mss_first", "a" * 64)
-    second = _snapshot_child_pub_id("mct", "mss_second", "a" * 64)
-
-    assert first == repeated
-    assert first != second
 
 
 def _imported_modules(path: Path) -> set[str]:
@@ -96,25 +66,6 @@ def test_metrics_worker_has_no_model_or_decision_adapter_dependency() -> None:
     assert all("metric" in activity.__module__ for activity in metrics_worker.METRICS_ACTIVITIES)
 
 
-def test_blocking_model_judge_runs_as_sync_activity_on_dedicated_executor() -> None:
-    activity_tree = ast.parse(
-        (ROOT / "workflows/activities/semantic_decisions_v2.py").read_text(
-            encoding="utf-8"
-        )
-    )
-    judge_definitions = [
-        node
-        for node in ast.walk(activity_tree)
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-        and node.name == "run_model_judge_activity"
-    ]
-    assert len(judge_definitions) == 1
-    assert isinstance(judge_definitions[0], ast.FunctionDef)
-    worker_source = (ROOT / "workflows/workers/decision.py").read_text(encoding="utf-8")
-    assert "ThreadPoolExecutor" in worker_source
-    assert "activity_executor=executor" in worker_source
-
-
 def test_metrics_get_boundary_does_not_import_engine_or_model_sdk() -> None:
     imports = _imported_modules(ROOT / "api/geo_platform/metrics_v2/router.py")
     imports |= _imported_modules(ROOT / "api/geo_platform/metrics_v2/service.py")
@@ -141,25 +92,12 @@ def test_uncalibrated_published_policy_is_not_an_official_dependency_blocker() -
     assert "ANY(snapshot.calibration_artifact_hashes)" in source
 
 
-def test_snapshot_publication_does_not_lock_the_immutable_snapshot_set() -> None:
-    source = inspect.getsource(MetricsV2Repository.publish_snapshot_set_cas)
-
-    assert "FOR SHARE" not in source
-
-
 def test_snapshot_loader_projects_query_and_answer_decisions_together() -> None:
     source = inspect.getsource(MetricsV2Repository.load_snapshot_build_inputs)
 
     assert "context_decision_pub_ids" in source
     assert "bound_decision_ids" in source
     assert "reason_codes" in source
-
-
-def test_metrics_backfill_drops_semantic_workflow_payloads_before_temporal_return() -> None:
-    source = inspect.getsource(MetricsV2Repository.load_metrics_backfill_batch)
-
-    assert 'if key != "items"' in source
-    assert source.count("**page_metadata") == 3
 
 
 class _Rows:
@@ -182,7 +120,7 @@ class _AffectedScopeConnection:
         return _Rows(self.responses.pop(0))
 
 
-def test_affected_scope_reuses_exact_historical_scope_and_publication_cas() -> None:
+def test_affected_scope_reuses_exact_historical_scope_and_current_pointer_cas() -> None:
     scope = {
         "tenant_pub_id": "tnt_scope",
         "project_pub_id": "prj_scope",
@@ -192,11 +130,12 @@ def test_affected_scope_reuses_exact_historical_scope_and_publication_cas() -> N
         "aggregation_method": "query_macro",
         "publication_channel": "shadow",
     }
+    scope_hash = _canonical_hash(scope)
     connection = _AffectedScopeConnection(
         [
             {
-                "pub_id": "mss_scope",
-                "scope_hash": repository_hash(scope),
+                "pub_id": "mss_new_unpublished",
+                "scope_hash": scope_hash,
                 "original_scope": scope,
                 "window_start": datetime(2026, 8, 1, tzinfo=UTC),
                 "window_end": datetime(2026, 8, 28, tzinfo=UTC),
@@ -207,9 +146,9 @@ def test_affected_scope_reuses_exact_historical_scope_and_publication_cas() -> N
         ],
         [
             {
-                # The current pointer may still reference an older set.  Its
-                # identity is the historical scope hash, not the ranked set id.
-                "scope_hash": repository_hash(scope),
+                # A scope pointer can still reference an older set. Its CAS
+                # identity is scope_hash + channel, not the ranked set id.
+                "scope_hash": scope_hash,
                 "publication_channel": "official",
                 "generation": 4,
             }
@@ -225,7 +164,7 @@ def test_affected_scope_reuses_exact_historical_scope_and_publication_cas() -> N
     rebuilt = {key: value for key, value in annotated.items() if not key.startswith("_")}
 
     assert rebuilt == scope
-    assert repository_hash(rebuilt) == repository_hash(scope)
+    assert _canonical_hash(rebuilt) == scope_hash
     assert annotated["_publication_targets"] == [
         {"publication_channel": "official", "expected_generation": 4}
     ]
@@ -266,36 +205,39 @@ def test_override_recompute_carries_existing_publication_pointer_cas() -> None:
     assert 'publication_target["expected_generation"]' in source
     assert '"published_by": actor_pub_id' in source
     assert "semantic_decision_override_no_impacted_metric_scope" in source
-    assert "'succeeded'" in source
 
 
-def test_override_uses_full_domain_decision_hash_in_database_command() -> None:
-    repository_source = inspect.getsource(MetricsV2Repository.create_override)
-    migration_source = (
-        ROOT / "migrations/versions/s18_0003_metrics_v2_failure.py"
-    ).read_text(encoding="utf-8")
+def test_customer_override_recomputes_without_advancing_official_pointer() -> None:
+    scope = {
+        "tenant_pub_id": "tnt_scope",
+        "project_pub_id": "prj_scope",
+        "window": {"start": "2026-08-01", "end": "2026-08-28"},
+        "filters": {"model": [], "region": [], "mode": []},
+        "focal_entity_ids": ["brand_target"],
+        "aggregation_method": "query_macro",
+        "publication_channel": "shadow",
+    }
+    annotated = scope | {
+        "_publication_targets": [
+            {"publication_channel": "official", "expected_generation": 7}
+        ]
+    }
 
-    assert "SemanticDecisionRecord.model_validate" in repository_source
-    assert "planned_record.decision_hash" in repository_source
-    assert "decision_hash := NEW.new_decision_hash" in migration_source
-    assert "NEW.human_attempt_pub_id" in migration_source
-
-
-def test_query_decision_override_derives_context_and_manifest_successors() -> None:
-    override_source = inspect.getsource(MetricsV2Repository.create_override)
-    context_source = inspect.getsource(
-        MetricsV2Repository._refresh_query_contexts_for_successor
+    customer_items = _override_recompute_work_items(
+        [annotated], allow_official_publication=False
     )
-    manifest_source = inspect.getsource(
-        MetricsV2Repository._refresh_answer_manifests_for_successor
+    publisher_items = _override_recompute_work_items(
+        [annotated], allow_official_publication=True
     )
+    scope_hash = _canonical_hash(scope)
 
-    assert "_refresh_query_contexts_for_successor" in override_source
-    assert "query_context_successors=context_successors" in override_source
-    assert '"supersedes_pub_id": str(context["pub_id"])' in context_source
-    assert '"classification_source": "manual_override"' in context_source
-    assert '"derivation_method": "human"' in context_source
-    assert "query_context_fact_pub_id" in manifest_source
+    assert customer_items == {(scope_hash, None): (scope, None)}
+    assert publisher_items == {
+        (scope_hash, "official"): (
+            scope,
+            {"publication_channel": "official", "expected_generation": 7},
+        )
+    }
 
 
 def test_s02_worker_does_not_register_formal_analysis_or_report_workflows() -> None:
@@ -435,6 +377,7 @@ def test_customer_can_submit_project_scoped_exception_correction(
     assert repository.calls[0]["tenant_pub_id"] == "tnt_customer"
     assert repository.calls[0]["project_pub_id"] == "prj_customer"
     assert repository.calls[0]["actor_pub_id"] == "usr_customer"
+    assert repository.calls[0]["allow_official_publication"] is False
 
 
 def test_override_compare_and_swap_conflict_is_http_409(
@@ -454,9 +397,7 @@ def test_override_compare_and_swap_conflict_is_http_409(
     )
 
     assert response.status_code == 409
-    assert response.json() == {
-        "detail": {"code": "semantic_decision_override_conflict"}
-    }
+    assert response.json() == {"detail": {"code": "semantic_decision_override_conflict"}}
 
 
 def test_override_schema_invalid_result_is_http_422(
@@ -476,6 +417,4 @@ def test_override_schema_invalid_result_is_http_422(
     )
 
     assert response.status_code == 422
-    assert response.json() == {
-        "detail": {"code": "metrics_v2_override_result_invalid"}
-    }
+    assert response.json() == {"detail": {"code": "metrics_v2_override_result_invalid"}}

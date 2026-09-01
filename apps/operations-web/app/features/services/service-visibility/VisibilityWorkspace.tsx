@@ -502,10 +502,14 @@ export function VisibilityWorkspace({
           </>
         ) : null}
 
-        <h3>{`完整品牌可见度榜单（近 30 天 · ${rulepackDomain ? `规则包：${rulepackDomain}` : '规则包加载中'}）`}</h3>
+        <h3>
+          {`完整品牌可见度榜单（近 30 天 · ${
+            rulepackDomain ? `规则包：${rulepackDomain}` : '规则包信息加载中…'
+          }）`}
+        </h3>
         {entityResolution?.mode === 'governed_hybrid_v2' ? (
           <p className="service-note">
-            {`榜单按已审核品牌家族实体归并；本窗消除 ${collapsedAliases} 次重复别名。`}
+            {`榜单按已审核品牌家族实体归并；本窗同一答案内消除 ${collapsedAliases} 次重复别名。`}
             {pendingEntityNames > 0
               ? `另有 ${pendingEntityNames} 个名称待语义复核，复核前不进入正式榜。`
               : '本窗没有待复核名称。'}
@@ -586,6 +590,17 @@ export function VisibilityWorkspace({
           ) : (
             <p className="empty">该时间窗内可用于榜单的真实答案不足。</p>
           )
+        ) : brands.kind === 'brandrank_domain_unresolved' ? (
+          <p className="service-note">
+            项目未设置品牌规则包域，请先在项目设置中配置
+            brandrank_domain。品牌榜单暂不可用，基础指标不受影响。
+          </p>
+        ) : brands.kind === 'unmapped_industry' ? (
+          <p className="service-note">
+            对应行业规则包尚未配置，品牌榜单暂不可用，基础指标不受影响。
+          </p>
+        ) : brands.kind === 'llm_disabled' ? (
+          <p className="service-note">LLM 未配置，品牌榜单暂不可用，基础指标不受影响。</p>
         ) : brands.kind === 'loading' ? (
           <p className="empty">正在计算完整品牌榜单…</p>
         ) : (

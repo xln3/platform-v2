@@ -15,6 +15,7 @@ export default [
   route('service-site-audit', 'features/services/service-site-audit/route.tsx'),
   route('service-pilot', 'features/services/service-pilot/route.tsx'),
   route('formal-reports', 'features/services/formal-reports/route.tsx'),
+  route('knowledge-runtime', 'features/services/knowledge-runtime/route.tsx'),
   route('sop', 'features/sop/route.tsx'),
   route('sop/projects/:projectPubId', 'features/sop/project-route.tsx'),
   route('post-analysis', 'features/post-analysis/route.tsx'),

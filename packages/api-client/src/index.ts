@@ -278,9 +278,9 @@ type CustomerMetricTraceV2ContractResponse =
   paths['/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2/snapshot-sets/{snapshot_set_pub_id}/snapshots/{snapshot_pub_id}/trace']['get']['responses']['200']['content']['application/json'];
 type SemanticDecisionOverrideContractRequest =
   paths['/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides']['post']['requestBody']['content']['application/json'];
-export type SemanticDecisionOverrideRequest = Omit<
+export type SemanticDecisionOverrideRequest = Pick<
   SemanticDecisionOverrideContractRequest,
-  'project_pub_id'
+  'result' | 'rationale_summary' | 'reason_codes' | 'expected_decision_hash'
 >;
 type SemanticDecisionOverrideContractResponse =
   paths['/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides']['post']['responses']['201']['content']['application/json'];
@@ -297,6 +297,7 @@ export type SemanticDecisionOverrideReceipt = {
   supersedesPubId: string;
   decisionHash: string;
   recomputeJobPubId: string;
+  recomputeJobPubIds: string[];
 };
 export type SemanticDecisionOverrideResult =
   | { kind: 'ready'; data: SemanticDecisionOverrideReceipt }
@@ -1139,6 +1140,102 @@ export type ModelAdmissionSafeView = {
   revoked_at: string | null;
 };
 export type ModelAdmissionPageProjection = ProjectedContractPage<ModelAdmissionSafeView>;
+type KnowledgeModelCatalogContract =
+  paths['/api/v2/knowledge/v1/models']['get']['responses']['200']['content']['application/json'];
+type KnowledgeModelOptionContract = KnowledgeModelCatalogContract['models'][number];
+export type KnowledgeInferenceModel = Pick<
+  KnowledgeModelOptionContract,
+  | 'model'
+  | 'label'
+  | 'provider'
+  | 'model_version'
+  | 'capability'
+  | 'strict_output_verified'
+  | 'tool_capability_status'
+  | 'verified_at'
+  | 'verification_reference'
+  | 'input_usd_per_million_tokens'
+  | 'output_usd_per_million_tokens'
+  | 'pricing_status'
+  | 'pricing_observed_at'
+  | 'is_default'
+  | 'recommended'
+>;
+export type KnowledgeModelCatalog = Pick<
+  KnowledgeModelCatalogContract,
+  'status' | 'catalog_revision' | 'default_model' | 'unavailable_reason'
+> & { models: KnowledgeInferenceModel[] };
+export type KnowledgeRuntimeRequest =
+  paths['/api/v2/knowledge/v1/runtime/resolve']['post']['requestBody']['content']['application/json'];
+type KnowledgeRuntimeContract =
+  paths['/api/v2/knowledge/v1/runtime/resolve']['post']['responses']['200']['content']['application/json'];
+type KnowledgeDecisionContract = KnowledgeRuntimeContract['decisions'][number];
+export type KnowledgeDecision = Pick<
+  KnowledgeDecisionContract,
+  | 'input_id'
+  | 'input_value'
+  | 'value'
+  | 'knowledge_status'
+  | 'decision_scope'
+  | 'confidence'
+  | 'reasons'
+  | 'alternative_hypotheses'
+  | 'uncertainty'
+  | 'evidence_refs'
+  | 'adopted'
+  | 'model_provider'
+  | 'requested_model_name'
+  | 'model_name'
+  | 'model_version'
+  | 'model_identity_source'
+  | 'prompt_id'
+  | 'prompt_version'
+  | 'knowledge_release_id'
+  | 'knowledge_content_hash'
+  | 'policy_id'
+  | 'policy_version'
+>;
+export type KnowledgeRuntimeUsage = {
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+  model_latency_ms: number | null;
+};
+export type KnowledgeRuntimeResponse = Pick<
+  KnowledgeRuntimeContract,
+  | 'request_id'
+  | 'domain'
+  | 'task'
+  | 'policy'
+  | 'policy_id'
+  | 'policy_version'
+  | 'release'
+  | 'prompt_id'
+  | 'prompt_version'
+  | 'model_provider'
+  | 'requested_model_name'
+  | 'model_name'
+  | 'model_version'
+  | 'model_identity_source'
+  | 'model_catalog_revision'
+  | 'model_inference_used'
+  | 'model_inference_adopted'
+  | 'provider_call_attempted'
+  | 'latency_ms'
+  | 'cache_status'
+  | 'degradation'
+  | 'observation_count'
+> & {
+  decisions: KnowledgeDecision[];
+  model_hypotheses: KnowledgeDecision[];
+  usage: KnowledgeRuntimeUsage;
+};
+export type KnowledgeRuntimeResult =
+  | { kind: 'ready'; data: KnowledgeRuntimeResponse }
+  | { kind: 'rejected'; code: string }
+  | { kind: 'failed'; code: string }
+  | { kind: 'forbidden' }
+  | { kind: 'unavailable' };
 
 export type GeoApiClient = ReturnType<typeof createClient<paths>>;
 type ProjectedApiClientOverride = object;
@@ -3893,13 +3990,20 @@ function projectSemanticDecisionOverrideReceipt(
 ): SemanticDecisionOverrideReceipt | null {
   if (!isBrowserRecord(value)) return null;
   const response = value as SemanticDecisionOverrideContractResponse;
+  const recomputeJobPubIds = response.recompute_job_pub_ids ?? [response.recompute_job_pub_id];
   if (
     response.schema_version !== 'semantic-decision-override-v2' ||
     !/^sdr_[A-Za-z0-9_-]{1,116}$/u.test(response.decision_pub_id) ||
     response.decision_pub_id === expectedSupersedesPubId ||
     response.supersedes_pub_id !== expectedSupersedesPubId ||
     !safeHash(response.decision_hash) ||
-    !/^mrj_[A-Za-z0-9_-]{1,116}$/u.test(response.recompute_job_pub_id)
+    !/^mrj_[A-Za-z0-9_-]{1,116}$/u.test(response.recompute_job_pub_id) ||
+    !Array.isArray(recomputeJobPubIds) ||
+    recomputeJobPubIds.length < 1 ||
+    recomputeJobPubIds.length > 100 ||
+    new Set(recomputeJobPubIds).size !== recomputeJobPubIds.length ||
+    !recomputeJobPubIds.includes(response.recompute_job_pub_id) ||
+    recomputeJobPubIds.some((jobPubId) => !/^mrj_[A-Za-z0-9_-]{1,116}$/u.test(jobPubId))
   ) {
     return null;
   }
@@ -3908,6 +4012,7 @@ function projectSemanticDecisionOverrideReceipt(
     supersedesPubId: response.supersedes_pub_id,
     decisionHash: response.decision_hash,
     recomputeJobPubId: response.recompute_job_pub_id,
+    recomputeJobPubIds,
   };
 }
 
@@ -17860,6 +17965,389 @@ export async function getInternalAnswerUvw(
         ...page,
       },
     };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+const knowledgeModelIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/u;
+const knowledgeStatuses = ['published', 'reviewed_local', 'model_inferred', 'unresolved'] as const;
+const knowledgeScopes = [
+  'request',
+  'project_staging',
+  'domain_candidate',
+  'global_release',
+] as const;
+
+const knowledgeOptionalString = (value: unknown, maxLength: number): string | null | undefined =>
+  value === undefined || value === null ? null : (safeBrowserString(value, maxLength) ?? undefined);
+
+const knowledgeStringArray = (
+  value: unknown,
+  maximumItems: number,
+  maximumLength: number,
+): string[] | null => {
+  if (!Array.isArray(value) || value.length > maximumItems) return null;
+  const projected = value.map((item) => safeBrowserString(item, maximumLength));
+  return projected.some((item) => item === null) ? null : (projected as string[]);
+};
+
+function projectKnowledgeModel(value: unknown): KnowledgeInferenceModel | null {
+  if (!isBrowserRecord(value)) return null;
+  const model = safeBrowserString(value.model, 120);
+  const label = safeBrowserString(value.label, 160);
+  const provider = safeBrowserString(value.provider, 80);
+  const modelVersion = safeBrowserString(value.model_version, 120);
+  const capability = safeBrowserString(value.capability, 500);
+  const verifiedAt = knowledgeOptionalString(value.verified_at, 40);
+  const verificationReference = knowledgeOptionalString(value.verification_reference, 500);
+  const pricingObservedAt = knowledgeOptionalString(value.pricing_observed_at, 40);
+  const inputPrice = value.input_usd_per_million_tokens;
+  const outputPrice = value.output_usd_per_million_tokens;
+  if (
+    !model ||
+    !knowledgeModelIdPattern.test(model) ||
+    !label ||
+    !provider ||
+    !modelVersion ||
+    !capability ||
+    value.strict_output_verified !== true ||
+    !['verified', 'not_required'].includes(String(value.tool_capability_status)) ||
+    verifiedAt === null ||
+    verifiedAt === undefined ||
+    verificationReference === null ||
+    verificationReference === undefined ||
+    pricingObservedAt === undefined ||
+    (![null, undefined].includes(inputPrice as null | undefined) &&
+      (typeof inputPrice !== 'number' || !Number.isFinite(inputPrice) || inputPrice < 0)) ||
+    (![null, undefined].includes(outputPrice as null | undefined) &&
+      (typeof outputPrice !== 'number' || !Number.isFinite(outputPrice) || outputPrice < 0)) ||
+    !['catalog_snapshot', 'unknown'].includes(String(value.pricing_status)) ||
+    typeof value.is_default !== 'boolean' ||
+    typeof value.recommended !== 'boolean'
+  ) {
+    return null;
+  }
+  return {
+    model,
+    label,
+    provider,
+    model_version: modelVersion,
+    capability,
+    strict_output_verified: true,
+    tool_capability_status: value.tool_capability_status as 'verified' | 'not_required',
+    verified_at: verifiedAt ?? null,
+    verification_reference: verificationReference ?? null,
+    input_usd_per_million_tokens: typeof inputPrice === 'number' ? inputPrice : null,
+    output_usd_per_million_tokens: typeof outputPrice === 'number' ? outputPrice : null,
+    pricing_status: value.pricing_status as 'catalog_snapshot' | 'unknown',
+    pricing_observed_at: pricingObservedAt ?? null,
+    is_default: value.is_default,
+    recommended: value.recommended,
+  };
+}
+
+function projectKnowledgeModelCatalog(value: unknown): KnowledgeModelCatalog | null {
+  if (!isBrowserRecord(value) || !Array.isArray(value.models) || value.models.length > 16)
+    return null;
+  const status = safeBrowserEnum(value.status, ['ready', 'unavailable'] as const);
+  const revision = safeBrowserString(value.catalog_revision, 160);
+  const defaultModel = knowledgeOptionalString(value.default_model, 120);
+  const unavailableReason = knowledgeOptionalString(value.unavailable_reason, 160);
+  const models = value.models.map(projectKnowledgeModel);
+  if (
+    !status ||
+    !revision ||
+    defaultModel === undefined ||
+    unavailableReason === undefined ||
+    models.some((model) => model === null)
+  ) {
+    return null;
+  }
+  const projected = models as KnowledgeInferenceModel[];
+  const ids = projected.map((model) => model.model);
+  if (
+    new Set(ids).size !== ids.length ||
+    (status === 'ready' &&
+      (!defaultModel ||
+        projected.length === 0 ||
+        !ids.includes(defaultModel) ||
+        projected.filter((model) => model.is_default).length !== 1 ||
+        projected.find((model) => model.is_default)?.model !== defaultModel)) ||
+    (status === 'unavailable' &&
+      (defaultModel !== null || projected.length !== 0 || !unavailableReason)) ||
+    value.models.some((model) => !isBrowserRecord(model) || model.catalog_revision !== revision)
+  ) {
+    return null;
+  }
+  return {
+    status,
+    catalog_revision: revision,
+    default_model: defaultModel ?? null,
+    models: projected,
+    unavailable_reason: unavailableReason ?? null,
+  };
+}
+
+function projectKnowledgeDecision(value: unknown): KnowledgeDecision | null {
+  if (!isBrowserRecord(value) || !isBrowserRecord(value.value)) return null;
+  const inputId = safeBrowserString(value.input_id, 128);
+  const inputValue = safeBrowserString(value.input_value, 1_000);
+  const status = safeBrowserEnum(value.knowledge_status, knowledgeStatuses);
+  const scope = safeBrowserEnum(value.decision_scope, knowledgeScopes);
+  const reasons = knowledgeStringArray(value.reasons, 100, 2_000);
+  const alternatives = knowledgeStringArray(value.alternative_hypotheses, 100, 2_000);
+  const uncertainty = knowledgeStringArray(value.uncertainty, 100, 2_000);
+  const evidenceRefs = knowledgeStringArray(value.evidence_refs, 100, 2_000);
+  const optionalFields = {
+    model_provider: knowledgeOptionalString(value.model_provider, 80),
+    requested_model_name: knowledgeOptionalString(value.requested_model_name, 120),
+    model_name: knowledgeOptionalString(value.model_name, 120),
+    model_version: knowledgeOptionalString(value.model_version, 120),
+    model_identity_source: knowledgeOptionalString(value.model_identity_source, 40),
+    prompt_id: knowledgeOptionalString(value.prompt_id, 120),
+    prompt_version: knowledgeOptionalString(value.prompt_version, 120),
+    knowledge_release_id: knowledgeOptionalString(value.knowledge_release_id, 128),
+    knowledge_content_hash: knowledgeOptionalString(value.knowledge_content_hash, 80),
+    policy_id: knowledgeOptionalString(value.policy_id, 120),
+    policy_version: knowledgeOptionalString(value.policy_version, 120),
+  };
+  if (
+    !inputId ||
+    !inputValue ||
+    !status ||
+    !scope ||
+    typeof value.confidence !== 'number' ||
+    !Number.isFinite(value.confidence) ||
+    value.confidence < 0 ||
+    value.confidence > 1 ||
+    typeof value.adopted !== 'boolean' ||
+    !reasons ||
+    !alternatives ||
+    !uncertainty ||
+    !evidenceRefs ||
+    Object.values(optionalFields).some((field) => field === undefined) ||
+    JSON.stringify(value.value).length > 128 * 1024
+  ) {
+    return null;
+  }
+  return {
+    input_id: inputId,
+    input_value: inputValue,
+    value: value.value,
+    knowledge_status: status,
+    decision_scope: scope,
+    confidence: value.confidence,
+    reasons,
+    alternative_hypotheses: alternatives,
+    uncertainty,
+    evidence_refs: evidenceRefs,
+    adopted: value.adopted,
+    model_provider: optionalFields.model_provider ?? null,
+    requested_model_name: optionalFields.requested_model_name ?? null,
+    model_name: optionalFields.model_name ?? null,
+    model_version: optionalFields.model_version ?? null,
+    model_identity_source: optionalFields.model_identity_source ?? null,
+    prompt_id: optionalFields.prompt_id ?? null,
+    prompt_version: optionalFields.prompt_version ?? null,
+    knowledge_release_id: optionalFields.knowledge_release_id ?? null,
+    knowledge_content_hash: optionalFields.knowledge_content_hash ?? null,
+    policy_id: optionalFields.policy_id ?? null,
+    policy_version: optionalFields.policy_version ?? null,
+  };
+}
+
+const knowledgeUsageNumber = (value: unknown): number | null | undefined =>
+  value === null || value === undefined
+    ? value
+    : typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? value
+      : undefined;
+
+function projectKnowledgeRuntime(value: unknown): KnowledgeRuntimeResponse | null {
+  if (
+    !isBrowserRecord(value) ||
+    !isBrowserRecord(value.release) ||
+    !isBrowserRecord(value.usage) ||
+    !Array.isArray(value.decisions) ||
+    !Array.isArray(value.model_hypotheses) ||
+    value.decisions.length > 200 ||
+    value.model_hypotheses.length > 200
+  ) {
+    return null;
+  }
+  const decisions = value.decisions.map(projectKnowledgeDecision);
+  const hypotheses = value.model_hypotheses.map(projectKnowledgeDecision);
+  const degradation = knowledgeStringArray(value.degradation, 100, 160);
+  const requestId = safeBrowserString(value.request_id, 128);
+  const domain = safeBrowserString(value.domain, 160);
+  const task = safeBrowserString(value.task, 120);
+  const policy = safeBrowserEnum(value.policy, [
+    'deterministic_only',
+    'llm_assisted',
+    'llm_required',
+    'exploratory',
+  ] as const);
+  const policyId = safeBrowserString(value.policy_id, 120);
+  const policyVersion = safeBrowserString(value.policy_version, 120);
+  const promptId = knowledgeOptionalString(value.prompt_id, 120);
+  const promptVersion = knowledgeOptionalString(value.prompt_version, 120);
+  const modelProvider = knowledgeOptionalString(value.model_provider, 80);
+  const requestedModel = knowledgeOptionalString(value.requested_model_name, 120);
+  const actualModel = knowledgeOptionalString(value.model_name, 120);
+  const modelVersion = knowledgeOptionalString(value.model_version, 120);
+  const identitySource = knowledgeOptionalString(value.model_identity_source, 40);
+  const catalogRevision = knowledgeOptionalString(value.model_catalog_revision, 160);
+  const cacheStatus = safeBrowserString(value.cache_status, 40);
+  const releaseId = safeBrowserString(value.release.release_id, 128);
+  const releaseHash = safeBrowserString(value.release.content_hash, 80);
+  const releaseSchema = safeBrowserString(value.release.schema_version, 120);
+  const releaseSource = safeBrowserString(value.release.source, 120);
+  const inputTokens = knowledgeUsageNumber(value.usage.input_tokens);
+  const outputTokens = knowledgeUsageNumber(value.usage.output_tokens);
+  const costUsd = knowledgeUsageNumber(value.usage.cost_usd);
+  const modelLatency = knowledgeUsageNumber(value.usage.model_latency_ms);
+  const observationCount =
+    typeof value.observation_count === 'number' &&
+    Number.isSafeInteger(value.observation_count) &&
+    value.observation_count >= 0
+      ? value.observation_count
+      : null;
+  if (
+    !requestId ||
+    !domain ||
+    !task ||
+    !policy ||
+    !policyId ||
+    !policyVersion ||
+    !cacheStatus ||
+    !releaseId ||
+    !releaseHash ||
+    !releaseSchema ||
+    !releaseSource ||
+    typeof value.release.degraded !== 'boolean' ||
+    decisions.some((decision) => decision === null) ||
+    hypotheses.some((decision) => decision === null) ||
+    !degradation ||
+    [
+      promptId,
+      promptVersion,
+      modelProvider,
+      requestedModel,
+      actualModel,
+      modelVersion,
+      identitySource,
+      catalogRevision,
+    ].some((field) => field === undefined) ||
+    [inputTokens, outputTokens, costUsd, modelLatency].some((field) => field === undefined) ||
+    typeof value.model_inference_used !== 'boolean' ||
+    typeof value.model_inference_adopted !== 'boolean' ||
+    typeof value.provider_call_attempted !== 'boolean' ||
+    typeof value.latency_ms !== 'number' ||
+    !Number.isFinite(value.latency_ms) ||
+    value.latency_ms < 0 ||
+    observationCount === null ||
+    (value.model_inference_used && (!requestedModel || !actualModel || !identitySource)) ||
+    (policy === 'deterministic_only' &&
+      (requestedModel !== null || value.model_inference_used || value.provider_call_attempted))
+  ) {
+    return null;
+  }
+  return {
+    request_id: requestId,
+    domain,
+    task,
+    policy,
+    policy_id: policyId,
+    policy_version: policyVersion,
+    release: {
+      release_id: releaseId,
+      content_hash: releaseHash,
+      schema_version: releaseSchema,
+      source: releaseSource,
+      degraded: value.release.degraded,
+    },
+    decisions: decisions as KnowledgeDecision[],
+    model_hypotheses: hypotheses as KnowledgeDecision[],
+    prompt_id: promptId ?? null,
+    prompt_version: promptVersion ?? null,
+    model_provider: modelProvider ?? null,
+    requested_model_name: requestedModel ?? null,
+    model_name: actualModel ?? null,
+    model_version: modelVersion ?? null,
+    model_identity_source: identitySource ?? null,
+    model_catalog_revision: catalogRevision ?? null,
+    model_inference_used: value.model_inference_used,
+    model_inference_adopted: value.model_inference_adopted,
+    provider_call_attempted: value.provider_call_attempted,
+    latency_ms: value.latency_ms,
+    cache_status: cacheStatus,
+    degradation,
+    observation_count: observationCount,
+    usage: {
+      input_tokens: inputTokens ?? null,
+      output_tokens: outputTokens ?? null,
+      cost_usd: costUsd ?? null,
+      model_latency_ms: modelLatency ?? null,
+    },
+  };
+}
+
+function knowledgeApiErrorCode(value: unknown): string | null {
+  if (!isBrowserRecord(value)) return null;
+  const error = isBrowserRecord(value.error) ? value.error : null;
+  const detail = isBrowserRecord(value.detail) ? value.detail : null;
+  const candidate = error?.code ?? detail?.code;
+  const code = safeBrowserString(candidate, 120);
+  return code && /^[A-Za-z0-9._:-]+$/u.test(code) ? code : null;
+}
+
+export async function getKnowledgeModelCatalog(
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<KnowledgeModelCatalog>> {
+  try {
+    const result = await projectedApiClient(client).GET('/api/v2/knowledge/v1/models', {
+      params: { header: headers },
+    });
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectKnowledgeModelCatalog(result.data);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function resolveKnowledgeRuntime(
+  body: KnowledgeRuntimeRequest,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<KnowledgeRuntimeResult> {
+  try {
+    const result = await projectedApiClient(client).POST('/api/v2/knowledge/v1/runtime/resolve', {
+      params: { header: headers },
+      body,
+    });
+    if (result.data) {
+      const projected = projectKnowledgeRuntime(result.data);
+      return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+    }
+    if (result.response.status === 401 || result.response.status === 403) {
+      return { kind: 'forbidden' };
+    }
+    if (result.response.status >= 400 && result.response.status < 500) {
+      return {
+        kind: 'rejected',
+        code: knowledgeApiErrorCode(result.error) ?? 'knowledge_request_rejected',
+      };
+    }
+    if (result.response.status >= 500) {
+      return {
+        kind: 'failed',
+        code: knowledgeApiErrorCode(result.error) ?? 'knowledge_service_unavailable',
+      };
+    }
+    return { kind: 'unavailable' };
   } catch {
     return { kind: 'unavailable' };
   }

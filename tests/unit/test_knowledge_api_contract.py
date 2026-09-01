@@ -8,6 +8,7 @@ def test_versioned_openapi_exposes_runtime_governance_release_and_operations() -
     paths = app.openapi()["paths"]
     required = {
         "/api/v2/knowledge/v1/runtime/resolve",
+        "/api/v2/knowledge/v1/models",
         "/api/v2/knowledge/v1/observations:ingest",
         "/api/v2/knowledge/v1/candidates",
         "/api/v2/knowledge/v1/proposals",
@@ -31,6 +32,18 @@ def test_versioned_openapi_exposes_runtime_governance_release_and_operations() -
         "llm_required",
         "exploratory",
     }
+    assert "model" in request_schema["properties"]
+    assert "model" not in request_schema.get("required", [])
+    response_schema = app.openapi()["components"]["schemas"]["RuntimeResolveResponse"]
+    assert {
+        "requested_model_name",
+        "model_name",
+        "model_identity_source",
+        "model_catalog_revision",
+        "model_inference_used",
+        "model_inference_adopted",
+        "provider_call_attempted",
+    } <= set(response_schema["properties"])
 
 
 def test_rbac_separates_runtime_submission_review_and_publication() -> None:

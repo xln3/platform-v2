@@ -5599,6 +5599,7 @@ describe('generated client', () => {
             supersedes_pub_id: 'sdr_customer_original',
             decision_hash: successorDecisionHash,
             recompute_job_pub_id: 'mrj_customer_correction',
+            recompute_job_pub_ids: ['mrj_customer_correction', 'mrj_customer_official'],
           }),
           { status: 201, headers: { 'content-type': 'application/json' } },
         ),
@@ -5630,6 +5631,7 @@ describe('generated client', () => {
         supersedesPubId: 'sdr_customer_original',
         decisionHash: successorDecisionHash,
         recomputeJobPubId: 'mrj_customer_correction',
+        recomputeJobPubIds: ['mrj_customer_correction', 'mrj_customer_official'],
       },
     });
     const sent = request.mock.calls[0]?.[0] as Request;

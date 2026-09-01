@@ -228,9 +228,7 @@ def _seed_metric(connection: Connection[dict[str, Any]], artifact: SeedArtifact)
     return row is not None
 
 
-def _verify_existing(
-    connection: Connection[dict[str, Any]], artifact: SeedArtifact
-) -> str:
+def _verify_existing(connection: Connection[dict[str, Any]], artifact: SeedArtifact) -> str:
     table, hash_column = {
         "decision_task": (
             "analytics.semantic_decision_task_definition_v2",

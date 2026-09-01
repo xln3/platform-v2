@@ -1,0 +1,61 @@
+{
+  "schema_version": "knowledge-model-admission-evidence-v1",
+  "observed_at": "2026-08-28",
+  "gateway": "approved production openai-compatible gateway",
+  "persistence": "none",
+  "customer_content_retained": false,
+  "credentials_retained": false,
+  "catalog_revision": "knowledge-inference-model-catalog-20260828.2",
+  "admitted": [
+    {
+      "model": "qwen3.7-plus",
+      "requested_model": "qwen3.7-plus",
+      "provider_resolved_model": "qwen3.7-plus",
+      "model_identity_source": "provider_response",
+      "checks": [
+        {
+          "domain": "source/type-fixture",
+          "prompt_version": "source-type-prompt-v2",
+          "strict_json_schema": "passed",
+          "domain_validation": "passed",
+          "hypothesis_count": 1,
+          "latency_ms": 18623,
+          "input_tokens": 63,
+          "output_tokens": 999,
+          "cost_usd": null,
+          "degradation": []
+        },
+        {
+          "domain": "brand/entity-resolution",
+          "prompt_version": "brand-entity-resolution-v5",
+          "knowledge_release": "knowledge-2026-08-27.6",
+          "strict_json_schema": "passed",
+          "domain_validation": "passed",
+          "hypothesis_count": 1,
+          "latency_ms": 35094,
+          "input_tokens": 7831,
+          "output_tokens": 1937,
+          "cost_usd": null,
+          "degradation": []
+        }
+      ],
+      "tool_capability": "not_required_by_current_knowledge_prompts"
+    }
+  ],
+  "rejected": [
+    {
+      "model": "claude-opus-5",
+      "domain": "source/type-fixture",
+      "prompt_version": "source-type-prompt-v2",
+      "gateway_json_parse": "passed",
+      "domain_validation": "failed",
+      "error_code": "invalid_model_output",
+      "admitted": false
+    }
+  ],
+  "limitations": [
+    "The calls validate the current gateway shape and two current knowledge schemas, not general model quality.",
+    "Provider cost was not returned and remains unknown rather than zero.",
+    "No tool call was required by either current knowledge prompt."
+  ]
+}

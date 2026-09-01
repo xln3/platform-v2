@@ -44,11 +44,7 @@ def _evaluation(index: int, status: EligibilityStatus) -> MetricEvaluation:
         metric_version="2.0.0",
         metric_definition_hash="a" * 64,
         eligibility_status=status,
-        reason_codes=(
-            "semantic_analysis_failed"
-            if unresolved
-            else "included",
-        ),
+        reason_codes=("semantic_analysis_failed" if unresolved else "included",),
         outcome_value=None if unresolved else hit,
         numerator_contribution=Decimal("0") if unresolved else Decimal(int(hit)),
         denominator_contribution=Decimal("0") if unresolved else Decimal("1"),

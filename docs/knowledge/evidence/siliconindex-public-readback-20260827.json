@@ -1,0 +1,31 @@
+{
+  "evidence_type": "siliconindex-public-readback-v1",
+  "retrieved_at": "2026-08-27T21:54:15+08:00",
+  "base_url": "https://siliconindex-consumer.onrender.com/data/v1",
+  "manifest": {
+    "url": "https://siliconindex-consumer.onrender.com/data/v1/manifest.json",
+    "file_sha256": "811017223867a9e9a82496ca528054552bed60b3d8867eec5a76bfc924632777",
+    "release_id": "2026-08-27.6",
+    "previous_release_id": "2026-08-27.2",
+    "schema_version": "1.2.0",
+    "generated_at": "2026-08-27T10:47:59Z",
+    "content_hash": "sha256:d5e15f1dc9f6b3b2d1addf6c41500e3eb3a5514b295a3a1134d4c636c07dabd2"
+  },
+  "brands": {
+    "url": "https://siliconindex-consumer.onrender.com/data/v1/brands.json",
+    "file_sha256": "fe0c2475621c911bd5eb82c8bcf9d5a10a119319a636b5748674daed5cf3871d",
+    "total": 185,
+    "cybersecurity": 68,
+    "cybersecurity_reviewed": 40,
+    "cybersecurity_pending": 28
+  },
+  "mentions": {
+    "url": "https://siliconindex-consumer.onrender.com/data/v1/mentions.json",
+    "file_sha256": "ccb04164111a88d950004b8aa28c09fb2116f2d280e836af4f3aeb6d10ea605d",
+    "total": 575,
+    "cybersecurity": 186,
+    "cybersecurity_reviewed": 145,
+    "cybersecurity_pending": 41
+  },
+  "result": "passed"
+}

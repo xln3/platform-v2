@@ -613,8 +613,8 @@ class MetricEvaluator:
         required_task_refs.update(
             capability.task_ref for capability in definition.required_semantic_capabilities
         )
-        # Pre-scan the whole required boundary so an earlier review/unknown state
-        # cannot hide a known execution failure in another required capability.
+        # A review/unknown state must never hide a known execution failure in
+        # another required capability or task.
         for capability in definition.required_semantic_capabilities:
             if _capability_status(subject, capability.name) != "failed":
                 continue
@@ -693,8 +693,8 @@ class MetricEvaluator:
                     interpreter,
                 )
         for task_ref in sorted(required_task_refs):
-            decision = _decision(subject, task_ref)
-            if decision is None:
+            task_decision = _decision(subject, task_ref)
+            if task_decision is None:
                 return self._result(
                     definition,
                     subject,
@@ -705,22 +705,22 @@ class MetricEvaluator:
                     Decimal("0"),
                     interpreter,
                 )
-            if decision.decision_pub_id:
-                interpreter.supporting_decisions.add(decision.decision_pub_id)
-            if decision.status is not DecisionStatus.ACCEPTED:
+            if task_decision.decision_pub_id:
+                interpreter.supporting_decisions.add(task_decision.decision_pub_id)
+            if task_decision.status is not DecisionStatus.ACCEPTED:
                 reason = {
                     DecisionStatus.FAILED: "decision_failed",
                     DecisionStatus.ABSTAINED: "decision_abstained",
                     DecisionStatus.REVIEW_REQUIRED: "decision_review_required",
                     DecisionStatus.MISSING: "required_decision_missing",
-                }.get(decision.status, "required_decision_missing")
-                reason = _decision_failure_reason(decision, reason)
+                }.get(task_decision.status, "required_decision_missing")
+                reason = _decision_failure_reason(task_decision, reason)
                 return self._result(
                     definition,
                     subject,
                     (
                         EligibilityStatus.ANALYSIS_FAILED
-                        if decision.status is DecisionStatus.FAILED
+                        if task_decision.status is DecisionStatus.FAILED
                         else EligibilityStatus.ANALYSIS_UNKNOWN
                     ),
                     reason,
@@ -729,7 +729,7 @@ class MetricEvaluator:
                     Decimal("0"),
                     interpreter,
                 )
-            if _decision_result_is_unknown(decision.value):
+            if _decision_result_is_unknown(task_decision.value):
                 return self._result(
                     definition,
                     subject,
@@ -740,7 +740,7 @@ class MetricEvaluator:
                     Decimal("0"),
                     interpreter,
                 )
-            if not decision.policy_matches:
+            if not task_decision.policy_matches:
                 return self._result(
                     definition,
                     subject,
@@ -751,7 +751,7 @@ class MetricEvaluator:
                     Decimal("0"),
                     interpreter,
                 )
-            if not decision.evidence_ready:
+            if not task_decision.evidence_ready:
                 return self._result(
                     definition,
                     subject,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import timedelta
 from typing import Any
 
@@ -25,10 +24,6 @@ with workflow.unsafe.imports_passed_through():
         persist_query_context_activity,
         retrieve_evidence_activity,
         run_model_judge_activity,
-    )
-    from workflows.definitions.metrics_v2 import (
-        MetricsBackfillWorkflowV2,
-        MetricSnapshotSetWorkflowV2,
     )
 
 _IO_RETRY = RetryPolicy(
@@ -66,9 +61,18 @@ _RETRYABLE_LLM_FAILURE_CODES = frozenset(
 )
 
 _DYNAMIC_TASK_CAPABILITIES: dict[str, tuple[str, ...]] = {
-    "claim-verifiability@2.0.0": ("claim_evidence_verdict",),
-    "claim-evidence-verdict@2.0.0": ("claim_evidence_verdict",),
-    "citation-claim-support@2.0.0": ("citation_claim_support",),
+    **{
+        f"claim-verifiability@{version}": ("claim_evidence_verdict",)
+        for version in ("2.0.0", "2.1.0")
+    },
+    **{
+        f"claim-evidence-verdict@{version}": ("claim_evidence_verdict",)
+        for version in ("2.0.0", "2.1.0")
+    },
+    **{
+        f"citation-claim-support@{version}": ("citation_claim_support",)
+        for version in ("2.0.0", "2.1.0")
+    },
 }
 
 
@@ -99,25 +103,6 @@ def _manifest_status_from_capability_states(states: set[str]) -> str:
     return "ready"
 
 
-def _ready_decision_tasks(
-    pending: list[tuple[int, dict[str, Any]]],
-    dependency_statuses: dict[str, str],
-) -> list[tuple[int, dict[str, Any]]]:
-    """Return the next deterministic DAG layer for concurrent execution."""
-
-    ready = [
-        item
-        for item in pending
-        if all(
-            str(task_ref) in dependency_statuses
-            for task_ref in item[1].get("dependency_task_refs", [])
-        )
-    ]
-    # Invalid/missing dependency references must still terminate explicitly in
-    # the leaf workflow instead of hanging the parent forever.
-    return ready or pending[:1]
-
-
 def _next_auto_rejudge_payload(
     payload: dict[str, Any], decision: dict[str, Any]
 ) -> dict[str, Any] | None:
@@ -129,10 +114,7 @@ def _next_auto_rejudge_payload(
     if not reason_codes & _RETRYABLE_LLM_FAILURE_CODES:
         return None
     generation = int(payload.get("rejudge_generation") or 0)
-    configured_maximum = payload.get("max_auto_rejudge_generations")
-    maximum_generation = max(
-        0, min(10, int(5 if configured_maximum is None else configured_maximum))
-    )
+    maximum_generation = max(0, min(10, int(payload.get("max_auto_rejudge_generations") or 5)))
     if generation >= maximum_generation:
         return None
     decision_pub_id = str(decision.get("decision_pub_id") or "")
@@ -166,11 +148,6 @@ def _queues(payload: dict[str, Any]) -> tuple[str, str]:
         str(payload.get("analysis_task_queue") or "geo-platform-v2-analysis"),
         str(payload.get("decision_task_queue") or "geo-platform-v2-decision"),
     )
-
-
-def _judge_execution(payload: dict[str, Any]) -> dict[str, str]:
-    model = str(payload.get("judge_model_ref") or "").strip()
-    return {"judge_model_ref": model} if model else {}
 
 
 @workflow.defn(name="SemanticDecisionWorkflowV2")
@@ -290,11 +267,7 @@ class SemanticDecisionWorkflowV2:
         if retry_payload is not None:
             await workflow.sleep(_auto_rejudge_delay(retry_payload))
             workflow.continue_as_new(retry_payload)
-        return {
-            **persisted,
-            "decision": decision,
-            "cost_amount": sum(float(item.get("cost_amount") or 0) for item in attempts),
-        }
+        return {**persisted, "decision": decision}
 
 
 @workflow.defn(name="QueryContextClassificationWorkflowV2")
@@ -312,43 +285,29 @@ class QueryContextClassificationWorkflowV2:
             retry_policy=_IO_RETRY,
         )
         decisions: list[dict[str, Any]] = []
-        cost_amount = 0.0
         dependency_statuses = dict(payload.get("dependency_statuses") or {})
-        pending = list(enumerate(payload.get("decision_tasks", [])))
-        while pending:
-            ready = _ready_decision_tasks(pending, dependency_statuses)
-            dependency_snapshot = dict(dependency_statuses)
-            results = await asyncio.gather(
-                *(
-                    workflow.execute_child_workflow(
-                        SemanticDecisionWorkflowV2.run,
-                        dict(task_payload)
-                        | {
-                            "tenant_pub_id": payload["tenant_pub_id"],
-                            "project_pub_id": payload["project_pub_id"],
-                            "candidate_set": candidate_set,
-                            "candidate_set_hash": candidate_set["candidate_set_hash"],
-                            "analysis_task_queue": analysis_queue,
-                            "decision_task_queue": decision_queue,
-                            "dependency_statuses": dependency_snapshot,
-                            **_judge_execution(payload),
-                        },
-                        id=f"{workflow.info().workflow_id}:decision:{index}",
-                        task_queue=decision_queue,
-                    )
-                    for index, task_payload in ready
-                )
+        for index, task_payload in enumerate(payload.get("decision_tasks", [])):
+            result = await workflow.execute_child_workflow(
+                SemanticDecisionWorkflowV2.run,
+                dict(task_payload)
+                | {
+                    "tenant_pub_id": payload["tenant_pub_id"],
+                    "project_pub_id": payload["project_pub_id"],
+                    "candidate_set": candidate_set,
+                    "candidate_set_hash": candidate_set["candidate_set_hash"],
+                    "analysis_task_queue": analysis_queue,
+                    "decision_task_queue": decision_queue,
+                    "dependency_statuses": dependency_statuses,
+                },
+                id=f"{workflow.info().workflow_id}:decision:{index}",
+                task_queue=decision_queue,
             )
-            ready_indexes = {index for index, _task_payload in ready}
-            pending = [item for item in pending if item[0] not in ready_indexes]
-            for result in results:
-                cost_amount += float(result.get("cost_amount") or 0)
-                if isinstance(result.get("decision"), dict):
-                    decision = result["decision"]
-                    decisions.append(decision)
-                    dependency_statuses[f"{decision['task_name']}@{decision['task_version']}"] = (
-                        decision["status"]
-                    )
+            if isinstance(result.get("decision"), dict):
+                decision = result["decision"]
+                decisions.append(decision)
+                dependency_statuses[
+                    f"{decision['task_name']}@{decision['task_version']}"
+                ] = decision["status"]
         derived: dict[str, Any] = await workflow.execute_activity(
             derive_query_context_activity,
             payload | {"decisions": decisions},
@@ -373,7 +332,6 @@ class QueryContextClassificationWorkflowV2:
             "candidate_set": candidate_set,
             "decisions": decisions,
             "dependency_statuses": dependency_statuses,
-            "cost_amount": cost_amount,
         }
 
 
@@ -392,12 +350,10 @@ class AnswerSemanticEventWorkflowV2:
                 | {
                     "analysis_task_queue": analysis_queue,
                     "decision_task_queue": decision_queue,
-                    **_judge_execution(payload),
                 },
                 id=f"{workflow.info().workflow_id}:query-context",
                 task_queue=analysis_queue,
             )
-        cost_amount = float((query_context or {}).get("cost_amount") or 0)
         decisions = list(payload.get("decisions", []))
         existing_decision_ids = {
             str(item.get("decision_pub_id"))
@@ -413,43 +369,30 @@ class AnswerSemanticEventWorkflowV2:
             f"{item['task_name']}@{item['task_version']}": item["status"]
             for item in (query_context or {}).get("decisions", [])
         }
-        pending = list(enumerate(payload.get("decision_tasks", [])))
-        while pending:
-            ready = _ready_decision_tasks(pending, dependency_statuses)
-            dependency_snapshot = dict(dependency_statuses)
-            results = await asyncio.gather(
-                *(
-                    workflow.execute_child_workflow(
-                        SemanticDecisionWorkflowV2.run,
-                        dict(task_payload)
-                        | {
-                            "tenant_pub_id": payload["tenant_pub_id"],
-                            "project_pub_id": payload["project_pub_id"],
-                            "analysis_task_queue": analysis_queue,
-                            "decision_task_queue": decision_queue,
-                            "candidate_set": (query_context or {}).get("candidate_set"),
-                            "candidate_set_hash": (
-                                (query_context or {}).get("candidate_set") or {}
-                            ).get("candidate_set_hash"),
-                            "dependency_statuses": dependency_snapshot,
-                            **_judge_execution(payload),
-                        },
-                        id=f"{workflow.info().workflow_id}:answer-decision:{index}",
-                        task_queue=decision_queue,
-                    )
-                    for index, task_payload in ready
-                )
+        for index, task_payload in enumerate(payload.get("decision_tasks", [])):
+            result = await workflow.execute_child_workflow(
+                SemanticDecisionWorkflowV2.run,
+                dict(task_payload)
+                | {
+                    "tenant_pub_id": payload["tenant_pub_id"],
+                    "project_pub_id": payload["project_pub_id"],
+                    "analysis_task_queue": analysis_queue,
+                    "decision_task_queue": decision_queue,
+                    "candidate_set": (query_context or {}).get("candidate_set"),
+                    "candidate_set_hash": ((query_context or {}).get("candidate_set") or {}).get(
+                        "candidate_set_hash"
+                    ),
+                    "dependency_statuses": dependency_statuses,
+                },
+                id=f"{workflow.info().workflow_id}:answer-decision:{index}",
+                task_queue=decision_queue,
             )
-            ready_indexes = {index for index, _task_payload in ready}
-            pending = [item for item in pending if item[0] not in ready_indexes]
-            for result in results:
-                cost_amount += float(result.get("cost_amount") or 0)
-                if isinstance(result.get("decision"), dict):
-                    decisions.append(result["decision"])
-                    decision = result["decision"]
-                    dependency_statuses[f"{decision['task_name']}@{decision['task_version']}"] = (
-                        decision["status"]
-                    )
+            if isinstance(result.get("decision"), dict):
+                decisions.append(result["decision"])
+                decision = result["decision"]
+                dependency_statuses[f"{decision['task_name']}@{decision['task_version']}"] = (
+                    decision["status"]
+                )
 
         dynamic_templates = dict(payload.get("dynamic_task_templates") or {})
         dynamic_inputs = dict(payload.get("dynamic_inputs") or {})
@@ -462,10 +405,12 @@ class AnswerSemanticEventWorkflowV2:
             *,
             extra: dict[str, Any] | None = None,
         ) -> dict[str, Any] | None:
-            nonlocal cost_amount, dynamic_index
+            nonlocal dynamic_index
             template = dynamic_templates.get(task_ref)
             if not isinstance(template, dict):
-                return _record_dynamic_template_failure(forced_capability_failures, task_ref)
+                return _record_dynamic_template_failure(
+                    forced_capability_failures, task_ref
+                )
             request = instantiate_decision_task_request(template, subject_ref)
             result = await workflow.execute_child_workflow(
                 SemanticDecisionWorkflowV2.run,
@@ -481,13 +426,11 @@ class AnswerSemanticEventWorkflowV2:
                         "candidate_set_hash"
                     ),
                     "dependency_statuses": dependency_statuses,
-                    **_judge_execution(payload),
                 },
                 id=(f"{workflow.info().workflow_id}:dynamic-decision:{dynamic_index}"),
                 task_queue=decision_queue,
             )
             dynamic_index += 1
-            cost_amount += float(result.get("cost_amount") or 0)
             decision = result.get("decision")
             if isinstance(decision, dict):
                 decision_pub_id = str(decision.get("decision_pub_id") or "")
@@ -642,7 +585,9 @@ class AnswerSemanticEventWorkflowV2:
                     if status == "failed"
                     else None
                 ),
-                "event_set_hash": (None if status == "failed" else derived["event_set_hash"]),
+                "event_set_hash": (
+                    None if status == "failed" else derived["event_set_hash"]
+                ),
                 "completed_at": workflow.now().isoformat(),
             }
         )
@@ -658,12 +603,7 @@ class AnswerSemanticEventWorkflowV2:
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_IO_RETRY,
         )
-        return {
-            **persisted,
-            "manifest": manifest,
-            "events": derived["events"],
-            "cost_amount": cost_amount,
-        }
+        return {**persisted, "manifest": manifest, "events": derived["events"]}
 
 
 @workflow.defn(name="SemanticDecisionBackfillWorkflowV2")
@@ -697,7 +637,6 @@ class SemanticDecisionBackfillWorkflowV2:
                 | {
                     "analysis_task_queue": analysis_queue,
                     "decision_task_queue": decision_queue,
-                    **_judge_execution(payload),
                 },
                 id=(f"{workflow.info().workflow_id}:answer:{str(item['answer_pub_id'])}:{index}"),
                 task_queue=decision_queue,
@@ -724,47 +663,10 @@ class SemanticDecisionBackfillWorkflowV2:
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_IO_RETRY,
         )
-        metrics: dict[str, Any] | None = None
-        snapshot: dict[str, Any] | None = None
-        if bool(payload.get("run_metrics_after_semantic", False)):
-            metrics_queue = str(payload.get("metrics_task_queue") or "geo-platform-v2-metrics")
-            metrics_as_of = workflow.now().isoformat()
-            answer_pub_ids = sorted(set(map(str, payload.get("answer_pub_ids") or ())))
-            metrics = await workflow.execute_child_workflow(
-                MetricsBackfillWorkflowV2.run,
-                {
-                    "tenant_pub_id": payload["tenant_pub_id"],
-                    "project_pub_id": payload["project_pub_id"],
-                    "answer_pub_ids": answer_pub_ids,
-                    "as_of": metrics_as_of,
-                    "limit": len(answer_pub_ids),
-                    "dry_run": False,
-                    "metrics_task_queue": metrics_queue,
-                },
-                id=f"{workflow.info().workflow_id}:metrics",
-                task_queue=metrics_queue,
-            )
-            snapshot_scope = payload.get("snapshot_scope")
-            if not isinstance(snapshot_scope, dict):
-                raise ValueError("semantic_backfill_snapshot_scope_missing")
-            snapshot = await workflow.execute_child_workflow(
-                MetricSnapshotSetWorkflowV2.run,
-                {
-                    "tenant_pub_id": payload["tenant_pub_id"],
-                    "project_pub_id": payload["project_pub_id"],
-                    "scope": snapshot_scope,
-                    "as_of": workflow.now().isoformat(),
-                    "metrics_task_queue": metrics_queue,
-                },
-                id=f"{workflow.info().workflow_id}:snapshot",
-                task_queue=metrics_queue,
-            )
         return {
             "processed_count": len(results),
             "status_counts": counts,
             "next_cursor": batch.get("next_cursor"),
             "done": batch.get("next_cursor") is None,
             "audit": audit,
-            "metrics": metrics,
-            "snapshot": snapshot,
         }

@@ -11,6 +11,7 @@ type Props = {
   title: string;
   description: string;
   blurb: string;
+  allowAnalyst?: boolean;
   children: (session: SessionContext, project: Project) => ReactNode;
 };
 
@@ -19,12 +20,22 @@ function readProjectParam(): string {
   return new URL(window.location.href).searchParams.get('project') ?? '';
 }
 
-export function ServiceShell({ navId, title, description, blurb, children }: Props) {
+export function ServiceShell({
+  navId,
+  title,
+  description,
+  blurb,
+  allowAnalyst = false,
+  children,
+}: Props) {
   const experience = useOptionalExperienceContext();
   const headers = getValidatedIdentityHeaders();
   const role = experience?.roles.find(
-    (candidate): candidate is 'operator' | 'reviewer' | 'admin' =>
-      candidate === 'operator' || candidate === 'reviewer' || candidate === 'admin',
+    (candidate): candidate is 'operator' | 'analyst' | 'reviewer' | 'admin' =>
+      candidate === 'operator' ||
+      (allowAnalyst && candidate === 'analyst') ||
+      candidate === 'reviewer' ||
+      candidate === 'admin',
   );
   const session: SessionContext | null =
     experience && headers && role

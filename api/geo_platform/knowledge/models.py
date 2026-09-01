@@ -200,6 +200,34 @@ class KnowledgeRelease(TenantScoped, KnowledgeBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
+class KnowledgeReleaseObject(TenantScoped, KnowledgeBase):
+    """Immutable membership of one logical object in one knowledge release."""
+
+    __tablename__ = "knowledge_release_object"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    knowledge_release_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("knowledge.knowledge_release.id")
+    )
+    knowledge_object_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("knowledge.knowledge_object.id")
+    )
+    stable_id: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class KnowledgeReleaseAssertion(TenantScoped, KnowledgeBase):
+    """Immutable membership of one assertion version in one knowledge release."""
+
+    __tablename__ = "knowledge_release_assertion"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    knowledge_release_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("knowledge.knowledge_release.id")
+    )
+    assertion_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge.assertion.id"))
+    assertion_key: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
 class ReleaseActivation(TenantScoped, KnowledgeBase):
     __tablename__ = "release_activation"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -243,8 +271,12 @@ class InferenceTrace(TenantScoped, KnowledgeBase):
     prompt_id: Mapped[str | None] = mapped_column(String(120))
     prompt_version: Mapped[str | None] = mapped_column(String(120))
     model_provider: Mapped[str | None] = mapped_column(String(80))
+    requested_model_name: Mapped[str | None] = mapped_column(String(120))
     model_name: Mapped[str | None] = mapped_column(String(120))
     model_version: Mapped[str | None] = mapped_column(String(120))
+    model_identity_source: Mapped[str | None] = mapped_column(String(30))
+    model_catalog_revision: Mapped[str | None] = mapped_column(String(160))
+    model_call_attempted: Mapped[bool] = mapped_column(Boolean, default=False)
     tool_version: Mapped[str] = mapped_column(String(120))
     adopt_model_inferred: Mapped[bool] = mapped_column(Boolean, default=False)
     adopted_model_decisions: Mapped[int] = mapped_column(Integer, default=0)

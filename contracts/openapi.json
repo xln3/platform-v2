@@ -28914,8 +28914,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "object",
-                    "additionalProperties": true
+                    "$ref": "#/components/schemas/geo_platform__analytics__router__CompetitorView"
                   },
                   "title": "Response Competitors Api V2 Analytics Competitors Get"
                 }
@@ -43550,6 +43549,895 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JobView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/metrics/operations/projects/{project_pub_id}/semantic-backfill/options": {
+      "get": {
+        "tags": [
+          "metrics-v2"
+        ],
+        "summary": "Semantic Backfill Options V2",
+        "operationId": "getSemanticBackfillOptionsV2",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 120,
+              "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 8,
+                  "maxLength": 2000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "as_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "As Of"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SemanticBackfillOptionsView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/metrics/operations/projects/{project_pub_id}/semantic-backfill/plan": {
+      "post": {
+        "tags": [
+          "metrics-v2"
+        ],
+        "summary": "Plan Semantic Backfill V2",
+        "operationId": "planSemanticBackfillV2",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 120,
+              "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SemanticBackfillPlanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SemanticBackfillPlanView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/metrics/operations/projects/{project_pub_id}/semantic-backfill/start": {
+      "post": {
+        "tags": [
+          "metrics-v2"
+        ],
+        "summary": "Start Semantic Backfill V2",
+        "operationId": "startSemanticBackfillV2",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 120,
+              "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SemanticBackfillStartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SemanticBackfillStartView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/metrics/operations/projects/{project_pub_id}/semantic-backfill/status/{selection_hash}": {
+      "get": {
+        "tags": [
+          "metrics-v2"
+        ],
+        "summary": "Semantic Backfill Status V2",
+        "operationId": "getSemanticBackfillStatusV2",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 120,
+              "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "selection_hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Selection Hash"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SemanticBackfillStatusView"
                 }
               }
             }
@@ -67454,7 +68342,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CompetitorView"
+                  "$ref": "#/components/schemas/geo_platform__intake_form__schemas__CompetitorView"
                 }
               }
             }
@@ -70970,6 +71858,197 @@
         }
       }
     },
+    "/api/v2/knowledge/v1/models": {
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Inference Model Catalog",
+        "operationId": "inference_model_catalog_api_v2_knowledge_v1_models_get",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeModelCatalogView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/knowledge/v1/runtime/resolve": {
       "post": {
         "tags": [
@@ -73678,6 +74757,229 @@
                     "$ref": "#/components/schemas/ReleaseView"
                   },
                   "title": "Response List Releases Api V2 Knowledge V1 Releases Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/releases/{release_id}/replica": {
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Download Release Replica",
+        "description": "Return one complete verified artifact for an authenticated client replica.",
+        "operationId": "download_release_replica_api_v2_knowledge_v1_releases__release_id__replica_get",
+        "parameters": [
+          {
+            "name": "release_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Release Id"
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "title": "Namespace"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 160,
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Download Release Replica Api V2 Knowledge V1 Releases  Release Id  Replica Get"
                 }
               }
             }
@@ -85186,7 +86488,7 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/CompetitorView"
+              "$ref": "#/components/schemas/geo_platform__intake_form__schemas__CompetitorView"
             },
             "type": "array",
             "title": "Items"
@@ -85198,42 +86500,6 @@
           "items"
         ],
         "title": "CompetitorListView"
-      },
-      "CompetitorView": {
-        "properties": {
-          "pub_id": {
-            "type": "string",
-            "title": "Pub Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "website": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Website"
-          },
-          "created_at": {
-            "type": "string",
-            "title": "Created At"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "pub_id",
-          "name",
-          "website",
-          "created_at"
-        ],
-        "title": "CompetitorView"
       },
       "CompleteIntervention": {
         "properties": {
@@ -89711,6 +90977,28 @@
               }
             ],
             "title": "Model Version"
+          },
+          "requested_model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model Name"
+          },
+          "model_identity_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Identity Source"
           },
           "prompt_id": {
             "anyOf": [
@@ -94409,6 +95697,224 @@
         ],
         "title": "KnowledgeEventView"
       },
+      "KnowledgeModelCatalogView": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "unavailable"
+            ],
+            "title": "Status"
+          },
+          "catalog_revision": {
+            "type": "string",
+            "title": "Catalog Revision"
+          },
+          "default_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeModelOptionView"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "catalog_revision",
+          "default_model",
+          "models",
+          "unavailable_reason"
+        ],
+        "title": "KnowledgeModelCatalogView"
+      },
+      "KnowledgeModelOptionView": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version"
+          },
+          "capability": {
+            "type": "string",
+            "title": "Capability"
+          },
+          "strict_output_verified": {
+            "type": "boolean",
+            "title": "Strict Output Verified"
+          },
+          "tool_capability_status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "not_required",
+              "not_verified"
+            ],
+            "title": "Tool Capability Status"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          },
+          "verification_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Reference"
+          },
+          "input_usd_per_million_tokens": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Usd Per Million Tokens"
+          },
+          "output_usd_per_million_tokens": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Usd Per Million Tokens"
+          },
+          "pricing_status": {
+            "type": "string",
+            "enum": [
+              "catalog_snapshot",
+              "unknown"
+            ],
+            "title": "Pricing Status"
+          },
+          "pricing_currency": {
+            "type": "string",
+            "const": "USD",
+            "title": "Pricing Currency"
+          },
+          "token_price_unit": {
+            "type": "string",
+            "const": "per_million_tokens",
+            "title": "Token Price Unit"
+          },
+          "pricing_observed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pricing Observed At"
+          },
+          "pricing_source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pricing Source Url"
+          },
+          "pricing_notice": {
+            "type": "string",
+            "const": "catalog_snapshot_provider_invoice_authoritative",
+            "title": "Pricing Notice"
+          },
+          "catalog_revision": {
+            "type": "string",
+            "title": "Catalog Revision"
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default"
+          },
+          "recommended": {
+            "type": "boolean",
+            "title": "Recommended"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model",
+          "label",
+          "provider",
+          "model_version",
+          "capability",
+          "strict_output_verified",
+          "tool_capability_status",
+          "verified_at",
+          "verification_reference",
+          "input_usd_per_million_tokens",
+          "output_usd_per_million_tokens",
+          "pricing_status",
+          "pricing_currency",
+          "token_price_unit",
+          "pricing_observed_at",
+          "pricing_source_url",
+          "pricing_notice",
+          "catalog_revision",
+          "is_default",
+          "recommended"
+        ],
+        "title": "KnowledgeModelOptionView"
+      },
       "KnowledgeStatus": {
         "type": "string",
         "enum": [
@@ -95743,6 +97249,20 @@
               }
             ],
             "title": "Export Lag Seconds"
+          },
+          "requested_model_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ModelMetricView"
+            },
+            "type": "array",
+            "title": "Requested Model Metrics"
+          },
+          "actual_model_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ModelMetricView"
+            },
+            "type": "array",
+            "title": "Actual Model Metrics"
           }
         },
         "additionalProperties": false,
@@ -95870,6 +97390,77 @@
           "revoked_at"
         ],
         "title": "ModelAdmissionView"
+      },
+      "ModelMetricView": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "inference_count": {
+            "type": "integer",
+            "title": "Inference Count"
+          },
+          "provider_call_count": {
+            "type": "integer",
+            "title": "Provider Call Count"
+          },
+          "error_count": {
+            "type": "integer",
+            "title": "Error Count"
+          },
+          "cache_hit_count": {
+            "type": "integer",
+            "title": "Cache Hit Count"
+          },
+          "cache_hit_rate": {
+            "type": "number",
+            "title": "Cache Hit Rate"
+          },
+          "provider_latency_avg_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Latency Avg Ms"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "cost_unknown_count": {
+            "type": "integer",
+            "title": "Cost Unknown Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model",
+          "inference_count",
+          "provider_call_count",
+          "error_count",
+          "cache_hit_count",
+          "cache_hit_rate",
+          "provider_latency_avg_ms",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd",
+          "cost_unknown_count"
+        ],
+        "title": "ModelMetricView"
       },
       "NativeLoginRequest": {
         "properties": {
@@ -103074,6 +104665,20 @@
             "title": "Allow External Model",
             "default": false
           },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
           "max_latency_ms": {
             "anyOf": [
               {
@@ -103207,6 +104812,54 @@
               }
             ],
             "title": "Model Version"
+          },
+          "requested_model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model Name"
+          },
+          "model_identity_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Identity Source"
+          },
+          "model_catalog_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Catalog Revision"
+          },
+          "model_inference_used": {
+            "type": "boolean",
+            "title": "Model Inference Used",
+            "default": false
+          },
+          "model_inference_adopted": {
+            "type": "boolean",
+            "title": "Model Inference Adopted",
+            "default": false
+          },
+          "provider_call_attempted": {
+            "type": "boolean",
+            "title": "Provider Call Attempted",
+            "default": false
           },
           "latency_ms": {
             "type": "integer",
@@ -103797,6 +105450,600 @@
           "circular_citation_risk"
         ],
         "title": "ScoreCreate"
+      },
+      "SemanticBackfillCandidateView": {
+        "properties": {
+          "answer_pub_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 5,
+            "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+            "title": "Answer Pub Id"
+          },
+          "query_text": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Query Text"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "region": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Region"
+          },
+          "mode": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Mode"
+          },
+          "channel": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Channel"
+          },
+          "capture_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Capture Time"
+          },
+          "preparation_state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "unknown"
+            ],
+            "title": "Preparation State"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reason Codes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer_pub_id",
+          "query_text",
+          "model",
+          "region",
+          "mode",
+          "channel",
+          "capture_time",
+          "preparation_state"
+        ],
+        "title": "SemanticBackfillCandidateView"
+      },
+      "SemanticBackfillModelView": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "economy",
+              "premium"
+            ],
+            "title": "Tier"
+          },
+          "input_usd_per_million_tokens": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Input Usd Per Million Tokens"
+          },
+          "output_usd_per_million_tokens": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Output Usd Per Million Tokens"
+          },
+          "context_window_tokens": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Context Window Tokens"
+          },
+          "recommended": {
+            "type": "boolean",
+            "title": "Recommended"
+          },
+          "catalog_revision": {
+            "type": "string",
+            "title": "Catalog Revision"
+          },
+          "pricing_observed_at": {
+            "type": "string",
+            "title": "Pricing Observed At"
+          },
+          "pricing_source_url": {
+            "type": "string",
+            "title": "Pricing Source Url"
+          },
+          "pricing_currency": {
+            "type": "string",
+            "const": "USD",
+            "title": "Pricing Currency"
+          },
+          "token_price_unit": {
+            "type": "string",
+            "const": "per_million_tokens",
+            "title": "Token Price Unit"
+          },
+          "pricing_notice": {
+            "type": "string",
+            "const": "catalog_snapshot_provider_invoice_authoritative",
+            "title": "Pricing Notice"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model",
+          "label",
+          "provider",
+          "tier",
+          "input_usd_per_million_tokens",
+          "output_usd_per_million_tokens",
+          "context_window_tokens",
+          "recommended",
+          "catalog_revision",
+          "pricing_observed_at",
+          "pricing_source_url",
+          "pricing_currency",
+          "token_price_unit",
+          "pricing_notice"
+        ],
+        "title": "SemanticBackfillModelView"
+      },
+      "SemanticBackfillOptionsView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "semantic-backfill-options-v2",
+            "title": "Schema Version",
+            "default": "semantic-backfill-options-v2"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 5,
+            "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+            "title": "Project Pub Id"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "candidate_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Candidate Count"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/SemanticBackfillCandidateView"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "max_batch_size": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Batch Size"
+          },
+          "default_model": {
+            "type": "string",
+            "title": "Default Model"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/SemanticBackfillModelView"
+            },
+            "type": "array",
+            "title": "Models"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "as_of",
+          "candidate_count",
+          "candidates",
+          "max_batch_size",
+          "default_model",
+          "models"
+        ],
+        "title": "SemanticBackfillOptionsView"
+      },
+      "SemanticBackfillPlanRequest": {
+        "properties": {
+          "answer_pub_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 120,
+              "minLength": 5,
+              "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Answer Pub Ids"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer_pub_ids",
+          "model",
+          "as_of"
+        ],
+        "title": "SemanticBackfillPlanRequest"
+      },
+      "SemanticBackfillPlanView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "semantic-backfill-plan-v2",
+            "title": "Schema Version",
+            "default": "semantic-backfill-plan-v2"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 5,
+            "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+            "title": "Project Pub Id"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "window": {
+            "$ref": "#/components/schemas/SnapshotWindow"
+          },
+          "focal_entity_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Focal Entity Ids"
+          },
+          "selected_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Selected Answer Count"
+          },
+          "executable_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Executable Answer Count"
+          },
+          "preparation_unknown_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Preparation Unknown Count"
+          },
+          "estimated_atomic_decisions": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Estimated Atomic Decisions"
+          },
+          "estimated_input_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Estimated Input Tokens"
+          },
+          "estimated_output_tokens": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Estimated Output Tokens"
+          },
+          "estimated_cost_usd": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Estimated Cost Usd"
+          },
+          "estimated_cost_high_usd": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Estimated Cost High Usd"
+          },
+          "budget_limit_usd": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Budget Limit Usd"
+          },
+          "selection_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Selection Hash"
+          },
+          "confirmation_token": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Confirmation Token"
+          },
+          "start_allowed": {
+            "type": "boolean",
+            "title": "Start Allowed"
+          },
+          "blocker_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Blocker Codes"
+          },
+          "estimate_notice": {
+            "type": "string",
+            "const": "bounded_estimate_provider_invoice_authoritative",
+            "title": "Estimate Notice",
+            "default": "bounded_estimate_provider_invoice_authoritative"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "model",
+          "as_of",
+          "window",
+          "focal_entity_ids",
+          "selected_answer_count",
+          "executable_answer_count",
+          "preparation_unknown_count",
+          "estimated_atomic_decisions",
+          "estimated_input_tokens",
+          "estimated_output_tokens",
+          "estimated_cost_usd",
+          "estimated_cost_high_usd",
+          "budget_limit_usd",
+          "selection_hash",
+          "confirmation_token",
+          "start_allowed"
+        ],
+        "title": "SemanticBackfillPlanView"
+      },
+      "SemanticBackfillStartRequest": {
+        "properties": {
+          "answer_pub_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 120,
+              "minLength": 5,
+              "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Answer Pub Ids"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "selection_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Selection Hash"
+          },
+          "confirmation_token": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Confirmation Token"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer_pub_ids",
+          "model",
+          "as_of",
+          "selection_hash",
+          "confirmation_token"
+        ],
+        "title": "SemanticBackfillStartRequest"
+      },
+      "SemanticBackfillStartView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "semantic-backfill-start-v2",
+            "title": "Schema Version",
+            "default": "semantic-backfill-start-v2"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 5,
+            "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+            "title": "Project Pub Id"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "job_pub_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 5,
+            "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+            "title": "Job Pub Id"
+          },
+          "selection_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Selection Hash"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "started",
+              "reused"
+            ],
+            "title": "Status"
+          },
+          "selected_answer_count": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Selected Answer Count"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "workflow_id",
+          "job_pub_id",
+          "selection_hash",
+          "status",
+          "selected_answer_count",
+          "model"
+        ],
+        "title": "SemanticBackfillStartView"
+      },
+      "SemanticBackfillStatusView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "semantic-backfill-status-v2",
+            "title": "Schema Version",
+            "default": "semantic-backfill-status-v2"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 5,
+            "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+            "title": "Project Pub Id"
+          },
+          "selection_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Selection Hash"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "processed_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Processed Answer Count"
+          },
+          "metric_evaluation_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Metric Evaluation Count"
+          },
+          "snapshot_set_pub_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 5,
+                "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Set Pub Id"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "selection_hash",
+          "workflow_id",
+          "status",
+          "processed_answer_count",
+          "metric_evaluation_count"
+        ],
+        "title": "SemanticBackfillStatusView"
       },
       "SemanticDecisionDetailView": {
         "properties": {
@@ -104890,7 +107137,6 @@
             },
             "type": "array",
             "maxItems": 100,
-            "minItems": 1,
             "title": "Focal Entity Ids"
           },
           "aggregation_method": {
@@ -108724,6 +110970,75 @@
         ],
         "title": "ComparisonCreate"
       },
+      "geo_platform__analytics__router__CompetitorView": {
+        "properties": {
+          "competitor": {
+            "type": "string",
+            "title": "Competitor"
+          },
+          "mention_count": {
+            "type": "integer",
+            "title": "Mention Count"
+          },
+          "answer_count": {
+            "type": "integer",
+            "title": "Answer Count"
+          },
+          "average_rank": {
+            "type": "number",
+            "title": "Average Rank"
+          },
+          "top1_count": {
+            "type": "integer",
+            "title": "Top1 Count"
+          },
+          "top3_count": {
+            "type": "integer",
+            "title": "Top3 Count"
+          },
+          "top10_count": {
+            "type": "integer",
+            "title": "Top10 Count"
+          },
+          "mention_rate": {
+            "type": "number",
+            "title": "Mention Rate"
+          },
+          "top1_rate": {
+            "type": "number",
+            "title": "Top1 Rate"
+          },
+          "top3_rate": {
+            "type": "number",
+            "title": "Top3 Rate"
+          },
+          "top10_rate": {
+            "type": "number",
+            "title": "Top10 Rate"
+          },
+          "metric_version": {
+            "type": "string",
+            "title": "Metric Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "competitor",
+          "mention_count",
+          "answer_count",
+          "average_rank",
+          "top1_count",
+          "top3_count",
+          "top10_count",
+          "mention_rate",
+          "top1_rate",
+          "top3_rate",
+          "top10_rate",
+          "metric_version"
+        ],
+        "title": "CompetitorView"
+      },
       "geo_platform__collection__governance_router__ResourceView": {
         "properties": {
           "pub_id": {
@@ -109211,6 +111526,42 @@
           "licenses"
         ],
         "title": "ProfileView"
+      },
+      "geo_platform__intake_form__schemas__CompetitorView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "website": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "name",
+          "website",
+          "created_at"
+        ],
+        "title": "CompetitorView"
       },
       "geo_platform__knowledge__schemas__EvidenceCreate": {
         "properties": {

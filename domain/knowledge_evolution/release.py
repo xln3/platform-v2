@@ -93,6 +93,14 @@ class KnowledgeReleaseStore:
         actual = "sha256:" + hashlib.sha256(_canonical(documents)).hexdigest()
         if actual != manifest.get("content_hash"):
             raise KnowledgeReleaseError("release_content_hash_mismatch")
+        quality_report = manifest.get("quality_report")
+        if not isinstance(quality_report, dict):
+            raise KnowledgeReleaseError("invalid_release_quality_report")
+        expected_quality_hash = manifest.get("quality_report_hash")
+        if expected_quality_hash is not None:
+            actual_quality_hash = "sha256:" + hashlib.sha256(_canonical(quality_report)).hexdigest()
+            if actual_quality_hash != expected_quality_hash:
+                raise KnowledgeReleaseError("release_quality_report_hash_mismatch")
         return manifest
 
     def publish(
@@ -135,6 +143,8 @@ class KnowledgeReleaseStore:
                 "generated_at": datetime.now(UTC).isoformat(),
                 "artifacts": artifacts,
                 "quality_report": quality_report,
+                "quality_report_hash": "sha256:"
+                + hashlib.sha256(_canonical(quality_report)).hexdigest(),
             }
             (temporary / "manifest.json").write_bytes(_canonical(manifest))
             os.replace(temporary, final)

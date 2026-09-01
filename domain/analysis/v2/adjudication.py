@@ -169,7 +169,7 @@ def adjudicate_decision(request: AdjudicationRequest) -> DecisionAdjudication:
     if request.official_use and request.judge_policy.status is not DefinitionStatus.PUBLISHED:
         return _terminal(
             request,
-            DecisionStatus.FAILED,
+            DecisionStatus.ABSTAINED,
             _method_for_request(request),
             ("judge_policy_not_published_for_official_use",),
         )
@@ -298,9 +298,7 @@ def adjudicate_decision(request: AdjudicationRequest) -> DecisionAdjudication:
         reason_codes=tuple(reason_codes),
         selected_attempt_pub_ids=tuple(attempt.pub_id for attempt in selected),
         calibrated_confidence=confidence,
-        calibration_bucket=(
-            _calibration_bucket(confidence) if confidence is not None else None
-        ),
+        calibration_bucket=(_calibration_bucket(confidence) if confidence is not None else None),
         evidence_refs=request.evidence_refs,
         evidence_spans=evidence_spans,
         rationale_summary=selected[-1].rationale_summary,
@@ -422,10 +420,7 @@ def _attempt_route_error(
                 and route.route_name == runtime_route_name
                 and route.resolved_revision == "runtime-configured"
             )
-            or (
-                route.model == attempt.model
-                and route.resolved_revision == attempt.model_revision
-            )
+            or (route.model == attempt.model and route.resolved_revision == attempt.model_revision)
         )
     ]
     return None if matching else "model_unavailable_for_policy"
@@ -463,7 +458,7 @@ def _evidence_requirement_error(request: AdjudicationRequest) -> str | None:
 
 
 def _known_evidence_execution_failure(request: AdjudicationRequest) -> str | None:
-    """Return only observed execution failures, before dependency unknowns mask them."""
+    """Return observed execution failures before dependency unknown can mask them."""
 
     if (
         not request.required_chunks_complete
@@ -489,16 +484,13 @@ def _missing_attempt_reason(attempts: tuple[SemanticDecisionAttempt, ...]) -> st
         "model_unavailable_for_policy",
         "model_timeout",
         "evidence_retrieval_failed",
-        "judge_policy_not_published_for_official_use",
         "structured_output_invalid",
     )
     selected = next((code for code in priority if code in reason_codes), None)
     if selected is not None:
         return selected
     infrastructure = sorted(
-        code
-        for code in reason_codes
-        if code.startswith("llm_api_") or code.startswith("upstream_")
+        code for code in reason_codes if code.startswith("llm_api_") or code.startswith("upstream_")
     )
     return infrastructure[0] if infrastructure else "required_judge_role_missing"
 
@@ -601,9 +593,7 @@ def _evidence_spans_for_result(
     return tuple(unique[key] for key in sorted(unique))
 
 
-def _answer_span_count(
-    request: AdjudicationRequest, spans: tuple[EvidenceSpan, ...]
-) -> int:
+def _answer_span_count(request: AdjudicationRequest, spans: tuple[EvidenceSpan, ...]) -> int:
     source_text_hash = request.expected_answer_text_hash
     if source_text_hash is None and request.answer_text is not None:
         source_text_hash = sha256(request.answer_text.encode()).hexdigest()

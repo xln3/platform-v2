@@ -28,6 +28,7 @@ from geo_platform.knowledge.models import (  # noqa: E402
     Candidate,
     ChangeSet,
     ConnectorRun,
+    KnowledgeRelease,
 )
 from geo_platform.knowledge.repository import KnowledgeRepository  # noqa: E402
 from geo_platform.tenancy.database import SessionLocal  # noqa: E402
@@ -39,7 +40,10 @@ from domain.knowledge_evolution.release import KnowledgeReleaseStore  # noqa: E4
 from domain.siliconindex import (  # noqa: E402
     SiliconIndexAdapter,
     SiliconIndexSyncError,
+    SiliconIndexSynchronizer,
+    preview_change_bundle,
     project_brand_domain,
+    publish_change_bundle,
 )
 
 NAMESPACE = "shared"
@@ -85,6 +89,208 @@ def _write_artifact(root: Path, kind: str, value: dict[str, Any]) -> tuple[Path,
     temporary.write_bytes(_canonical(value))
     os.replace(temporary, target)
     return target, digest
+
+
+def _trusted_connector_artifact(root: Path, value: Any) -> Path:
+    path = Path(str(value or "")).resolve()
+    trusted_root = (root / "connector-artifacts").resolve()
+    if trusted_root not in path.parents or not path.is_file():
+        raise SiliconIndexSyncError("connector_artifact_path_untrusted")
+    return path
+
+
+def _release_lineage(
+    repository: KnowledgeRepository,
+    *,
+    release_id: str,
+) -> list[KnowledgeRelease]:
+    releases = {
+        row.release_id: row for row in repository.list_releases(namespace=NAMESPACE, domain=DOMAIN)
+    }
+    lineage: list[KnowledgeRelease] = []
+    current_id: str | None = release_id
+    visited: set[str] = set()
+    while current_id is not None:
+        if current_id in visited:
+            raise SiliconIndexSyncError("knowledge_release_lineage_cycle")
+        visited.add(current_id)
+        release = releases.get(current_id)
+        if release is None:
+            raise SiliconIndexSyncError("knowledge_release_lineage_incomplete")
+        lineage.append(release)
+        current_id = release.parent_release_id
+    return lineage
+
+
+def _lineage_change_sets(
+    repository: KnowledgeRepository,
+    session: Session,
+    *,
+    release_id: str,
+) -> list[ChangeSet]:
+    pub_ids: list[str] = []
+    for release in _release_lineage(repository, release_id=release_id):
+        values = release.quality_report.get("change_set_pub_ids")
+        if isinstance(values, list):
+            pub_ids.extend(str(value) for value in values if value)
+    unique_ids = list(dict.fromkeys(pub_ids))
+    if not unique_ids:
+        return []
+    rows = list(
+        session.scalars(
+            select(ChangeSet).where(
+                ChangeSet.tenant_pub_id == repository.tenant_pub_id,
+                ChangeSet.pub_id.in_(unique_ids),
+            )
+        )
+    )
+    if len(rows) != len(unique_ids):
+        raise SiliconIndexSyncError("published_change_set_lineage_incomplete")
+    by_pub_id = {row.pub_id: row for row in rows}
+    return [by_pub_id[value] for value in unique_ids]
+
+
+def _retirement_exports(
+    repository: KnowledgeRepository,
+    session: Session,
+    *,
+    local_release_id: str,
+    current_object_ids: set[str],
+) -> dict[str, dict[str, Any]]:
+    retirements: dict[str, dict[str, Any]] = {}
+    for change_set in _lineage_change_sets(
+        repository,
+        session,
+        release_id=local_release_id,
+    ):
+        for change in change_set.changes:
+            if (
+                str(change.get("kind") or "") not in {"object", "knowledge_object"}
+                or str(change.get("operation") or "") != "retire"
+            ):
+                continue
+            stable_id = str(change.get("stable_id") or "").strip()
+            if not stable_id or stable_id in current_object_ids or stable_id in retirements:
+                continue
+            retirements[stable_id] = {
+                "operation": "retire",
+                "stable_id": stable_id,
+                "object_type": str(change.get("object_type") or "brand"),
+                "visibility": str(change.get("visibility") or ""),
+                "review_status": str(change.get("review_status") or ""),
+                "evidence_refs": list(change.get("evidence_refs") or []),
+                "origin": str(change.get("origin") or "governed_change_set"),
+            }
+    return retirements
+
+
+def _publication_approval(
+    repository: KnowledgeRepository,
+    session: Session,
+    *,
+    knowledge_release_dir: Path,
+    bundle_path: Path,
+    target_release_id: str,
+    repository_url: str,
+    branch: str,
+) -> Path:
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    if not isinstance(bundle, dict):
+        raise SiliconIndexSyncError("change_bundle_invalid")
+    local_release_id = str(bundle.get("local_knowledge_release_id") or "")
+    if repository.active_release_id(namespace=NAMESPACE, domain=DOMAIN) != local_release_id:
+        raise SiliconIndexSyncError("publication_requires_active_local_release")
+    release = repository.scoped_release(
+        namespace=NAMESPACE,
+        domain=DOMAIN,
+        release_id=local_release_id,
+    )
+    if release is None:
+        raise SiliconIndexSyncError("local_release_record_missing")
+    quality_report = dict(release.quality_report)
+    impact_gate = quality_report.get("impact_gate")
+    if (
+        not isinstance(impact_gate, dict)
+        or impact_gate.get("passed") is not True
+        or impact_gate.get("execution") != "server"
+        or impact_gate.get("candidate_release_id") != local_release_id
+    ):
+        raise SiliconIndexSyncError("trusted_historical_replay_gate_missing")
+    change_sets = _lineage_change_sets(
+        repository,
+        session,
+        release_id=local_release_id,
+    )
+    if not change_sets:
+        raise SiliconIndexSyncError("published_change_set_lineage_missing")
+    bundle_hash = _hash(bundle)
+    reconciliations = list(
+        session.scalars(
+            select(ConnectorRun).where(
+                ConnectorRun.tenant_pub_id == repository.tenant_pub_id,
+                ConnectorRun.namespace == NAMESPACE,
+                ConnectorRun.domain == DOMAIN,
+                ConnectorRun.operation == "reconcile",
+                ConnectorRun.status == "success",
+                ConnectorRun.local_release_id == local_release_id,
+                ConnectorRun.upstream_release_id == bundle.get("base_upstream_release_id"),
+            )
+        )
+    )
+    reconciliation = next(
+        (
+            row
+            for row in reconciliations
+            if not row.result.get("conflicts")
+            and row.result.get("can_prepare_merge") is True
+            and isinstance(row.result.get("local_export"), dict)
+            and row.result["local_export"].get("content_hash") == bundle_hash
+        ),
+        None,
+    )
+    if reconciliation is None:
+        raise SiliconIndexSyncError("successful_reconciliation_lineage_missing")
+    reviewers = sorted(
+        {
+            str(value)
+            for value in [release.created_by, *(row.approved_by for row in change_sets)]
+            if value
+        }
+    )
+    if len(reviewers) < 2:
+        raise SiliconIndexSyncError("independent_publication_reviewers_required")
+    preview = preview_change_bundle(
+        repository_url=repository_url,
+        branch=branch,
+        bundle_path=bundle_path,
+        release_id=target_release_id,
+    )
+    approval = {
+        "schema_version": "siliconindex-change-bundle-approval-v1",
+        "decision": "approved",
+        "bundle_hash": bundle_hash,
+        "base_upstream_release_id": bundle.get("base_upstream_release_id"),
+        "local_knowledge_release_id": local_release_id,
+        "target_release_id": target_release_id,
+        "result_content_hash": preview.get("result_content_hash"),
+        "historical_replay_report_hash": _hash(impact_gate),
+        "reviewers": reviewers,
+        "review_basis": [
+            f"knowledge_release:{local_release_id}",
+            *[
+                f"change_set:{row.pub_id}"
+                for row in sorted(change_sets, key=lambda row: row.pub_id)
+            ],
+            f"server_replay:{impact_gate.get('evaluation_set_hash')}",
+            f"reconciliation:{reconciliation.pub_id}",
+        ],
+    }
+    approval_path, _ = _write_artifact(
+        knowledge_release_dir,
+        "siliconindex-approval",
+        approval,
+    )
+    return approval_path
 
 
 def _release_source(root: Path, release_id: str, current_release_id: str) -> Path:
@@ -134,6 +340,21 @@ def _object_values(repository: KnowledgeRepository) -> tuple[dict[str, Any], ...
     )
 
 
+def _assert_activation_consistent(
+    repository: KnowledgeRepository,
+    store: KnowledgeReleaseStore,
+) -> str:
+    artifact_release_id = store.current_release_id()
+    database_release_id = repository.active_release_id(namespace=NAMESPACE, domain=DOMAIN)
+    if artifact_release_id is None or database_release_id != artifact_release_id:
+        raise SiliconIndexSyncError(
+            "knowledge_activation_state_mismatch:"
+            f"artifact={artifact_release_id or 'none'}:database={database_release_id or 'none'}"
+        )
+    store.verify(artifact_release_id)
+    return artifact_release_id
+
+
 def _entity_map(source: Path) -> dict[str, dict[str, Any]]:
     projection = project_brand_domain(source, analysis_domain=ANALYSIS_DOMAIN)
     return {str(row["entity_id"]): dict(row) for row in projection["entities"]}
@@ -142,8 +363,12 @@ def _entity_map(source: Path) -> dict[str, dict[str, Any]]:
 def _local_map(
     base: dict[str, dict[str, Any]],
     local_objects: tuple[dict[str, Any], ...],
+    *,
+    retired_ids: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     local = {key: dict(value) for key, value in base.items()}
+    for stable_id in retired_ids or set():
+        local.pop(stable_id, None)
     for value in local_objects:
         if value["review_status"] != "reviewed":
             continue
@@ -328,23 +553,48 @@ def reconcile_snapshot(
     upstream_release_id = str(imported.upstream_release_id)
     upstream_hash = str(imported.result["content_hash"])
     store = KnowledgeReleaseStore(knowledge_release_dir)
-    local_release_id = store.current_release_id()
+    local_release_id = _assert_activation_consistent(repository, store)
     base_release_id = base_upstream_release_id or _knowledge_source_release(store)
     if base_release_id is None:
         base_release_id = upstream_release_id
     base_source = _release_source(snapshot_source, base_release_id, upstream_release_id)
     local_objects = _object_values(repository)
+    local_by_id = {str(value["stable_id"]): value for value in local_objects}
+    retirements = _retirement_exports(
+        repository,
+        session,
+        local_release_id=local_release_id,
+        current_object_ids=set(local_by_id),
+    )
     base = _entity_map(base_source)
+    untraced_missing_reviewed_ids = sorted(
+        stable_id
+        for stable_id, value in base.items()
+        if value.get("review_status") == "reviewed"
+        and stable_id not in local_by_id
+        and stable_id not in retirements
+    )
     upstream = _entity_map(snapshot_source)
-    local = _local_map(base, local_objects)
+    local = _local_map(base, local_objects, retired_ids=set(retirements))
     merge = adapter.reconcile_brand_projection(
         base_source=base_source,
         upstream_source=snapshot_source,
         analysis_domain=ANALYSIS_DOMAIN,
         local_objects=local_objects,
+        retired_ids=set(retirements),
     )
     upstream_changes = _changed_ids(base, upstream)
-    local_changes = _changed_ids(base, local)
+    local_changes_from_base = _changed_ids(base, local)
+    local_changed_ids = [
+        stable_id
+        for stable_id in local_changes_from_base
+        if upstream.get(stable_id) != local.get(stable_id)
+    ]
+    local_converged_ids = [
+        stable_id
+        for stable_id in local_changes_from_base
+        if upstream.get(stable_id) == local.get(stable_id)
+    ]
     ingestion = _ingest_upstream_changes(
         repository,
         session,
@@ -353,11 +603,42 @@ def reconcile_snapshot(
         upstream_release_id=upstream_release_id,
         upstream_content_hash=upstream_hash,
     )
-    exportable = tuple(value for value in local_objects if value["sync_status"] == "local_ahead")
-    exported = adapter.export_changes(exportable)
+    conflicts = _conflict_values(merge.conflicts)
+    export_values: list[dict[str, Any]] = []
+    unexportable_local_ids: list[str] = list(untraced_missing_reviewed_ids)
+    merged = merge.merged if isinstance(merge.merged, dict) else {}
+    if not conflicts:
+        for stable_id in local_changed_ids:
+            if stable_id not in local:
+                retirement = retirements.get(stable_id)
+                if retirement is None:
+                    unexportable_local_ids.append(stable_id)
+                else:
+                    export_values.append(retirement)
+                continue
+            local_record = local_by_id.get(stable_id)
+            merged_attributes = merged.get(stable_id)
+            if (
+                local_record is None
+                or local_record.get("sync_status") != "local_ahead"
+                or not isinstance(merged_attributes, dict)
+            ):
+                unexportable_local_ids.append(stable_id)
+                continue
+            export_values.append(
+                {
+                    **local_record,
+                    "operation": "upsert",
+                    "attributes": {
+                        "analysis_domain": ANALYSIS_DOMAIN,
+                        **dict(merged_attributes),
+                    },
+                }
+            )
+    exported = adapter.export_changes(tuple(export_values))
     export_document = {
         "schema_version": "siliconindex-change-bundle-v1",
-        "base_upstream_release_id": base_release_id,
+        "base_upstream_release_id": upstream_release_id,
         "local_knowledge_release_id": local_release_id,
         "changes": exported.result["changes"],
     }
@@ -366,7 +647,6 @@ def reconcile_snapshot(
         "siliconindex-export",
         export_document,
     )
-    conflicts = _conflict_values(merge.conflicts)
     conflict_change_set = _record_conflicts(
         repository,
         session,
@@ -379,11 +659,16 @@ def reconcile_snapshot(
         "upstream_content_hash": upstream_hash,
         "local_knowledge_release_id": local_release_id,
         "upstream_changed_ids": upstream_changes,
-        "local_changed_ids": local_changes,
+        "local_changes_from_base": local_changes_from_base,
+        "local_changed_ids": local_changed_ids,
+        "local_converged_ids": local_converged_ids,
+        "unexportable_local_ids": unexportable_local_ids,
         "conflicts": conflicts,
         "conflict_change_set_pub_id": conflict_change_set,
-        "review_required": bool(upstream_changes or local_changes or conflicts),
-        "can_prepare_merge": not conflicts,
+        "review_required": bool(
+            upstream_changes or local_changed_ids or conflicts or unexportable_local_ids
+        ),
+        "can_prepare_merge": not conflicts and not unexportable_local_ids,
         "upstream_observations": ingestion,
         "local_export": {
             "count": exported.result["count"],
@@ -489,30 +774,14 @@ def _execute(
                 **dict(imported.result),
             }
         elif row.operation == "export":
-            repository = KnowledgeRepository(session, tenant_pub_id)
-            values = tuple(
-                value
-                for value in _object_values(repository)
-                if value["sync_status"] == "local_ahead"
+            result = reconcile_snapshot(
+                session,
+                tenant_pub_id=tenant_pub_id,
+                snapshot_source=snapshot_source,
+                knowledge_release_dir=knowledge_release_dir,
+                base_upstream_release_id=row.base_release_id,
             )
-            exported = adapter.export_changes(values)
-            document = {
-                "schema_version": "siliconindex-change-bundle-v1",
-                "changes": exported.result["changes"],
-            }
-            path, digest = _write_artifact(
-                knowledge_release_dir,
-                "siliconindex-export",
-                document,
-            )
-            result = {
-                "local_knowledge_release_id": KnowledgeReleaseStore(
-                    knowledge_release_dir
-                ).current_release_id(),
-                "count": exported.result["count"],
-                "content_hash": digest,
-                "artifact": str(path),
-            }
+            result["operation_mode"] = "reconciled_export"
         elif row.operation == "reconcile":
             result = reconcile_snapshot(
                 session,
@@ -522,19 +791,71 @@ def _execute(
                 base_upstream_release_id=row.base_release_id,
             )
         elif row.operation == "publish":
-            imported = adapter.import_release(str(snapshot_source))
-            expected_release = row.upstream_release_id or row.cursor.get("expected_release_id")
-            expected_hash = row.cursor.get("expected_content_hash")
-            if expected_release != imported.upstream_release_id:
-                raise SiliconIndexSyncError("published_release_not_observed")
-            if expected_hash != imported.result.get("content_hash"):
-                raise SiliconIndexSyncError("published_content_hash_mismatch")
-            result = {
-                "upstream_release_id": imported.upstream_release_id,
-                "content_hash": imported.result["content_hash"],
-                "git_commit": row.cursor.get("git_commit"),
-                "verified": True,
-            }
+            mode = str(row.cursor.get("mode") or "verify_only")
+            if mode == "apply_and_publish":
+                settings = get_settings()
+                if not settings.siliconindex_publisher_enabled:
+                    raise SiliconIndexSyncError("siliconindex_publisher_disabled")
+                bundle_path = _trusted_connector_artifact(
+                    knowledge_release_dir,
+                    row.cursor.get("bundle_artifact"),
+                )
+                target_release_id = str(
+                    row.upstream_release_id or row.cursor.get("target_release_id") or ""
+                )
+                repository = KnowledgeRepository(session, tenant_pub_id)
+                if row.cursor.get("approval_artifact"):
+                    raise SiliconIndexSyncError("caller_supplied_publication_approval_not_accepted")
+                approval_path = _publication_approval(
+                    repository,
+                    session,
+                    knowledge_release_dir=knowledge_release_dir,
+                    bundle_path=bundle_path,
+                    target_release_id=target_release_id,
+                    repository_url=settings.siliconindex_publisher_repository_url,
+                    branch=settings.siliconindex_publisher_branch,
+                )
+                publication = publish_change_bundle(
+                    repository_url=settings.siliconindex_publisher_repository_url,
+                    branch=settings.siliconindex_publisher_branch,
+                    bundle_path=bundle_path,
+                    approval_path=approval_path,
+                    release_id=target_release_id,
+                    public_base_url=settings.siliconindex_base_url,
+                    deploy_timeout_seconds=(settings.siliconindex_publisher_deploy_timeout_seconds),
+                    poll_seconds=settings.siliconindex_publisher_poll_seconds,
+                )
+                synchronized = SiliconIndexSynchronizer(
+                    snapshot_source,
+                    settings.siliconindex_base_url,
+                ).sync()
+                if synchronized.get("current") != target_release_id:
+                    raise SiliconIndexSyncError("published_release_sync_mismatch")
+                result = {
+                    "upstream_release_id": target_release_id,
+                    "local_knowledge_release_id": row.local_release_id,
+                    "content_hash": publication["content_hash"],
+                    "git_commit": publication["git_commit"],
+                    "publication": publication,
+                    "synchronization": synchronized,
+                    "verified": True,
+                }
+            elif mode == "verify_only":
+                imported = adapter.import_release(str(snapshot_source))
+                expected_release = row.upstream_release_id or row.cursor.get("expected_release_id")
+                expected_hash = row.cursor.get("expected_content_hash")
+                if expected_release != imported.upstream_release_id:
+                    raise SiliconIndexSyncError("published_release_not_observed")
+                if expected_hash != imported.result.get("content_hash"):
+                    raise SiliconIndexSyncError("published_content_hash_mismatch")
+                result = {
+                    "upstream_release_id": imported.upstream_release_id,
+                    "content_hash": imported.result["content_hash"],
+                    "git_commit": row.cursor.get("git_commit"),
+                    "verified": True,
+                }
+            else:
+                raise SiliconIndexSyncError("unsupported_publish_mode")
         else:
             raise RuntimeError("unsupported_connector_operation")
         session.commit()

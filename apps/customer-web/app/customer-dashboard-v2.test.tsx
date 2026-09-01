@@ -150,7 +150,7 @@ describe('CustomerAnalyticsWorkspace V2', () => {
           source: 'live',
         }}
       >
-        <CustomerAnalyticsWorkspace focus="overview" contract="metrics-v2" />
+        <CustomerAnalyticsWorkspace focus="overview" />
       </ExperienceProvider>,
     );
 
@@ -184,7 +184,7 @@ describe('CustomerAnalyticsWorkspace V2', () => {
           source: 'live',
         }}
       >
-        <CustomerAnalyticsWorkspace focus="overview" contract="metrics-v2" />
+        <CustomerAnalyticsWorkspace focus="overview" />
       </ExperienceProvider>,
     );
 

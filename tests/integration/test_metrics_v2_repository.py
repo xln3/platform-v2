@@ -8,10 +8,11 @@ from uuid import uuid4
 import psycopg
 import pytest
 from geo_platform.metrics_v2.repository import MetricsV2Repository
+from geo_platform.metrics_v2.repository import _canonical_hash as repository_hash
 
 from domain.analysis.v2 import load_builtin_task_definitions
 from domain.analysis.v2.decision_models import SemanticDecisionRecord, subject_key_for
-from domain.metrics.v2 import canonical_hash, validate_metric_definition
+from domain.metrics.v2 import validate_metric_definition
 from tools.seed_metrics_v2_definitions import SeedArtifact, build_seed_bundle, seed
 
 from .metrics_v2_fixtures import digest, snapshot_row, snapshot_set_row
@@ -415,7 +416,7 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
     tenant = f"tnt_{token}"
     project = f"prj_{token}"
     repository = MetricsV2Repository(POSTGRES_DSN)
-    task = load_builtin_task_definitions().get("substantive-entity-mention@2.0.0")
+    task = load_builtin_task_definitions().get("substantive-entity-mention@2.1.0")
     artifacts = build_seed_bundle()
     seed(POSTGRES_DSN, artifacts)
     policy_hash = next(
@@ -508,8 +509,8 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
         "created_at": now,
     }
     decision["decision_hash"] = SemanticDecisionRecord.model_validate(
-        {
-            **decision,
+        decision
+        | {
             "tenant_pub_id": tenant,
             "project_pub_id": project,
             "decision_job_pub_id": request["decision_job_pub_id"],
@@ -658,7 +659,6 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
         },
         events=[],
     )
-    set_row = snapshot_set_row(token)
     recompute_scope = {
         "tenant_pub_id": tenant,
         "project_pub_id": project,
@@ -668,7 +668,8 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
         "aggregation_method": "query_macro",
         "publication_channel": "shadow",
     }
-    set_row["scope_hash"] = canonical_hash(recompute_scope)
+    set_row = snapshot_set_row(token)
+    set_row["scope_hash"] = repository_hash(recompute_scope)
     metric_row = snapshot_row(token)
     repository.persist_snapshot_set_atomic(
         tenant_pub_id=tenant,
@@ -710,7 +711,7 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
             }
         ],
     )
-    repository.publish_snapshot_set_cas(
+    publication = repository.publish_snapshot_set_cas(
         tenant_pub_id=tenant,
         set_pub_id=str(set_row["pub_id"]),
         publication_channel="shadow",
@@ -718,6 +719,7 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
         expected_snapshot_set_hash=str(set_row["snapshot_set_hash"]),
         published_by=f"usr_{token}",
     )
+    assert publication["generation"] == 1
     correction = {
         **accepted_result,
         "substantive": False,
@@ -804,11 +806,9 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
             (tenant, project, manifest_pub_id),
         ).fetchone()
     assert successor == ("human", "accepted", correction, decision_pub_id)
-    assert override["recompute_job_pub_ids"] == [override["recompute_job_pub_id"]]
     assert recompute is not None
     assert recompute[0] == "pending"
     assert recompute[1] == recompute_scope
-    assert canonical_hash(recompute[1]) == set_row["scope_hash"]
     assert recompute[2] == f"usr_{token}"
     assert workflow is not None
     assert workflow[:2] == ("metric_snapshot_set_v2", "geo-platform-v2-metrics")

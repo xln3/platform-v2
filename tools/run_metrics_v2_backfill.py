@@ -96,9 +96,7 @@ def plan_backfill(
         dry_run=True,
     )
     items = list(batch.get("items") or ())
-    prepared = [
-        item for item in items if isinstance(item.get("workflow_payload"), dict)
-    ]
+    prepared = [item for item in items if isinstance(item.get("workflow_payload"), dict)]
     reason_counts: dict[str, int] = {}
     for item in items:
         for reason in item.get("reason_codes") or ():
@@ -107,9 +105,7 @@ def plan_backfill(
     estimated_tasks = sum(
         len(item["workflow_payload"].get("decision_tasks", ()))
         + len(
-            (item["workflow_payload"].get("query_context_request") or {}).get(
-                "decision_tasks", ()
-            )
+            (item["workflow_payload"].get("query_context_request") or {}).get("decision_tasks", ())
         )
         for item in prepared
     )
@@ -155,9 +151,7 @@ def plan_backfill(
     return report
 
 
-async def _start(
-    arguments: argparse.Namespace, plan: dict[str, Any]
-) -> dict[str, Any]:
+async def _start(arguments: argparse.Namespace, plan: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     client = await Client.connect(
         arguments.temporal_address or settings.temporal_address,

@@ -55,7 +55,7 @@ sudo systemctl status geo-platform-v2-backup.service --no-pager
 只有一次性隔离数据库允许用下面的命令验证 downgrade/re-upgrade。生产回滚不得删除 V2 schema 或历史证据。
 
 ```bash
-.venv/bin/alembic downgrade s17_0002_knowledge_trace_details
+.venv/bin/alembic downgrade s17_0005_credential_boundary
 .venv/bin/alembic upgrade head
 ```
 
@@ -67,7 +67,7 @@ sudo systemctl status geo-platform-v2-backup.service --no-pager
 .venv/bin/python tools/seed_metrics_v2_definitions.py
 ```
 
-预期输出为 50 个 artifact：14 个 DecisionTask、2 个 judge policy、34 个 MetricDefinition，且 `mode=dry_run`、`target_status=experimental`、`official_activation=false`。
+预期输出为 66 个 artifact：28 个 DecisionTask、4 个 judge policy、34 个 MetricDefinition，且 `mode=dry_run`、`target_status=experimental`、`official_activation=false`。其中已发布的 `2.0.0` 定义保持不可变，新增 `2.1.0` 仅以 experimental 状态加载。
 
 在已迁移的目标库显式加载：
 
@@ -97,13 +97,13 @@ GROUP BY status ORDER BY status;
 
 仓库提供以下独立 Temporal worker 和生产单元：
 
-| 职责 | 队列 | systemd 单元 |
-| --- | --- | --- |
-| 语义判定和模型 I/O | `geo-platform-v2-decision` | `geo-platform-v2-decision-worker.service` |
-| 纯确定性 evaluation/snapshot/publication | `geo-platform-v2-metrics` | `geo-platform-v2-metrics-worker.service` |
-| 冻结快照报告和 LibreOffice | `geo-platform-v2-report` | `geo-platform-v2-report-worker.service` |
+| 职责                                     | 队列                       | systemd 单元                              |
+| ---------------------------------------- | -------------------------- | ----------------------------------------- |
+| 语义判定和模型 I/O                       | `geo-platform-v2-decision` | `geo-platform-v2-decision-worker.service` |
+| 纯确定性 evaluation/snapshot/publication | `geo-platform-v2-metrics`  | `geo-platform-v2-metrics-worker.service`  |
+| 冻结快照报告和 LibreOffice               | `geo-platform-v2-report`   | `geo-platform-v2-report-worker.service`   |
 
-配置样例位于 `deploy/production/*-worker.env.example`。判定服务默认启用正预算；只要配置了专用 `GEO_SEMANTIC_DECISION_LLM_*`，或可继承的 `GEO_RESEARCH_LLM_*` 网关凭据，就会真实调用单一强模型。显式把预算设为零是运维停机开关，任务会保存为 `llm_api_budget_exhausted/analysis_failed`，不会变成语义 unknown 或人工审核任务。
+配置样例位于 `deploy/production/*-worker.env.example`。判定服务默认预算为零并保持 fail-closed；任务会保存为 `llm_api_budget_exhausted/analysis_failed`，不会变成语义 unknown 或人工审核任务。只有显式设置正值后，专用 `GEO_SEMANTIC_DECISION_LLM_*` 或继承的 `GEO_RESEARCH_LLM_*` 网关凭据才会触发真实模型调用。当前正值只是启用开关，不是耐久的每日扣减额度，因此生产不得把它当作真实预算上限。
 
 默认单模型为 `gpt-5.6-sol`。专属 key/base URL 留空会复用受保护的 research 配置；模型、超时和有限重试可独立覆盖：
 
@@ -116,7 +116,7 @@ GEO_SEMANTIC_DECISION_LLM_MODEL=gpt-5.6-sol
 GEO_SEMANTIC_DECISION_LLM_MODEL_REVISION=runtime-configured
 GEO_SEMANTIC_DECISION_LLM_TIMEOUT_SECONDS=120
 GEO_SEMANTIC_DECISION_LLM_MAX_RETRIES=2
-GEO_SEMANTIC_DECISION_DAILY_BUDGET=100
+GEO_SEMANTIC_DECISION_DAILY_BUDGET=0
 ```
 
 调用先尝试 strict `response_format=json_schema`。该结构化请求收到 400 时，用同一模型和同一 prompt 去掉 `response_format` 做一次 JSON-only 兼容请求，随后仍执行本地严格 JSON、schema、候选集、跨度和任务不变量校验；JSON-only 自身的 400、认证、限流、超时、网络或 5xx 不会触发更多兼容降级。
@@ -356,16 +356,18 @@ pnpm exec playwright test tests/e2e/customer-metric-trace.spec.ts
 
 ## 12. 2026-08-27 隔离验收记录
 
-本次实施在两座从零迁移到 `s18_0001_geo_metrics_v2` 的一次性数据库中完成验证；验证后数据库已删除，未读取或修改客户数据。
+本次实施分别在空隔离库和从 `s17_0002_knowledge_trace_details` 起步的历史隔离库完成升级，
+两条路径均到达唯一 head `s18_0001_geo_metrics_v2`；未读取或修改生产客户数据。
 
 - 50 个 experimental artifact 加载成功：14 个 DecisionTask、2 个 judge policy、34 个 MetricDefinition；`official_activation=false`。
 - 旧的零预算合成回放只验证了失败闭合，没有调用 LLM，因此不能作为语义判定验收结果。当前实现必须另行通过真实网关的合成输入 smoke；API 故障样本按 `analysis_failed` 记录，只有内容/证据确实不足的样本才按 `analysis_unknown` 记录。
 - 旧回放产生的 68 个 `analysis_unknown` 不能解释为模型结论；按新契约重放时，基础设施失败必须迁移为 `analysis_failed`，不得计入 unknown 数量或冒充未命中。
 - 2026-08-28 使用受保护生产网关凭据、完全合成文本执行真实 smoke：`gpt-5.6-sol` 返回 HTTP 200，JSON-only兼容传输经本地完整校验为valid，耗时5759ms，输入/输出1084/195 tokens；请求/响应hash分别为 `3eda1282ac9138e1f135273dfe59cc4788a1c5af106e2052b067e10beaa13d24` 和 `d550001c430dc40877b1aef26390d28fcf88ac7b978f43732ed181533b800eaa`。未读取客户数据，未输出密钥、原文或上游原始响应。
 - shadow 构建持久化 68 个 experimental snapshot，以及 answer/query/design-cell 各 68 条贡献；set 为 `mss_b1c375f590e4031d9e6585b2b8`，set hash 为 `b1c375f590e4031d9e6585b2b8a1092072d7ff28197eaddefc5e4067b65b39fb`，shadow generation 为 1。它只证明失败闭合与确定性链路，不具备 official 资格。
-- 核心、消费者和报告相关单元测试 115 个通过；任务书指定的 11 个集成文件在第二座全新数据库中 23 个通过；真实 Temporal 的 Analysis/S02/Report 分离与恢复测试 8 个通过。
-- customer-web 49 个测试、API client 142 个测试、客户指标 trace Playwright 1 个测试通过；13 个前端包 typecheck、Python mypy 374 个源文件、ruff、CI workflow guard 和 24 条可观测性告警检查通过。
-- OpenAPI SHA-256 为 `b7e0d58684cbcf9235c213b2aa2636f77175469376b1696cccd8917a0334eab0`；生成 TypeScript schema SHA-256 为 `3bec92d47a9e7df4a007f7295a14f549328bc6f7c3bcabdc49895d456fc8aba1`。
-- 全局 `pnpm check:api` 的生成与 generated-manifest 校验通过，但最终 frontend contract guard 被工作树中既有的 `customer-live-html-report-preview.png` 覆盖缺口阻塞；本任务未覆盖或恢复该无关改动。
+- 快速 Python 车道 `2820 passed, 57 deselected`；指标/语义判定真实 PostgreSQL 车道 20 个通过，owner-loss 恢复真实 PostgreSQL 车道 3 个通过，报告绑定车道 22 个通过。
+- 真实 Temporal 的 Analysis/S02/Report 分离、人工信号、worker 重启和错误租约拒绝 8 个通过。
+- customer-web 51 个测试、operations-web 173 个测试、API client 142 个测试、浏览器运行时安全测试 13 个通过；13 个前端工作区 typecheck/build、Python mypy 374 个源文件、Ruff、CI workflow guard 和 24 条可观测性告警检查通过。
+- OpenAPI SHA-256 为 `dfda68628aed14981d9a19d6348d35994d5f28d0314293247835daca595f27f0`；生成 TypeScript schema SHA-256 为 `62e1183480d90771e629513c2ffd41de3d1a2320b56b198b10ab533cb251b958`。
+- 全局 `pnpm check`、生成 manifest、frontend contract、五 SPA production bundle、生产 route、E2E artifact DLP 和不可变 Nginx alias 守卫均通过。
 
 生产状态：`待授权生产激活`。生产操作仍需指定 tenant/project、配置可用 LLM 凭据和容量、执行真实历史回放及只读 smoke；不再要求先建设人工金标或生成非空 `calibration_artifact_hash`。生产授权是外部变更边界，不是自动判定代码的运行门。

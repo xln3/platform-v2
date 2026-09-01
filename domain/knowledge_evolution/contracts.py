@@ -53,6 +53,8 @@ class Decision:
     model_provider: str | None = None
     model_name: str | None = None
     model_version: str | None = None
+    requested_model_name: str | None = None
+    model_identity_source: str | None = None
     prompt_id: str | None = None
     prompt_version: str | None = None
     knowledge_release_id: str | None = None
@@ -81,6 +83,8 @@ class RuntimeRequest:
     allow_external_model: bool = False
     max_latency_ms: int | None = None
     max_cost_usd: float | None = None
+    model: str | None = None
+    model_catalog_revision: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +108,8 @@ class GatewayResult:
     output_tokens: int | None = None
     cost_usd: float | None = None
     tool_summary: tuple[dict[str, Any], ...] = ()
+    requested_model: str | None = None
+    model_identity_source: str = "requested_fallback"
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,3 +149,9 @@ class RuntimeResponse:
     degradation: tuple[str, ...]
     observation_count: int
     usage: dict[str, Any] = field(default_factory=dict)
+    requested_model_name: str | None = None
+    model_identity_source: str | None = None
+    model_catalog_revision: str | None = None
+    model_inference_used: bool = False
+    model_inference_adopted: bool = False
+    provider_call_attempted: bool = False

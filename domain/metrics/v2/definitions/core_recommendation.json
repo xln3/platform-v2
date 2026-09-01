@@ -7,24 +7,36 @@
     "unit_type": "answer",
     "focal_entity_required": true,
     "outcome_source": "hybrid",
-    "query_predicate": {"all": [
-      {"query_has_lens": "ai_recommendation"},
-      {"query_has_operation": "recommend"},
-      {"exposure_is": "brand_neutral"}
-    ]},
+    "query_predicate": {
+      "all": [
+        { "query_has_lens": "ai_recommendation" },
+        { "query_has_operation": "recommend" },
+        { "exposure_is": "brand_neutral" }
+      ]
+    },
     "required_semantic_capabilities": [
-      {"name": "substantive_entity_mention", "task_ref": "substantive-entity-mention@2.0.0", "accepted_status": "ready"}
+      {
+        "name": "substantive_entity_mention",
+        "task_ref": "substantive-entity-mention@2.0.0",
+        "accepted_status": "ready"
+      }
     ],
     "required_event_types": ["entity_mention"],
-    "outcome": {"binary_outcome": {"event_exists": {
-      "type": "entity_mention", "subject": "$focal_entity", "where": {"substantive": true, "mention_role": "asserted_body"}
-    }}},
+    "outcome": {
+      "binary_outcome": {
+        "event_exists": {
+          "type": "entity_mention",
+          "subject": "$focal_entity",
+          "where": { "substantive": true, "mention_role": "asserted_body" }
+        }
+      }
+    },
     "missing_policy": "unknown_if_required_analysis_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "included_hit", "miss": "entity_absent"},
-    "publication_gate": {"minimum_coverage": "0.98"},
-    "metadata": {"release_role": "official", "metric_family": "mention"}
+    "reason_codes": { "hit": "included_hit", "miss": "entity_absent" },
+    "publication_gate": { "minimum_coverage": "0.98" },
+    "metadata": { "release_role": "official", "metric_family": "mention" }
   },
   {
     "name": "ai_recommendation_organic_recommendation_rate_v2",
@@ -34,25 +46,50 @@
     "unit_type": "answer",
     "focal_entity_required": true,
     "outcome_source": "semantic_decision",
-    "query_predicate": {"all": [
-      {"query_has_lens": "ai_recommendation"},
-      {"query_has_operation": "recommend"},
-      {"exposure_is": "brand_neutral"}
-    ]},
+    "query_predicate": {
+      "all": [
+        { "query_has_lens": "ai_recommendation" },
+        { "query_has_operation": "recommend" },
+        { "exposure_is": "brand_neutral" }
+      ]
+    },
     "required_semantic_capabilities": [
-      {"name": "recommendation_relation", "task_ref": "recommendation-relation@2.0.0", "accepted_status": "ready"}
+      {
+        "name": "recommendation_relation",
+        "task_ref": "recommendation-relation@2.0.0",
+        "accepted_status": "ready"
+      }
     ],
     "required_event_types": ["recommendation_relation"],
-    "outcome": {"binary_outcome": {"any": [
-      {"event_exists": {"type": "recommendation_relation", "subject": "$focal_entity", "where": {"polarity": "positive"}}},
-      {"event_exists": {"type": "recommendation_relation", "subject": "$focal_entity", "where": {"polarity": "conditional_positive"}}}
-    ]}},
+    "outcome": {
+      "binary_outcome": {
+        "any": [
+          {
+            "event_exists": {
+              "type": "recommendation_relation",
+              "subject": "$focal_entity",
+              "where": { "polarity": "positive" }
+            }
+          },
+          {
+            "event_exists": {
+              "type": "recommendation_relation",
+              "subject": "$focal_entity",
+              "where": { "polarity": "conditional_positive" }
+            }
+          }
+        ]
+      }
+    },
     "missing_policy": "unknown_if_required_analysis_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "recommendation_positive", "miss": "recommendation_neutral_or_absent"},
-    "publication_gate": {"minimum_coverage": "0.98"},
-    "metadata": {"release_role": "official", "metric_family": "recommendation"}
+    "reason_codes": {
+      "hit": "recommendation_positive",
+      "miss": "recommendation_neutral_or_absent"
+    },
+    "publication_gate": { "minimum_coverage": "0.98" },
+    "metadata": { "release_role": "official", "metric_family": "recommendation" }
   },
   {
     "name": "ai_recommendation_rankable_response_rate_v2",
@@ -62,21 +99,27 @@
     "unit_type": "answer",
     "focal_entity_required": true,
     "outcome_source": "hybrid",
-    "query_predicate": {"all": [
-      {"query_has_lens": "ai_recommendation"},
-      {"query_has_operation": "recommend"},
-      {"exposure_is": "brand_neutral"}
-    ]},
+    "query_predicate": {
+      "all": [
+        { "query_has_lens": "ai_recommendation" },
+        { "query_has_operation": "recommend" },
+        { "exposure_is": "brand_neutral" }
+      ]
+    },
     "required_semantic_capabilities": [
-      {"name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready"}
+      { "name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready" }
     ],
     "required_event_types": ["recommendation_list_rank"],
-    "outcome": {"binary_outcome": {"event_exists": {"type": "recommendation_list_rank", "where": {"ordered": true}}}},
+    "outcome": {
+      "binary_outcome": {
+        "event_exists": { "type": "recommendation_list_rank", "where": { "ordered": true } }
+      }
+    },
     "missing_policy": "unknown_if_required_analysis_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "rank_within_k", "miss": "no_rankable_list"},
-    "metadata": {"release_role": "diagnostic", "metric_family": "rankable"}
+    "reason_codes": { "hit": "rank_within_k", "miss": "no_rankable_list" },
+    "metadata": { "release_role": "diagnostic", "metric_family": "rankable" }
   },
   {
     "name": "ai_recommendation_organic_top1_visibility_rate_v2",
@@ -86,15 +129,33 @@
     "unit_type": "answer",
     "focal_entity_required": true,
     "outcome_source": "hybrid",
-    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"query_has_operation": "recommend"}, {"exposure_is": "brand_neutral"}]},
-    "required_semantic_capabilities": [{"name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready"}],
+    "query_predicate": {
+      "all": [
+        { "query_has_lens": "ai_recommendation" },
+        { "query_has_operation": "recommend" },
+        { "exposure_is": "brand_neutral" }
+      ]
+    },
+    "required_semantic_capabilities": [
+      { "name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready" }
+    ],
     "required_event_types": ["recommendation_list_rank"],
-    "outcome": {"binary_outcome": {"event_numeric_compare": {"type": "recommendation_list_rank", "subject": "$focal_entity", "field": "rank", "op": "lte", "value": 1}}},
+    "outcome": {
+      "binary_outcome": {
+        "event_numeric_compare": {
+          "type": "recommendation_list_rank",
+          "subject": "$focal_entity",
+          "field": "rank",
+          "op": "lte",
+          "value": 1
+        }
+      }
+    },
     "missing_policy": "unknown_if_required_analysis_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "rank_within_k", "miss": "rank_above_k"},
-    "metadata": {"release_role": "official", "metric_family": "topk", "k": 1}
+    "reason_codes": { "hit": "rank_within_k", "miss": "rank_above_k" },
+    "metadata": { "release_role": "official", "metric_family": "topk", "k": 1 }
   },
   {
     "name": "ai_recommendation_organic_top3_visibility_rate_v2",
@@ -104,15 +165,33 @@
     "unit_type": "answer",
     "focal_entity_required": true,
     "outcome_source": "hybrid",
-    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"query_has_operation": "recommend"}, {"exposure_is": "brand_neutral"}]},
-    "required_semantic_capabilities": [{"name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready"}],
+    "query_predicate": {
+      "all": [
+        { "query_has_lens": "ai_recommendation" },
+        { "query_has_operation": "recommend" },
+        { "exposure_is": "brand_neutral" }
+      ]
+    },
+    "required_semantic_capabilities": [
+      { "name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready" }
+    ],
     "required_event_types": ["recommendation_list_rank"],
-    "outcome": {"binary_outcome": {"event_numeric_compare": {"type": "recommendation_list_rank", "subject": "$focal_entity", "field": "rank", "op": "lte", "value": 3}}},
+    "outcome": {
+      "binary_outcome": {
+        "event_numeric_compare": {
+          "type": "recommendation_list_rank",
+          "subject": "$focal_entity",
+          "field": "rank",
+          "op": "lte",
+          "value": 3
+        }
+      }
+    },
     "missing_policy": "unknown_if_required_analysis_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "rank_within_k", "miss": "rank_above_k"},
-    "metadata": {"release_role": "official", "metric_family": "topk", "k": 3}
+    "reason_codes": { "hit": "rank_within_k", "miss": "rank_above_k" },
+    "metadata": { "release_role": "official", "metric_family": "topk", "k": 3 }
   },
   {
     "name": "ai_recommendation_organic_top5_visibility_rate_v2",
@@ -122,15 +201,33 @@
     "unit_type": "answer",
     "focal_entity_required": true,
     "outcome_source": "hybrid",
-    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"query_has_operation": "recommend"}, {"exposure_is": "brand_neutral"}]},
-    "required_semantic_capabilities": [{"name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready"}],
+    "query_predicate": {
+      "all": [
+        { "query_has_lens": "ai_recommendation" },
+        { "query_has_operation": "recommend" },
+        { "exposure_is": "brand_neutral" }
+      ]
+    },
+    "required_semantic_capabilities": [
+      { "name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready" }
+    ],
     "required_event_types": ["recommendation_list_rank"],
-    "outcome": {"binary_outcome": {"event_numeric_compare": {"type": "recommendation_list_rank", "subject": "$focal_entity", "field": "rank", "op": "lte", "value": 5}}},
+    "outcome": {
+      "binary_outcome": {
+        "event_numeric_compare": {
+          "type": "recommendation_list_rank",
+          "subject": "$focal_entity",
+          "field": "rank",
+          "op": "lte",
+          "value": 5
+        }
+      }
+    },
     "missing_policy": "unknown_if_required_analysis_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "rank_within_k", "miss": "rank_above_k"},
-    "metadata": {"release_role": "official", "metric_family": "topk", "k": 5}
+    "reason_codes": { "hit": "rank_within_k", "miss": "rank_above_k" },
+    "metadata": { "release_role": "official", "metric_family": "topk", "k": 5 }
   },
   {
     "name": "ai_recommendation_organic_top1_given_rankable_rate_v2",
@@ -140,16 +237,44 @@
     "unit_type": "answer",
     "focal_entity_required": true,
     "outcome_source": "hybrid",
-    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"query_has_operation": "recommend"}, {"exposure_is": "brand_neutral"}]},
-    "required_semantic_capabilities": [{"name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready"}],
+    "query_predicate": {
+      "all": [
+        { "query_has_lens": "ai_recommendation" },
+        { "query_has_operation": "recommend" },
+        { "exposure_is": "brand_neutral" }
+      ]
+    },
+    "required_semantic_capabilities": [
+      { "name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready" }
+    ],
     "required_event_types": ["recommendation_list_rank"],
-    "applicability": {"event_applicable_only": {"type": "recommendation_list_rank", "where": {"ordered": true}}},
-    "outcome": {"binary_outcome": {"event_numeric_compare": {"type": "recommendation_list_rank", "subject": "$focal_entity", "field": "rank", "op": "lte", "value": 1}}},
+    "applicability": {
+      "event_applicable_only": { "type": "recommendation_list_rank", "where": { "ordered": true } }
+    },
+    "outcome": {
+      "binary_outcome": {
+        "event_numeric_compare": {
+          "type": "recommendation_list_rank",
+          "subject": "$focal_entity",
+          "field": "rank",
+          "op": "lte",
+          "value": 1
+        }
+      }
+    },
     "missing_policy": "unknown_if_required_analysis_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "rank_within_k", "miss": "rank_above_k", "not_applicable": "no_rankable_list"},
-    "metadata": {"release_role": "conditional_diagnostic", "metric_family": "topk_given_rankable", "k": 1}
+    "reason_codes": {
+      "hit": "rank_within_k",
+      "miss": "rank_above_k",
+      "not_applicable": "no_rankable_list"
+    },
+    "metadata": {
+      "release_role": "conditional_diagnostic",
+      "metric_family": "topk_given_rankable",
+      "k": 1
+    }
   },
   {
     "name": "ai_recommendation_organic_top3_given_rankable_rate_v2",
@@ -159,16 +284,44 @@
     "unit_type": "answer",
     "focal_entity_required": true,
     "outcome_source": "hybrid",
-    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"query_has_operation": "recommend"}, {"exposure_is": "brand_neutral"}]},
-    "required_semantic_capabilities": [{"name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready"}],
+    "query_predicate": {
+      "all": [
+        { "query_has_lens": "ai_recommendation" },
+        { "query_has_operation": "recommend" },
+        { "exposure_is": "brand_neutral" }
+      ]
+    },
+    "required_semantic_capabilities": [
+      { "name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready" }
+    ],
     "required_event_types": ["recommendation_list_rank"],
-    "applicability": {"event_applicable_only": {"type": "recommendation_list_rank", "where": {"ordered": true}}},
-    "outcome": {"binary_outcome": {"event_numeric_compare": {"type": "recommendation_list_rank", "subject": "$focal_entity", "field": "rank", "op": "lte", "value": 3}}},
+    "applicability": {
+      "event_applicable_only": { "type": "recommendation_list_rank", "where": { "ordered": true } }
+    },
+    "outcome": {
+      "binary_outcome": {
+        "event_numeric_compare": {
+          "type": "recommendation_list_rank",
+          "subject": "$focal_entity",
+          "field": "rank",
+          "op": "lte",
+          "value": 3
+        }
+      }
+    },
     "missing_policy": "unknown_if_required_analysis_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "rank_within_k", "miss": "rank_above_k", "not_applicable": "no_rankable_list"},
-    "metadata": {"release_role": "conditional_diagnostic", "metric_family": "topk_given_rankable", "k": 3}
+    "reason_codes": {
+      "hit": "rank_within_k",
+      "miss": "rank_above_k",
+      "not_applicable": "no_rankable_list"
+    },
+    "metadata": {
+      "release_role": "conditional_diagnostic",
+      "metric_family": "topk_given_rankable",
+      "k": 3
+    }
   },
   {
     "name": "ai_recommendation_organic_top5_given_rankable_rate_v2",
@@ -178,16 +331,44 @@
     "unit_type": "answer",
     "focal_entity_required": true,
     "outcome_source": "hybrid",
-    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"query_has_operation": "recommend"}, {"exposure_is": "brand_neutral"}]},
-    "required_semantic_capabilities": [{"name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready"}],
+    "query_predicate": {
+      "all": [
+        { "query_has_lens": "ai_recommendation" },
+        { "query_has_operation": "recommend" },
+        { "exposure_is": "brand_neutral" }
+      ]
+    },
+    "required_semantic_capabilities": [
+      { "name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready" }
+    ],
     "required_event_types": ["recommendation_list_rank"],
-    "applicability": {"event_applicable_only": {"type": "recommendation_list_rank", "where": {"ordered": true}}},
-    "outcome": {"binary_outcome": {"event_numeric_compare": {"type": "recommendation_list_rank", "subject": "$focal_entity", "field": "rank", "op": "lte", "value": 5}}},
+    "applicability": {
+      "event_applicable_only": { "type": "recommendation_list_rank", "where": { "ordered": true } }
+    },
+    "outcome": {
+      "binary_outcome": {
+        "event_numeric_compare": {
+          "type": "recommendation_list_rank",
+          "subject": "$focal_entity",
+          "field": "rank",
+          "op": "lte",
+          "value": 5
+        }
+      }
+    },
     "missing_policy": "unknown_if_required_analysis_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "rank_within_k", "miss": "rank_above_k", "not_applicable": "no_rankable_list"},
-    "metadata": {"release_role": "conditional_diagnostic", "metric_family": "topk_given_rankable", "k": 5}
+    "reason_codes": {
+      "hit": "rank_within_k",
+      "miss": "rank_above_k",
+      "not_applicable": "no_rankable_list"
+    },
+    "metadata": {
+      "release_role": "conditional_diagnostic",
+      "metric_family": "topk_given_rankable",
+      "k": 5
+    }
   },
   {
     "name": "ai_recommendation_mean_rank_given_target_ranked_v2",
@@ -197,15 +378,41 @@
     "unit_type": "answer",
     "focal_entity_required": true,
     "outcome_source": "hybrid",
-    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"query_has_operation": "recommend"}, {"exposure_is": "brand_neutral"}]},
-    "required_semantic_capabilities": [{"name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready"}],
+    "query_predicate": {
+      "all": [
+        { "query_has_lens": "ai_recommendation" },
+        { "query_has_operation": "recommend" },
+        { "exposure_is": "brand_neutral" }
+      ]
+    },
+    "required_semantic_capabilities": [
+      { "name": "rank_semantics", "task_ref": "rank-semantics@2.0.0", "accepted_status": "ready" }
+    ],
     "required_event_types": ["recommendation_list_rank"],
-    "applicability": {"event_applicable_only": {"type": "recommendation_list_rank", "subject": "$focal_entity", "where": {"ordered": true}}},
-    "outcome": {"numeric_outcome": {"from_events": "recommendation_list_rank", "subject": "$focal_entity", "field": "rank", "aggregate": "mean", "where": {"ordered": true}}},
+    "applicability": {
+      "event_applicable_only": {
+        "type": "recommendation_list_rank",
+        "subject": "$focal_entity",
+        "where": { "ordered": true }
+      }
+    },
+    "outcome": {
+      "numeric_outcome": {
+        "from_events": "recommendation_list_rank",
+        "subject": "$focal_entity",
+        "field": "rank",
+        "aggregate": "mean",
+        "where": { "ordered": true }
+      }
+    },
     "missing_policy": "unknown_if_required_analysis_unready",
     "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
     "default_aggregation_method": "query_macro",
-    "reason_codes": {"hit": "rank_within_k", "miss": "target_not_ranked", "not_applicable": "target_not_ranked"},
-    "metadata": {"release_role": "conditional_diagnostic", "metric_family": "mean_rank"}
+    "reason_codes": {
+      "hit": "rank_within_k",
+      "miss": "target_not_ranked",
+      "not_applicable": "target_not_ranked"
+    },
+    "metadata": { "release_role": "conditional_diagnostic", "metric_family": "mean_rank" }
   }
 ]

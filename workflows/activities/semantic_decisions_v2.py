@@ -106,17 +106,10 @@ async def create_decision_request_activity(payload: dict[str, Any]) -> dict[str,
         context_hash=str(payload["context_hash"]),
         judge_policy_hash=str(payload["judge_policy_hash"]),
         idempotency_key=str(payload["idempotency_key"]),
-        judge_model_ref=(
-            str(payload["judge_model_ref"]) if payload.get("judge_model_ref") else None
-        ),
         rejudge_generation=int(payload.get("rejudge_generation") or 0),
         supersedes_decision_pub_id=payload.get("supersedes_decision_pub_id"),
         workflow_id=str(payload.get("workflow_id") or ""),
         run_id=str(payload.get("run_id") or ""),
-        # This activity is already running inside SemanticDecisionWorkflowV2.
-        # Enqueuing another workflow owner for the same job races persistence
-        # and duplicates model spend.
-        enqueue_workflow_start=False,
     )
 
 
@@ -275,10 +268,7 @@ def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
         (item for item in policy.model_routes if stage and item.route_name == stage.route_name),
         None,
     )
-    config = semantic_judge_config_from_settings(
-        settings,
-        model=(str(payload["judge_model_ref"]) if payload.get("judge_model_ref") else None),
-    )
+    config = semantic_judge_config_from_settings(settings)
     attempt_role = AttemptRole(stage.role.value) if stage is not None else AttemptRole.PROPOSER
     attempt_seed = canonical_hash(
         {
@@ -377,20 +367,9 @@ def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
             reason_codes=(failure_code or "llm_api_adapter_unavailable",),
         )
     else:
-        from geo_platform.metrics_v2.semantic_models import estimated_cost_usd, model_option
-
         common_attempt["inference_config"] = dict(common_attempt["inference_config"]) | {
             "transport_mode": result.transport_mode
         }
-        cost_amount = (
-            estimated_cost_usd(
-                model=model_option(settings, config.model),
-                input_tokens=result.input_tokens,
-                output_tokens=result.output_tokens,
-            )
-            if result.input_tokens is not None and result.output_tokens is not None
-            else None
-        )
         attempt = SemanticDecisionAttempt(
             **common_attempt,
             request_payload_hash=result.request_payload_hash,
@@ -402,8 +381,6 @@ def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
             latency_ms=result.latency_ms,
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
-            cost_amount=cost_amount,
-            cost_currency="USD" if cost_amount is not None else None,
         )
     return attempt.model_dump(mode="json")
 
@@ -630,17 +607,17 @@ async def derive_query_context_activity(payload: dict[str, Any]) -> dict[str, An
     )
     if any(item.status is DecisionStatus.FAILED for item in query_decisions):
         classification_state = "failed"
-        lenses = set()
-        operations = set()
-        subtypes = set()
-        detected = set()
-        unresolved = True
-    elif intent is None or entities is None:
-        classification_state = "review_required"
         lenses: set[str] = set()
         operations: set[str] = set()
         subtypes: set[str] = set()
         detected: set[str] = set()
+        unresolved = True
+    elif intent is None or entities is None:
+        classification_state = "review_required"
+        lenses = set()
+        operations = set()
+        subtypes = set()
+        detected = set()
         unresolved = True
     else:
         classification_state = "ready"
@@ -794,7 +771,6 @@ async def load_semantic_decision_backfill_batch_activity(
         limit=min(int(payload.get("limit") or 100), 1000),
         as_of=payload.get("as_of"),
         dry_run=bool(payload.get("dry_run", False)),
-        answer_pub_ids=tuple(map(str, payload.get("answer_pub_ids") or ())),
     )
 
 

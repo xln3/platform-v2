@@ -59,13 +59,17 @@
 - `.6` 内容哈希为 `sha256:a7acba68675a2e430c256cb282c7d6fad08403b8156cb766b9daeb15c9785c58`；
 - `.6` manifest 的父版本为 `.3`。
 
-生产还实际执行了 `.6 → .3 → .6` 指针演练。rollback 和重新 activate 均返回 HTTP 204，每一步 readiness 都为 `ok`，数据库可达、release hash 已验证。演练只追加 activation/audit 记录，没有修改旧 release 内容。
+旧实现曾执行 `.6 → .3 → .6` 文件指针演练，但当时数据库当前对象没有按 release 隔离，所以它不能证明业务读取真的回到旧知识。该记录只保留为历史证据，不能再当作完整回滚验收。
+
+`s17_0004_release_membership` 为每个不可变 release 保存对象和断言成员关系。隔离生产克隆完成回填后，`.1/.2/.3/.6` 各自绑定 40 个对象；代表对象 `CYB-BR-TENCENT` 在 `.3` 读取 version 1，在 `.6` 读取 version 2。实际执行 `.6 → .3 → .6` 后，数据库读取为 `2 → 1 → 2`，最后属性与演练前逐字节等价。四个历史 artifact 的逻辑视图也都与各自数据库成员关系相等。机器证据见 `evidence/release-membership-and-rollback-20260827.json`。
+
+生产迁移和新版完整回滚必须在本次代码部署后再次执行并另存结果；不得用上面的隔离克隆结果冒充线上执行。
 
 ## Release 回滚
 
-回滚不修改旧 release。调用 `/releases/{release_id}/rollback` 只把 active pointer 原子切换到已验证 release，并追加 activation/audit 历史。
+回滚不修改旧 release。调用 `/releases/{release_id}/rollback` 会先验证目标 artifact，再比较目标 artifact 与 PostgreSQL release membership 的逻辑视图；只有一致时才把文件 `CURRENT` 和数据库 active release 切到同一目标，并追加 activation/audit 历史。此后对象和断言查询通过目标 membership 读取，而不是继续读取全局最新行。
 
-步骤：备份；验证目标 manifest；执行 rollback；检查 CURRENT/PREVIOUS；运行 deterministic smoke；检查正式报告；观察 metrics。若数据库 audit commit 失败，服务会把 artifact pointer 恢复到先前 release。
+步骤：备份；验证目标 manifest；比较数据库 materialization；执行 rollback；检查 artifact 与数据库 active release 一致；用一个版本发生变化的代表对象证明读取改变；运行 deterministic smoke；检查正式报告；观察 metrics。任一检查或数据库提交失败时，两边都必须保持原 release；不得接受只回了文件指针的“成功”。
 
 ## 灾难恢复顺序
 
@@ -73,6 +77,6 @@
 2. 恢复 knowledge artifacts 到空目录并逐文件验 hash。
 3. 设置 API 指向恢复目录和数据库。
 4. 运行 migrations 到预期 head，不跨版本猜测。
-5. 检查 active release 的数据库 hash 与 artifact hash 一致。
+5. 检查 active release id/hash 一致，并逐领域比较数据库 membership 逻辑视图与 artifact 内容。
 6. 运行 RLS、append-only、gold set、readiness 和 deterministic smoke。
 7. 最后切换正式流量；模型策略先保持 deterministic-only。

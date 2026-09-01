@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from geo_platform.tenancy.runtime_acl import (
     API_ROLE,
+    API_SERVICE_CREDENTIAL_FUNCTIONS,
     FUNCTION_GRANTS,
     MANAGED_SCHEMAS,
     RUNTIME_ROLES,
@@ -29,6 +30,8 @@ def test_sensitive_credentials_and_unlisted_future_objects_are_denied() -> None:
         assert "platform.acl_future_table_probe" not in TABLE_GRANTS[role]
         assert "platform.acl_future_table_probe_id_seq" not in SEQUENCE_GRANTS[role]
         assert "platform.acl_future_function_probe()" not in FUNCTION_GRANTS[role]
+    assert FUNCTION_GRANTS[API_ROLE] == frozenset(API_SERVICE_CREDENTIAL_FUNCTIONS)
+    assert all("service_credential" in value for value in FUNCTION_GRANTS[API_ROLE])
 
 
 def test_delete_is_limited_to_real_api_delete_paths() -> None:
@@ -66,7 +69,7 @@ def test_stage3_history_is_read_only_and_worker_uses_exact_entrypoints() -> None
             "platform.collection_governance_outbox_v2",
         ):
             assert TABLE_GRANTS[role][table].privileges == frozenset({"SELECT"})
-    assert not FUNCTION_GRANTS[API_ROLE]
+    assert FUNCTION_GRANTS[API_ROLE] == frozenset(API_SERVICE_CREDENTIAL_FUNCTIONS)
     assert "platform.record_collection_not_sent_proof_v2(" in "\n".join(
         FUNCTION_GRANTS[WORKER_ROLE]
     )
@@ -132,7 +135,7 @@ def test_execution_history_and_learning_ledgers_cannot_bypass_governed_writes() 
     assert "platform.create_collection_execution_plan_v2(" in "\n".join(
         FUNCTION_GRANTS[WORKER_ROLE]
     )
-    assert not FUNCTION_GRANTS[API_ROLE]
+    assert FUNCTION_GRANTS[API_ROLE] == frozenset(API_SERVICE_CREDENTIAL_FUNCTIONS)
 
 
 def test_sequence_grants_follow_the_only_roles_that_insert_formal_and_signal_rows() -> None:
@@ -155,3 +158,11 @@ def test_reconciliation_revokes_catalog_and_defaults_before_exact_grants() -> No
         assert "ALTER DEFAULT PRIVILEGES REVOKE ALL ON FUNCTIONS FROM PUBLIC" in rendered
         assert "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES" not in rendered
         assert 'FROM "platform"."service_credential"' not in rendered
+
+
+def test_reconciliation_defers_function_grants_until_the_function_exists() -> None:
+    rendered = migration_reconcile_sql(API_ROLE)
+
+    for function in API_SERVICE_CREDENTIAL_FUNCTIONS:
+        assert f"IF to_regprocedure('{function}') IS NOT NULL THEN" in rendered
+        assert f'GRANT EXECUTE ON FUNCTION {function} TO "{API_ROLE}";' in rendered

@@ -46,6 +46,7 @@ from domain.knowledge_evolution.release import KnowledgeReleaseError
 from domain.knowledge_evolution.runtime import ReasoningEngine, ReasoningError
 
 from ..config import get_settings
+from ..knowledge.inference_models import catalog_revision, resolve_model
 from ..knowledge.repository import KnowledgeRepository
 from ..knowledge.service import gateway as knowledge_gateway
 from ..knowledge.service import registry as knowledge_registry
@@ -210,6 +211,9 @@ def _reasoned_entity_master(
         )
     settings = get_settings()
     try:
+        # The deterministic branch returned above, so every remaining policy
+        # resolves the deployment default through the knowledge allow-list.
+        selected_model = resolve_model(settings, None)
         with SessionLocal() as session:
             TenantRepository(session, tenant_pub_id)
             repository = KnowledgeRepository(
@@ -242,12 +246,20 @@ def _reasoned_entity_master(
                 allow_external_model=allow_external_model,
                 max_latency_ms=max_latency_ms,
                 max_cost_usd=max_cost_usd,
+                model=selected_model,
+                model_catalog_revision=catalog_revision(settings),
             )
-            response = ReasoningEngine(
-                knowledge_registry(settings),
-                repository,
-                knowledge_gateway(settings),
-            ).decide(runtime)
+            try:
+                response = ReasoningEngine(
+                    knowledge_registry(settings),
+                    repository,
+                    knowledge_gateway(settings, selected_model),
+                ).decide(runtime)
+            except ReasoningError:
+                # Keep the fail-fast model trace for the same metrics and audit
+                # semantics as the public knowledge runtime endpoint.
+                session.commit()
+                raise
             session.commit()
     except (
         KeyError,

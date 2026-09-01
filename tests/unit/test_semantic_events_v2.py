@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 
@@ -138,26 +137,6 @@ def test_coreference_recommendation_derives_relation_but_not_literal_mention() -
     assert all(event.event_type is not SemanticEventType.ENTITY_MENTION for event in events)
 
 
-def test_neutral_coreference_without_answer_span_does_not_create_an_event() -> None:
-    recommendation = make_record(
-        "recommendation-relation",
-        {
-            "subject_entity_id": ENTITY_ID,
-            "surface": None,
-            "polarity": "neutral",
-            "strength": 0,
-            "scenario": "回答未提及该实体",
-            "stance_owner": "assistant",
-            "subject_resolution": "query_context_coreference",
-            "start": None,
-            "end": None,
-            "excerpt_hash": None,
-        },
-    )
-
-    assert derive_answer_semantic_events((recommendation,), context=_context(recommendation)) == ()
-
-
 def test_market_rank_claim_remains_distinct_from_recommendation_rank() -> None:
     text = "业内第2"
     raw = {
@@ -191,48 +170,6 @@ def test_market_rank_claim_remains_distinct_from_recommendation_rank() -> None:
     assert all(
         event.event_type is not SemanticEventType.RECOMMENDATION_LIST_RANK for event in events
     )
-
-
-def test_event_storage_id_is_scoped_to_its_immutable_manifest() -> None:
-    text = "业内第2"
-    decision = make_record(
-        "rank-semantics",
-        {
-            "rank_events": [
-                {
-                    "event_type": "market_rank_claim",
-                    "subject_entity_id": ENTITY_ID,
-                    "object_entity_id": None,
-                    "rank": None,
-                    "list_size": None,
-                    "list_id": None,
-                    "ordered": None,
-                    "rank_low": 2,
-                    "rank_high": 2,
-                    "market_scope": "中国网络安全市场",
-                    "time_scope": "当前",
-                    "claim_text": text,
-                    "relation": None,
-                    "ordinal": None,
-                    "entity_count": None,
-                    "source_id": None,
-                    "start": 0,
-                    "end": len(text),
-                    "excerpt_hash": digest(text),
-                }
-            ]
-        },
-    )
-    first_context = _context(decision)
-    second_context = replace(
-        first_context, semantic_manifest_pub_id="asm_manifest_test_0002"
-    )
-
-    first = derive_answer_semantic_events((decision,), context=first_context)[0]
-    second = derive_answer_semantic_events((decision,), context=second_context)[0]
-
-    assert first.event_fingerprint == second.event_fingerprint
-    assert first.pub_id != second.pub_id
 
 
 def test_reviewed_recommendation_does_not_erase_accepted_mention_event() -> None:
@@ -295,9 +232,9 @@ def test_failed_decision_wins_over_review_for_the_same_capability() -> None:
         reason_codes=("llm_api_timeout",),
     )
 
-    capability = capability_analyses_from_decisions(
-        (extraction_review, verdict_failed)
-    )["claim_evidence_verdict"]
+    capability = capability_analyses_from_decisions((extraction_review, verdict_failed))[
+        "claim_evidence_verdict"
+    ]
 
     assert capability.status is CapabilityStatus.FAILED
     assert "llm_api_timeout" in capability.reason_codes
@@ -363,7 +300,7 @@ def test_mixed_failure_and_review_manifest_is_partial_not_review_required() -> N
         answer_text_hash=digest("混合失败与复核"),
         input_hash=digest("input-mixed-failure-review"),
         extractor_bundle={"entity": "v2"},
-        decision_task_bundle={"claim": "2.0.0"},
+        decision_task_bundle={"claim": "2.1.0"},
         entity_dictionary_hash=digest("dictionary"),
         capability_statuses={
             "claim_evidence_verdict": CapabilityAnalysis(

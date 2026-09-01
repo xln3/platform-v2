@@ -13,7 +13,7 @@
     "format": "prettier --write . && .venv/bin/ruff format api domain workflows migrations tests tools scripts",
     "format:check": "prettier --check . && .venv/bin/ruff format --check api domain workflows migrations tests tools scripts",
     "typecheck": "turbo run typecheck && .venv/bin/mypy api workflows domain",
-    "test": "turbo run test && pnpm test:e2e-runtime-unit && pnpm test:python",
+    "test": "turbo run test --concurrency=1 && pnpm test:e2e-runtime-unit && pnpm test:python",
     "test:python": "bash scripts/test_python.sh",
     "test:python:slow": ".venv/bin/pytest -q -m slow --fail-on-skip",
     "test:python:services": ".venv/bin/pytest -q -m service_integration --fail-on-skip",

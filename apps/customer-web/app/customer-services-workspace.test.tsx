@@ -3,6 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import type { CustomerFiveService } from '@geo/api-client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CustomerProjectOverview } from './customer-project-overview';
+import { CustomerProjectShowcase } from './customer-project-showcase';
 import { CustomerServicesWorkspace, formatObservationCount } from './customer-services-workspace';
 
 afterEach(cleanup);
@@ -16,7 +17,15 @@ describe('CustomerServicesWorkspace', () => {
     expect(screen.getByText('被拉踩内容核查')).toBeTruthy();
     expect(screen.getAllByText('未开通')).toHaveLength(2);
     expect(screen.getAllByText('该服务未处于有效授权期，接口不会返回分析结果。')).toHaveLength(2);
-    expect(screen.queryByText('标准 90 天实施甘特图')).toBeNull();
+    expect(screen.getByText('从业务问题到可验证结果')).toBeTruthy();
+    expect(screen.getByText('当前项目成果展示')).toBeTruthy();
+    expect(screen.getByText('当前客户项目')).toBeTruthy();
+    expect(screen.getByText('共享前端不内置其他客户名称或案例数据')).toBeTruthy();
+    expect(screen.getByText('标准 90 天实施甘特图')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('盛邦安全');
+    expect(document.body.textContent).not.toContain('中英人寿');
+    expect(document.body.textContent).not.toContain('143 / 144');
+    expect(document.body.textContent).not.toContain('264');
   });
 
   it('shows the sampling progress entry on the service 1 page', () => {
@@ -78,6 +87,12 @@ describe('CustomerServicesWorkspace', () => {
       latestDelivery: null,
     } satisfies CustomerFiveService;
 
+    render(<CustomerProjectShowcase projectLabel="甲方完整项目名称" services={[ownService]} />);
+
+    expect(screen.getByText('甲方完整项目名称')).toBeTruthy();
+    expect(screen.getByText(/当前客户推荐排名测试/u)).toBeTruthy();
+    expect(screen.getByText('37')).toBeTruthy();
+    cleanup();
     render(<CustomerProjectOverview projectLabel="甲方完整项目名称" services={[ownService]} />);
 
     expect(screen.getByText('甲方完整项目名称')).toBeTruthy();

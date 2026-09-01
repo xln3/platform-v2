@@ -146,19 +146,6 @@ def _query_context(payload: dict[str, Any]) -> QueryContextFact:
     )
 
 
-def _semantic_event_for_runtime(payload: dict[str, Any]) -> dict[str, Any]:
-    """Translate frozen human-review storage states back to evaluator states."""
-
-    status = str(payload.get("review_status") or "unreviewed")
-    if status in {"unreviewed", "approved", "accepted"}:
-        runtime_status = "accepted"
-    elif status in {"review_required", "overridden"}:
-        runtime_status = status
-    else:
-        raise ValueError("metrics_v2_semantic_event_review_status_invalid")
-    return payload | {"review_status": runtime_status}
-
-
 def _subject(payload: dict[str, Any]) -> EvaluationInput:
     decisions = {
         str(task_ref): SemanticDecisionFact(
@@ -187,9 +174,7 @@ def _subject(payload: dict[str, Any]) -> EvaluationInput:
         collection_eligible=bool(payload.get("collection_eligible", True)),
         capability_statuses=statuses,
         events=tuple(
-            AnswerSemanticEvent.model_validate(_semantic_event_for_runtime(dict(item)))
-            for item in payload.get("events", [])
-            if item.get("review_status") != "rejected"
+            AnswerSemanticEvent.model_validate(item) for item in payload.get("events", [])
         ),
         decisions=decisions,
         answer_fields=dict(payload.get("answer_fields") or {}),
@@ -347,16 +332,6 @@ def _snapshot_identity(item: dict[str, Any]) -> tuple[str, str, str]:
     return (str(item["metric_name"]), str(item["metric_version"]), str(item["focal_entity_id"]))
 
 
-def _snapshot_child_pub_id(prefix: str, snapshot_set_pub_id: str, content_hash: str) -> str:
-    """Scope immutable physical child IDs to their owning snapshot set."""
-
-    identity = {
-        "snapshot_set_pub_id": snapshot_set_pub_id,
-        "content_hash": content_hash,
-    }
-    return f"{prefix}_{canonical_hash(identity)[:26]}"
-
-
 def _physical_window_boundary(value: object, *, end: bool) -> object:
     """Store inclusive business dates as a non-empty physical timestamp range."""
 
@@ -419,7 +394,7 @@ async def persist_metric_snapshot_set_activity(payload: dict[str, Any]) -> dict[
     snapshot_ids: dict[tuple[str, str, str], str] = {}
     for item in result["snapshots"]:
         identity = _snapshot_identity(item)
-        snapshot_pub_id = _snapshot_child_pub_id("msn", set_pub_id, str(item["snapshot_hash"]))
+        snapshot_pub_id = f"msn_{item['snapshot_hash'][:26]}"
         snapshot_ids[identity] = snapshot_pub_id
         snapshots.append(
             {
@@ -433,7 +408,7 @@ async def persist_metric_snapshot_set_activity(payload: dict[str, Any]) -> dict[
         identity = _snapshot_identity(item)
         contributions.append(
             {
-                "pub_id": _snapshot_child_pub_id("mct", set_pub_id, str(item["contribution_hash"])),
+                "pub_id": f"mct_{item['contribution_hash'][:26]}",
                 "snapshot_pub_id": snapshot_ids[identity],
                 "answer_pub_id": item["answer_pub_id"],
                 "query_key": item["query_key"],
@@ -471,7 +446,7 @@ async def persist_metric_snapshot_set_activity(payload: dict[str, Any]) -> dict[
         identity = _snapshot_identity(item)
         query_contributions.append(
             {
-                "pub_id": _snapshot_child_pub_id("mqc", set_pub_id, str(item["contribution_hash"])),
+                "pub_id": f"mqc_{item['contribution_hash'][:26]}",
                 "snapshot_pub_id": snapshot_ids[identity],
                 "query_key": item["query_key"],
                 "focal_entity_id": item["focal_entity_id"],
@@ -499,7 +474,7 @@ async def persist_metric_snapshot_set_activity(payload: dict[str, Any]) -> dict[
         failed = max(0, int(item["planned_repeat_count"]) - valid)
         design_contributions.append(
             {
-                "pub_id": _snapshot_child_pub_id("mdc", set_pub_id, str(item["contribution_hash"])),
+                "pub_id": f"mdc_{item['contribution_hash'][:26]}",
                 "snapshot_pub_id": snapshot_ids[identity],
                 "query_key": item["query_key"],
                 "model": item["model"],
@@ -583,5 +558,4 @@ async def load_metrics_backfill_batch_activity(payload: dict[str, Any]) -> dict[
         limit=min(int(payload.get("limit") or 500), 2000),
         as_of=payload.get("as_of"),
         dry_run=bool(payload.get("dry_run", False)),
-        answer_pub_ids=tuple(map(str, payload.get("answer_pub_ids") or ())),
     )

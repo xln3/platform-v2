@@ -104,10 +104,8 @@ class SemanticJudgeFailure(RuntimeError):
         self.retryable = retryable
 
 
-def config_from_settings(settings: Settings, *, model: str | None = None) -> SemanticJudgeConfig:
+def config_from_settings(settings: Settings) -> SemanticJudgeConfig:
     """Resolve the dedicated judge config, falling back to shared credentials."""
-
-    from geo_platform.metrics_v2.semantic_models import resolve_model
 
     return SemanticJudgeConfig(
         api_key=(
@@ -122,7 +120,7 @@ def config_from_settings(settings: Settings, *, model: str | None = None) -> Sem
             or settings.research_llm_base_url_fallback.strip()
         ),
         provider=settings.semantic_decision_llm_provider.strip() or "openai-compatible",
-        model=resolve_model(settings, model),
+        model=settings.semantic_decision_llm_model.strip() or "gpt-5.6-sol",
         model_revision=(
             settings.semantic_decision_llm_model_revision.strip() or "runtime-configured"
         ),

@@ -35,6 +35,9 @@ def test_metrics_v2_physical_contract_is_installed_at_head() -> None:
         "metric_recompute_job_v2",
     }
     with psycopg.connect(POSTGRES_DSN) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "s18_0003_metrics_v2_failure",
+        )
         tables = {
             str(row[0])
             for row in connection.execute(
@@ -119,16 +122,45 @@ def test_metrics_v2_physical_contract_is_installed_at_head() -> None:
             "semantic_decision_task_definition_v2.decision_method_policy": "text",
             "semantic_judge_policy_v2.disagreement_policy": "text",
         }
-        snapshot_columns = {
+        assert connection.execute(
+            """
+            SELECT column_default,is_nullable
+            FROM information_schema.columns
+            WHERE table_schema='analytics' AND table_name='metric_snapshot_v2'
+              AND column_name='failed_answer_count'
+            """
+        ).fetchone() == ("0", "NO")
+        override_columns = {
             str(row[0])
             for row in connection.execute(
                 """
-                SELECT column_name FROM information_schema.columns
-                WHERE table_schema='analytics' AND table_name='metric_snapshot_v2'
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema='analytics'
+                  AND table_name='semantic_decision_override_command_v2'
                 """
             ).fetchall()
         }
-        assert "failed_answer_count" in snapshot_columns
+        assert "project_pub_id" in override_columns
+        assert connection.execute(
+            """
+            SELECT count(*)
+            FROM pg_trigger
+            WHERE tgrelid='analytics.semantic_decision_override_command_v2'::regclass
+              AND tgname='trg_semantic_decision_override_command_v2'
+              AND NOT tgisinternal
+            """
+        ).fetchone() == (1,)
+        override_function = connection.execute(
+            """
+            SELECT pg_get_functiondef(
+              'analytics.metrics_v2_create_override_command()'::regprocedure
+            )
+            """
+        ).fetchone()
+        assert override_function is not None
+        assert "project_pub_id=NEW.project_pub_id" in str(override_function[0])
+        assert "metrics_v2_canonical_json" in str(override_function[0])
 
 
 def test_metrics_v2_ratios_use_fixed_precision_and_history_has_guards() -> None:

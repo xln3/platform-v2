@@ -66,23 +66,22 @@ def _request(
     human_override: bool = False,
     include_request_span: bool = True,
     judge_policy: JudgePolicyDefinition | None = None,
+    task_version: str = "2.0.0",
     dependency_statuses: dict[str, DecisionStatus] | None = None,
     evidence_context: dict[str, object] | None = None,
     required_chunks_complete: bool = True,
 ) -> AdjudicationRequest:
-    definition = task(task_name)
+    definition = task(task_name, version=task_version)
     return AdjudicationRequest(
         task=definition,
-        judge_policy=judge_policy or policy_for(task_name),
+        judge_policy=judge_policy or policy_for(task_name, version=task_version),
         attempts=attempts,
         calibrated_confidences=confidences or {},
         candidate_set=candidate_set(),
         answer_text=text,
         expected_answer_text_hash=digest(text),
         evidence_refs=("answer-snapshot-v2",),
-        evidence_spans=(evidence_span(text, 0, len(text)),)
-        if include_request_span
-        else (),
+        evidence_spans=(evidence_span(text, 0, len(text)),) if include_request_span else (),
         answer_source_ref=ANSWER_ID,
         evidence_context=evidence_context or {},
         dependency_statuses=(
@@ -158,7 +157,7 @@ def test_deterministic_string_rule_cannot_emit_model_required_recommendation() -
 
 def test_single_strong_proposer_does_not_wait_for_optional_nested_review() -> None:
     text = "可以考虑它，但仅适合大型政企"
-    recommendation_task = task("recommendation-relation")
+    recommendation_task = task("recommendation-relation", version="2.1.0")
     proposer = make_attempt(
         recommendation_task,
         _recommendation_output(text, "conditional_positive"),
@@ -178,6 +177,7 @@ def test_single_strong_proposer_does_not_wait_for_optional_nested_review() -> No
             text,
             (proposer, verifier),
             confidences={proposer.pub_id: 0.98, verifier.pub_id: 0.98},
+            task_version="2.1.0",
         )
     )
 
@@ -218,10 +218,12 @@ def test_machine_failures_stay_unknown_without_dictionary_fallback(
 
 def test_valid_model_output_without_prebuilt_calibration_is_accepted_and_audited() -> None:
     text = "可以考虑它，但仅适合大型政企"
-    definition = task("recommendation-relation")
+    definition = task("recommendation-relation", version="2.1.0")
     output = _recommendation_output(text, "conditional_positive")
     proposer = make_attempt(definition, output, index=0)
-    outcome = adjudicate_decision(_request(definition.name, text, (proposer,)))
+    outcome = adjudicate_decision(
+        _request(definition.name, text, (proposer,), task_version="2.1.0")
+    )
 
     assert outcome.status is DecisionStatus.ACCEPTED
     assert outcome.calibrated_confidence is None
@@ -301,7 +303,7 @@ def test_truncated_evidence_is_chunk_failure_before_dependency_unknown() -> None
 
 def test_validated_model_output_spans_become_immutable_record_evidence() -> None:
     text = "可以考虑它，但仅适合大型政企"
-    definition = task("recommendation-relation")
+    definition = task("recommendation-relation", version="2.1.0")
     proposer = make_attempt(definition, _recommendation_output(text, "conditional_positive"))
 
     outcome = adjudicate_decision(
@@ -310,6 +312,7 @@ def test_validated_model_output_spans_become_immutable_record_evidence() -> None
             text,
             (proposer,),
             include_request_span=False,
+            task_version="2.1.0",
         )
     )
 
@@ -426,7 +429,7 @@ def test_experimental_policy_cannot_auto_accept_official_decision() -> None:
         )
     )
 
-    assert outcome.status is DecisionStatus.FAILED
+    assert outcome.status is DecisionStatus.ABSTAINED
     assert outcome.reason_codes == ("judge_policy_not_published_for_official_use",)
 
 

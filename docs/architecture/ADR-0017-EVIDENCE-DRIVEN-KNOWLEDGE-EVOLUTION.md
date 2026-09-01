@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-08-27
+- 补充决定：2026-08-28（请求级模型准入与血缘）
 - 决策者：GEO Platform 工程与知识治理责任人
 
 ## 背景
@@ -23,7 +24,7 @@ GEO 请求、AI 回答抽取、人工纠错和外部知识源会持续产生新�
 3. 发布与同步平面生成内容寻址 release，并完成激活、回滚和 connector 对账。
 4. 领域策略平面定义本体、解析、提示词、证据政策、质量门和投影。
 
-请求热路径只读取本机激活的知识 release。SiliconIndex 只能由同步任务访问，不属于请求关键路径。知识服务不可用时，品牌消费者继续读取经过校验的 last-known-good 投影，并披露 degraded 状态。
+请求热路径只读取本机激活的知识 release。SiliconIndex 只能由同步任务访问，不属于请求关键路径。客户端通过认证接口安装完整、验哈希的 last-known-good release；知识服务不可用时，有领域包的消费者可在该副本上处理新的确定性请求，没有领域包的消费者只能使用完全相同请求的内容寻址缓存，并都披露 degraded 状态。
 
 ## 请求时模型边界
 
@@ -31,9 +32,13 @@ GEO 请求、AI 回答抽取、人工纠错和外部知识源会持续产生新�
 
 模型结果与确定性结果分开返回。调用方只有同时启用外部模型、选择允许模型的策略并设置 `adopt_model_inferred=true` 时，模型结果才能影响当次请求。采用后的状态仍是 `model_inferred`，作用域仍是 `request`。它不会修改主数据、变更集或 release。
 
+模型选择是请求级参数，不是浏览器可编辑的网关配置。服务端维护知识任务独立允许清单，只有通过当前严格 JSON Schema 和领域校验的模型才进入公开目录。请求未指定模型时使用服务端默认项；指定未允许模型时拒绝，不做静默替换。确定性策略与显式模型互斥。现有只配置一个模型的部署保持服务端兼容，但未准入模型不向浏览器宣传。
+
+请求模型和供应商实际模型是两条不同血缘。供应商返回可信模型标识时保存其值；否则保存请求模型并标记为回退来源。两者连同目录版本进入 append-only inference trace、响应、观察和按模型指标。浏览器只接收目录元数据并提交模型 ID，凭据与 endpoint 始终保留在服务端。
+
 `llm_assisted` 只允许模型处理确定性结果中的未决项，不能用模型覆盖已发布判断。`confidential/restricted` 请求即使误传 `allow_external_model=true` 也会被外部 gateway 拒绝。gateway 对 408、429、5xx 和传输错误做有界重试并支持备用端点；输出、工具和异常都经过结构与泄露边界校验。费用预算存在但 provider 未返回可核验费用时，结果标为 `cost_budget_unverifiable`，不能被采用。
 
-缓存键包含租户、领域、任务、输入、必要上下文、release hash、policy、prompt、model 和 tool 版本。缓存命中保留模型血缘，但新增 token、费用和 provider latency 记为零。
+缓存键包含租户、领域、任务、输入、必要上下文、release hash、policy、prompt、请求模型、模型部署版本、目录版本和 tool 版本。缓存命中保留请求/实际模型血缘，但新增 token、费用和 provider latency 记为零。目录、模型或知识版本任一变化都会形成新的缓存边界。
 
 cache、observation 和 inference trace 写入属于可降级的运行反馈边界。数据库实现用 savepoint 隔离这些写入；失败时当前有效判断仍返回，并披露稳定 degradation code。候选聚合、证据和发布仍由持久治理事务完成，不能因为反馈降级而伪造已持久化回执。
 
@@ -45,11 +50,13 @@ cache、observation 和 inference trace 写入属于可降级的运行反馈边�
 - 变更集创建者不能批准自己的变更集。
 - 发布者不能是变更集创建者或批准者。
 - 公开且已审核的品牌对象必须通过领域质量门并带公开证据。
-- 品牌 release 必须附带可重复的历史回放报告：时间截点、评测集哈希、请求数、修复数、新错误数和允许的新错误预算都要通过领域影响门；紧急发布可不等周度批次，但不能绕过回放。
+- 品牌 release 的历史回放由服务端领域包执行并绑定候选状态 hash：时间截点、评测集哈希、请求数、修复数、新错误数和允许的新错误预算都要通过领域影响门；调用方自报计数不被信任，紧急发布可不等周度批次但不能绕过回放。
 - change set 必须精确列出与已批准 proposal 绑定的全部 evidence public ID；反对证据不能从发布血缘中省略。
 - authoritative/primary 反对证据未解决时不能批准；终态 proposal 不能被后续 evidence 静默重开或覆盖裁决。
 - 三方合并出现同字段双写时必须产生显式冲突，不能 last-write-wins。
 - `knowledge_object` 和 `assertion` 的变化必须追加新版本；数据库唯一约束和 append-only trigger 同时阻止原地改写。
+- 每个 release 必须保存对象/断言 membership；激活和回滚前，数据库 materialization 与不可变 artifact 的领域逻辑视图必须相等，两边 active pointer 只能一起切换。
+- SiliconIndex 外发必须来自成功、无冲突的三方对账收据和本机已审血缘；确定性 bundle 通过静态站全部门禁后才允许普通 Git push，并从公网回读精确版本/hash。调用方不能注入 approval，禁止 force push。
 - 租户数据由 RLS 隔离；公共导出拒绝客户、项目、回答、上下文和凭证字段。
 
 ## 备选方案

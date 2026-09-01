@@ -17,15 +17,17 @@ from domain.analysis.v2.decision_task_schema import (
 )
 
 
-def test_builtin_policies_are_hash_bound_resolved_single_model_policies() -> None:
+def test_builtin_policies_preserve_v2_and_add_dormant_single_model_v21() -> None:
     tasks = load_builtin_task_definitions()
     policies = load_builtin_judge_policies(tasks=tasks)
 
     assert {policy.name for policy in policies} == {
         "semantic-v2-primary-hybrid",
         "semantic-v2-primary-model",
+        "semantic-v2-shadow-hybrid",
+        "semantic-v2-shadow-model",
     }
-    assert all(policy.status.value == "published" for policy in policies)
+    assert all(policy.status.value == "experimental" for policy in policies)
     assert all(policy.calibration_artifact_hash is None for policy in policies)
     assert all(policy.fallback_policy.action in {"abstain", "review"} for policy in policies)
     assert all(
@@ -34,6 +36,10 @@ def test_builtin_policies_are_hash_bound_resolved_single_model_policies() -> Non
         for route in policy.model_routes
     )
     assert all(len(policy.policy_hash) == 64 for policy in policies)
+    primary = tuple(policy for policy in policies if policy.version == "2.1.0")
+    assert all(
+        route.provider == "openai-compatible" for policy in primary for route in policy.model_routes
+    )
 
 
 def test_policy_hash_changes_with_resolved_model_revision() -> None:
@@ -53,12 +59,7 @@ def test_policy_rejects_secrets_keyword_fallback_and_unresolved_route() -> None:
 
     with pytest.raises(ValidationError, match="judge_policy_contains_secret"):
         JudgePolicyDefinition.model_validate(
-            payload
-            | {
-                "inference_configs": {
-                    "semantic-llm-primary-v2": {"api_key": "secret"}
-                }
-            }
+            payload | {"inference_configs": {"semantic-llm-primary-v2": {"api_key": "secret"}}}
         )
     with pytest.raises(ValidationError, match="fallback_action_forbidden"):
         JudgePolicyDefinition.model_validate(

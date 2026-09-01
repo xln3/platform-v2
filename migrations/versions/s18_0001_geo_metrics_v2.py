@@ -2,7 +2,7 @@
 """Create the immutable GEO query-cohort metrics V2 fact plane.
 
 Revision ID: s18_0001_geo_metrics_v2
-Revises: s17_0003_knowledge_immutable
+Revises: s17_0005_credential_boundary
 """
 
 from collections.abc import Sequence
@@ -11,7 +11,7 @@ from alembic import op
 from geo_platform.tenancy.runtime_acl import API_ROLE, WORKER_ROLE, migration_reconcile_sql
 
 revision: str = "s18_0001_geo_metrics_v2"
-down_revision: str | Sequence[str] | None = "s17_0003_knowledge_immutable"
+down_revision: str | Sequence[str] | None = "s17_0005_credential_boundary"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -91,11 +91,13 @@ RETRYABLE_RELEASE_STATUSES = frozenset(
         "prepared",
         "rolled_back",
         "rolled_back_after_failed_activation",
+        "rolled_back_after_failed_materialization",
     }
 )
 VALIDATABLE_RELEASE_STATUSES = RETRYABLE_RELEASE_STATUSES | frozenset(
     {
         "active_verified",
+        "materialized_verified",
         "verification_pending",
     }
 )
@@ -394,8 +396,11 @@ def rename_exchange(left: Path, right: Path) -> None:
 
 
 def assert_nginx_direct_build_contract(
-    nginx_config: Path | Sequence[Path] = NGINX_CONFIGS, root: Path = ROOT
+    nginx_config: Path | Sequence[Path] = NGINX_CONFIGS,
+    root: Path = ROOT,
+    served_root: Path | None = None,
 ) -> None:
+    served_root = root if served_root is None else served_root
     config_paths = (nginx_config,) if isinstance(nginx_config, Path) else tuple(nginx_config)
     configs: list[str] = []
     for config_path in config_paths:
@@ -405,7 +410,7 @@ def assert_nginx_direct_build_contract(
             raise ReleaseError("nginx_frontend_config_unreadable") from exc
     for app, basename in APPS.items():
         app_route = basename.rstrip("/")
-        alias = root / "apps" / app / "build" / "client"
+        alias = served_root / "apps" / app / "build" / "client"
         expected_location = f"location {basename} {{"
         expected_alias = f"alias {alias}/;"
         if not any(expected_location in config and expected_alias in config for config in configs):
@@ -495,7 +500,11 @@ def validate_prepared_release(
         candidate = directory / "candidates" / app
         if manifest.get("status") in RETRYABLE_RELEASE_STATUSES:
             assert_bundle_matches(candidate, expected)
-        elif manifest.get("status") in {"active_verified", "verification_pending"}:
+        elif manifest.get("status") in {
+            "active_verified",
+            "materialized_verified",
+            "verification_pending",
+        }:
             assert_bundle_matches(root / "apps" / app / "build", expected)
     if require_current_source and manifest.get("source") != source_fingerprint(root):
         raise ReleaseError("prepared_release_source_drift")
@@ -527,6 +536,7 @@ def activate_release(
     root: Path = ROOT,
     releases_root: Path = RELEASES_ROOT,
     nginx_config: Path | Sequence[Path] = NGINX_CONFIGS,
+    served_root: Path | None = None,
 ) -> dict[str, Any]:
     directory = release_directory(release_id, releases_root)
     manifest_path = directory / "manifest.json"
@@ -540,7 +550,7 @@ def activate_release(
         )
         if manifest.get("status") not in RETRYABLE_RELEASE_STATUSES:
             raise ReleaseError("release_is_not_activatable")
-        assert_nginx_direct_build_contract(nginx_config, root)
+        assert_nginx_direct_build_contract(nginx_config, root, served_root)
         previous: dict[str, Any] = {}
         for app, basename in APPS.items():
             active = root / "apps" / app / "build"
@@ -593,6 +603,75 @@ def activate_release(
 
         manifest["status"] = "active_verified"
         manifest["verified_at"] = utc_now()
+        manifest["verification"] = {"result": "passed", "secrets_recorded": False}
+        manifest.pop("failure", None)
+        atomic_json_write(manifest_path, manifest)
+        return manifest
+
+
+def materialize_release(
+    release_id: str,
+    verification_command: Sequence[str],
+    *,
+    root: Path = ROOT,
+    releases_root: Path = RELEASES_ROOT,
+    nginx_config: Path | Sequence[Path] = NGINX_CONFIGS,
+    served_root: Path | None = None,
+) -> dict[str, Any]:
+    """Install prepared bundles into a not-yet-live immutable release root.
+
+    Unlike ``activate_release``, this mode requires every active ``build`` tree
+    to be absent.  It is intended for a fresh Git-archive release that will only
+    become live later through an atomic ``/opt/geo-platform-v2/current`` symlink
+    exchange.  A failed verification moves every bundle back to its candidate
+    directory, leaving the release retryable and never touching the live root.
+    """
+
+    directory = release_directory(release_id, releases_root)
+    manifest_path = directory / "manifest.json"
+    candidates = directory / "candidates"
+    with release_lock(releases_root):
+        manifest = validate_prepared_release(
+            release_id,
+            root=root,
+            releases_root=releases_root,
+            require_current_source=True,
+        )
+        if manifest.get("status") not in RETRYABLE_RELEASE_STATUSES:
+            raise ReleaseError("release_is_not_materializable")
+        assert_nginx_direct_build_contract(nginx_config, root, served_root)
+        for app in APPS:
+            active = root / "apps" / app / "build"
+            if active.exists() or active.is_symlink():
+                raise ReleaseError(f"materialize_requires_absent_active_build:{app}")
+
+        manifest["status"] = "materializing"
+        manifest["materialization_started_at"] = utc_now()
+        atomic_json_write(manifest_path, manifest)
+        moved: list[str] = []
+        try:
+            with defer_termination_signals():
+                for app in APPS:
+                    os.rename(candidates / app, root / "apps" / app / "build")
+                    moved.append(app)
+            for app in APPS:
+                assert_bundle_matches(root / "apps" / app / "build", manifest["apps"][app])
+            run_verification(verification_command, root)
+        except BaseException as exc:
+            if moved:
+                with defer_termination_signals():
+                    for app in reversed(moved):
+                        os.rename(root / "apps" / app / "build", candidates / app)
+            failed_at = utc_now()
+            failure = str(exc) if isinstance(exc, ReleaseError) else type(exc).__name__
+            manifest["status"] = "rolled_back_after_failed_materialization"
+            manifest["rolled_back_at"] = failed_at
+            manifest["failure"] = failure
+            atomic_json_write(manifest_path, manifest)
+            raise
+
+        manifest["status"] = "materialized_verified"
+        manifest["materialized_at"] = utc_now()
         manifest["verification"] = {"result": "passed", "secrets_recorded": False}
         manifest.pop("failure", None)
         atomic_json_write(manifest_path, manifest)
@@ -889,6 +968,28 @@ def summarize(manifest: Mapping[str, Any]) -> dict[str, Any]:
 
 def parser() -> argparse.ArgumentParser:
     root_parser = argparse.ArgumentParser()
+    root_parser.add_argument(
+        "--root",
+        type=Path,
+        default=ROOT,
+        help="source/build root; defaults to the checkout containing this script",
+    )
+    root_parser.add_argument(
+        "--releases-root",
+        type=Path,
+        help="frontend manifest/candidate root; defaults to <root>/.frontend-releases",
+    )
+    root_parser.add_argument(
+        "--served-root",
+        type=Path,
+        help="literal root referenced by Nginx aliases; defaults to --root",
+    )
+    root_parser.add_argument(
+        "--nginx-config",
+        action="append",
+        type=Path,
+        help="reviewed Nginx config to validate; repeat for split edge configs",
+    )
     subparsers = root_parser.add_subparsers(dest="command", required=True)
 
     prepare = subparsers.add_parser("prepare")
@@ -903,6 +1004,10 @@ def parser() -> argparse.ArgumentParser:
     activate.add_argument("--release-id", required=True)
     activate.add_argument("--verify-command", nargs=argparse.REMAINDER, required=True)
 
+    materialize = subparsers.add_parser("materialize")
+    materialize.add_argument("--release-id", required=True)
+    materialize.add_argument("--verify-command", nargs=argparse.REMAINDER, required=True)
+
     rollback = subparsers.add_parser("rollback")
     rollback.add_argument("--release-id", required=True)
     rollback.add_argument("--verify-command", nargs=argparse.REMAINDER, required=True)
@@ -913,31 +1018,77 @@ def parser() -> argparse.ArgumentParser:
     certify.add_argument(
         "--output",
         type=Path,
-        default=ROOT / "tests/s04-evidence/frontend-production-release.json",
+        help=(
+            "certificate path; defaults to "
+            "<root>/tests/s04-evidence/frontend-production-release.json"
+        ),
     )
     return root_parser
 
 
 def main() -> None:
     arguments = parser().parse_args()
+    root = Path(os.path.abspath(arguments.root))
+    releases_root = Path(os.path.abspath(arguments.releases_root or root / ".frontend-releases"))
+    served_root = Path(os.path.abspath(arguments.served_root or root))
+    nginx_configs = tuple(
+        Path(os.path.abspath(path))
+        for path in (
+            arguments.nginx_config
+            or (
+                root / "deploy/production/nginx-v2-locations.conf",
+                root / "deploy/production/geo-platform-v2-port-edges.conf",
+            )
+        )
+    )
     try:
         if arguments.command == "prepare":
-            manifest_path = prepare_release(arguments.release_id, pnpm=arguments.pnpm)
+            manifest_path = prepare_release(
+                arguments.release_id,
+                root=root,
+                releases_root=releases_root,
+                pnpm=arguments.pnpm,
+            )
             manifest = load_manifest(manifest_path)
         elif arguments.command == "inspect":
             manifest = validate_prepared_release(
                 arguments.release_id,
+                root=root,
+                releases_root=releases_root,
                 require_current_source=not arguments.allow_source_drift,
             )
         elif arguments.command == "activate":
-            manifest = activate_release(arguments.release_id, arguments.verify_command)
+            manifest = activate_release(
+                arguments.release_id,
+                arguments.verify_command,
+                root=root,
+                releases_root=releases_root,
+                nginx_config=nginx_configs,
+                served_root=served_root,
+            )
+        elif arguments.command == "materialize":
+            manifest = materialize_release(
+                arguments.release_id,
+                arguments.verify_command,
+                root=root,
+                releases_root=releases_root,
+                nginx_config=nginx_configs,
+                served_root=served_root,
+            )
         elif arguments.command == "rollback":
-            manifest = rollback_release(arguments.release_id, arguments.verify_command)
+            manifest = rollback_release(
+                arguments.release_id,
+                arguments.verify_command,
+                root=root,
+                releases_root=releases_root,
+            )
         elif arguments.command == "certify":
             manifest = certify_active_release(
                 arguments.release_id,
                 arguments.backup,
-                arguments.output,
+                arguments.output or root / "tests/s04-evidence/frontend-production-release.json",
+                root=root,
+                releases_root=releases_root,
             )
         else:
             raise ReleaseError("unknown_release_command")

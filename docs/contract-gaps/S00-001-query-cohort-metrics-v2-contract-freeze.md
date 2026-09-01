@@ -1,31 +1,32 @@
 # S00-001 — Query Cohort、回答语义事件与指标 V2 契约冻结候选
 
 - Reporter/session: S00/S04 contract audit
-- Status: `designed_uncommitted`
+- Status: `committed_verified`
 - Contract/ADR affected: `docs/QUERY_COHORT_METRICS_V2.md`
-- Blocking work: 指标 V2 阶段 02—05、Service 3 正式事实层、S03 指标投影
+- Blocking work: 生产 shadow 回放、冻结金标校准、official 人工审批与 CAS 切换
 - Owning session: S00/S04 负责共享契约；S04 是 migration 与生成物单写者
 - Date: 2026-08-27
 
 ## 1. 状态声明与冻结输入
 
-本文是阶段 01 的自包含冻结候选，不是已接受或已提交事实。当前状态只能写成
-`designed_uncommitted`，不得写成 `committed_verified`，也不得据此宣称阶段 02 已解锁。
+本文最初是阶段 01 的自包含冻结候选。2026-08-28，契约、实现、迁移、生成物和测试以
+`01118dfe8b39168645340d4fb5f02877f64f931c` 进入同一提交，状态提升为
+`committed_verified`。这不等于生产 `deployed_verified`，也不授权 official 指标切换。
 
 冻结候选输入如下：
 
 ```text
 design_path = docs/QUERY_COHORT_METRICS_V2.md
-design_status = untracked_worktree_input
+design_status = tracked_committed
 design_revision = 4
-design_sha256 = 3646d419526df99195f2894297d9993e46f62fec616fe9ea76374e294a43326b
-git_head = 806d91348a23b298eed6bff328440e8d51eeaf27
-git_origin_master = 806d91348a23b298eed6bff328440e8d51eeaf27
+design_sha256 = 9a9d5454f30d405485146bc313f00877083305dc8be15a8a6f4e6b8c486d8468
+implementation_commit = 01118dfe8b39168645340d4fb5f02877f64f931c
+integration_base = 07aca5c719b2accc4dea95d425bc7db5634b80d2
 database_current_at_initial_audit = s17_0002_knowledge_trace_details
 latest_worktree_head = s18_0001_geo_metrics_v2
 latest_database_current = s18_0001_geo_metrics_v2
-latest_migration_status = other_session_active/worktree_applied_not_accepted
-observed_at = 2026-08-27 Asia/Shanghai
+latest_migration_status = committed_verified
+observed_at = 2026-08-28 Asia/Shanghai
 ```
 
 设计文件的任意字节变化都会使上述 hash 失效，并使本文退回待复核。阶段门只接受：
@@ -68,7 +69,7 @@ migrations/versions/s17_0003_knowledge_version_immutability.py
 migrations/versions/s18_0001_geo_metrics_v2.py
 worktree_alembic_head = s18_0001_geo_metrics_v2
 database_current = s18_0001_geo_metrics_v2
-chain = s17_0002_knowledge_trace_details -> s17_0003_knowledge_immutable -> s18_0001_geo_metrics_v2
+chain = s17_0002_knowledge_trace_details -> s17_0003_knowledge_immutable -> s17_0004_release_membership -> s17_0005_credential_boundary -> s18_0001_geo_metrics_v2
 ownership = other_session_active/worktree_applied_not_accepted
 ```
 
@@ -107,28 +108,28 @@ ownership = other_session_active/worktree_applied_not_accepted
 
 ## 4. 逻辑对象冻结
 
-| 对象 | 唯一职责 | 必须冻结的最小内容 |
-| --- | --- | --- |
-| `QueryContextFact` | 查询多维上下文事实 | query identity/text hash、lenses、operations、subtypes、brand structure、字典/release、decision refs、版本链 |
-| `QueryEntityExposureFact` | 查询相对每个 focal entity 的暴露关系 | `brand_neutral/focal_named_only/focal_named_with_others/other_brand_named/unknown`、matched entity、fact hash |
-| `DecisionTaskDefinition` | 定义“判断什么” | input/output schema、依赖 DAG、候选政策、method policy、rubric、evidence、abstention、adjudication、calibration gate |
-| `JudgePolicy` | 定义“如何判断” | deterministic/proposer/verifier/adjudicator/human pipeline、解析后的模型 revision、阈值、预算、分歧与禁止弱 fallback |
-| `SemanticEvidenceBundle` | 冻结 judge 实际可见证据 | truth-as-of、retrieval policy/query hash、CAS refs、URL、内容 hash、span、状态和 bundle hash |
-| `SemanticDecisionJob` | 幂等判定需求 | task/subject/input/context/policy、generation、状态机、workflow refs、idempotency key |
-| `SemanticDecisionAttempt` | 保存一次受控执行 | role/method/model revision、prompt/rubric/schema hash、校验输出、短理由、成本与错误码；不保存思维链 |
-| `SemanticDecisionRecord` | 最终原子判定 | accepted/abstained/review/failed、结构化结果、证据、校准、policy/rubric、selected attempts、supersedes |
-| `AnswerSemanticManifest` | 回答逐 capability 完成状态 | answer/input hash、query fact、task/extractor/dictionary bundle、逐能力状态、decision/event set hash |
-| `AnswerSemanticEvent` | 类型化回答事实 | event type/value、subject/object、Unicode code-point span、excerpt hash、decision provenance、review |
-| `MetricDefinition` | 版本化测量协议 | 类型安全 DSL、unit、query predicate、required capabilities/tasks、outcome source、aggregation、publication gate |
-| `MetricEvaluation` | 逐 answer × focal entity × metric 结果 | 唯一 eligibility、reason codes、outcome、raw contribution、events/decisions 和 hash |
-| `MetricSnapshotSet` | 原子冻结同一 scope 的指标集合 | tenant/project/window/as-of/filters/entities、design basis、dependency bundle、set hash |
-| `MetricSnapshot` | 一个 metric/entity 的不可变统计 | state/value、n/N、coverage、bounds、query count、method mix、calibration refs、三类 contribution hash |
-| `AnswerContribution` | 全体候选回答贡献 | hit/miss/excluded/not-applicable/unknown、三层权重、events/decisions、answer detail ref、hash |
-| `QueryContribution` | query-macro 验算 | query numerator/denominator/value、unknown weight、query weight、cell/answer counts |
-| `DesignCellContribution` | planned/observed 采集守恒 | query/model/region/mode、planned/effective/failed/known repeats、cell weight 和状态 |
-| `MetricPublication` | 唯一可变消费指针 | scope、shadow/official、snapshot set、generation CAS、publisher/time |
-| `MetricRecomputeJob` | 增量/回放运行账 | trigger/scope/definition、cursor、输入输出数、状态、错误、workflow refs、idempotency |
-| `MetricExportArtifact` | 可验证导出 | set/hash、格式、私有对象描述、回读校验、权限、保留和审计 |
+| 对象                      | 唯一职责                               | 必须冻结的最小内容                                                                                                   |
+| ------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `QueryContextFact`        | 查询多维上下文事实                     | query identity/text hash、lenses、operations、subtypes、brand structure、字典/release、decision refs、版本链         |
+| `QueryEntityExposureFact` | 查询相对每个 focal entity 的暴露关系   | `brand_neutral/focal_named_only/focal_named_with_others/other_brand_named/unknown`、matched entity、fact hash        |
+| `DecisionTaskDefinition`  | 定义“判断什么”                         | input/output schema、依赖 DAG、候选政策、method policy、rubric、evidence、abstention、adjudication、calibration gate |
+| `JudgePolicy`             | 定义“如何判断”                         | deterministic/proposer/verifier/adjudicator/human pipeline、解析后的模型 revision、阈值、预算、分歧与禁止弱 fallback |
+| `SemanticEvidenceBundle`  | 冻结 judge 实际可见证据                | truth-as-of、retrieval policy/query hash、CAS refs、URL、内容 hash、span、状态和 bundle hash                         |
+| `SemanticDecisionJob`     | 幂等判定需求                           | task/subject/input/context/policy、generation、状态机、workflow refs、idempotency key                                |
+| `SemanticDecisionAttempt` | 保存一次受控执行                       | role/method/model revision、prompt/rubric/schema hash、校验输出、短理由、成本与错误码；不保存思维链                  |
+| `SemanticDecisionRecord`  | 最终原子判定                           | accepted/abstained/review/failed、结构化结果、证据、校准、policy/rubric、selected attempts、supersedes               |
+| `AnswerSemanticManifest`  | 回答逐 capability 完成状态             | answer/input hash、query fact、task/extractor/dictionary bundle、逐能力状态、decision/event set hash                 |
+| `AnswerSemanticEvent`     | 类型化回答事实                         | event type/value、subject/object、Unicode code-point span、excerpt hash、decision provenance、review                 |
+| `MetricDefinition`        | 版本化测量协议                         | 类型安全 DSL、unit、query predicate、required capabilities/tasks、outcome source、aggregation、publication gate      |
+| `MetricEvaluation`        | 逐 answer × focal entity × metric 结果 | 唯一 eligibility、reason codes、outcome、raw contribution、events/decisions 和 hash                                  |
+| `MetricSnapshotSet`       | 原子冻结同一 scope 的指标集合          | tenant/project/window/as-of/filters/entities、design basis、dependency bundle、set hash                              |
+| `MetricSnapshot`          | 一个 metric/entity 的不可变统计        | state/value、n/N、coverage、bounds、query count、method mix、calibration refs、三类 contribution hash                |
+| `AnswerContribution`      | 全体候选回答贡献                       | hit/miss/excluded/not-applicable/unknown、三层权重、events/decisions、answer detail ref、hash                        |
+| `QueryContribution`       | query-macro 验算                       | query numerator/denominator/value、unknown weight、query weight、cell/answer counts                                  |
+| `DesignCellContribution`  | planned/observed 采集守恒              | query/model/region/mode、planned/effective/failed/known repeats、cell weight 和状态                                  |
+| `MetricPublication`       | 唯一可变消费指针                       | scope、shadow/official、snapshot set、generation CAS、publisher/time                                                 |
+| `MetricRecomputeJob`      | 增量/回放运行账                        | trigger/scope/definition、cursor、输入输出数、状态、错误、workflow refs、idempotency                                 |
+| `MetricExportArtifact`    | 可验证导出                             | set/hash、格式、私有对象描述、回读校验、权限、保留和审计                                                             |
 
 这些对象不可合并为一个不可约束 JSONB。query fact、decision、manifest/event、evaluation 和
 snapshot 是不同事实层，不得用其中一层替代另一层。
@@ -231,13 +232,13 @@ schema。
 
 ## 7. 所有权与允许修改边界
 
-| 范围 | Owner | 冻结职责 |
-| --- | --- | --- |
-| ADR、contract gap、migration policy、runtime roles、OpenAPI 生成政策 | S00/S04 | 接受四个 gap、单写者集成与阶段门 |
-| `api/geo_platform/{analytics,evidence,reports,intelligence}`、对应 domain/workflow | S02 | query facts、decision/events、metrics runtime、Service 3/report 后端 |
-| 四个 app、共享 UI packages、frontend/visual tests | S03 | 仅消费稳定生成 client；不创建统计事实 |
-| collection/domain 与 Operations execution feature | S01 | 提供 planned design/answer lineage 只读合同；S02/S03 不越权修改 |
-| migration、`runtime_acl.py`、root config、generated OpenAPI/client | S04 单写者 | 所有生产者停止共享写入后一次集成 |
+| 范围                                                                               | Owner      | 冻结职责                                                             |
+| ---------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------- |
+| ADR、contract gap、migration policy、runtime roles、OpenAPI 生成政策               | S00/S04    | 接受四个 gap、单写者集成与阶段门                                     |
+| `api/geo_platform/{analytics,evidence,reports,intelligence}`、对应 domain/workflow | S02        | query facts、decision/events、metrics runtime、Service 3/report 后端 |
+| 四个 app、共享 UI packages、frontend/visual tests                                  | S03        | 仅消费稳定生成 client；不创建统计事实                                |
+| collection/domain 与 Operations execution feature                                  | S01        | 提供 planned design/answer lineage 只读合同；S02/S03 不越权修改      |
+| migration、`runtime_acl.py`、root config、generated OpenAPI/client                 | S04 单写者 | 所有生产者停止共享写入后一次集成                                     |
 
 当前 dirty/active 文件必须避让，尤其包括 Operations visibility 手写类型/UI、knowledge/
 BrandRank 在途文件和未跟踪 knowledge migration。阶段 01 不借用这些工作树改动作为已接受
@@ -439,17 +440,17 @@ repository/outbox/Temporal、API/export/report binding、frontend trace 和 E2E 
 
 ## 13. 阶段 02 启动门
 
-当前判定：`not_satisfied`。
+2026-08-28 复核判定：阶段 02 启动门已满足并已完成实现；生产切换仍受阶段 05 门约束。
 
 只有以下全部成立，S02 才能开始阶段 02 业务实现：
 
-- [ ] 精确设计 hash 与本文已经进入 Git，状态改为 `committed_verified`。
-- [ ] GAP-A 至 GAP-D 均有 accepted resolution，而非实现者自行选择。
-- [ ] 并发 knowledge migration 已完成交接；S04 重新确认唯一 accepted head 和实际 successor。
-- [ ] migration、runtime ACL、outbox、OpenAPI/client 单写者已命名并停止争用共享热点。
-- [ ] query/answer、planned design cell、knowledge/entity release 的只读合同可测试。
-- [ ] S02 获得不会修改 S01/S03 文件的目录/文件清单与 fixture。
-- [ ] 未提交 Operations visibility、knowledge、BrandRank、测试/CI 改动均保持原 owner。
+- [x] 精确设计 hash 与本文已经进入 Git，状态改为 `committed_verified`。
+- [x] GAP-A 至 GAP-D 均有 accepted resolution，而非实现者自行选择。
+- [x] 并发 knowledge migration 已完成交接；S04 重新确认唯一 accepted head 和实际 successor。
+- [x] migration、runtime ACL、outbox、OpenAPI/client 单写者已命名并停止争用共享热点。
+- [x] query/answer、planned design cell、knowledge/entity release 的只读合同可测试。
+- [x] S02 获得不会修改 S01/S03 文件的目录/文件清单与 fixture。
+- [x] 未提交 Operations visibility、knowledge、BrandRank、测试/CI 改动均保持原 owner。
 
 在门满足前，允许的工作只有只读审计、本文/ADR 的契约收敛和不改变产品真相的 fixture
 设计；不得创建 V2 migration，不得实现 Decision/Metrics 业务路径，不得让 S03 编写页面公式，
@@ -458,11 +459,12 @@ repository/outbox/Temporal、API/export/report binding、frontend trace 和 E2E 
 ## 14. Resolution and validation
 
 ```text
-resolution = pending
-validation = design hash observed; worktree fast lane 2768 passed/33 deselected; s18 head/current audited
-stage_01 = designed_uncommitted
-stage_02 = locked
-production/application deployment = not attempted
-shared development database migration = applied_unaccepted_by_other_session
-commit/push = not authorized and not performed
+resolution = accepted in 01118dfe8b39168645340d4fb5f02877f64f931c
+validation = pnpm check passed; quick Python 2820 passed/57 deselected; PostgreSQL metrics 20 passed; PostgreSQL owner recovery 3 passed; Temporal 8 passed
+stage_01 = committed_verified
+stage_02_to_04 = committed_verified
+stage_05 = production deployment pending
+production/application deployment = not yet attempted at this evidence point
+database migration = empty and s17 historical upgrade lanes both reached the unique s18 head
+official activation = blocked on frozen calibration, approved budget, history-diff review, and human CAS approval
 ```

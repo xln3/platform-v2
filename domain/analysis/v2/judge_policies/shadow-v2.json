@@ -1,7 +1,7 @@
 [
   {
-    "name": "semantic-v2-primary-hybrid",
-    "version": "2.1.0",
+    "name": "semantic-v2-shadow-hybrid",
+    "version": "2.0.0",
     "compatible_task_refs": [
       "query-intent@2.0.0",
       "query-brand-entity-resolution@2.0.0",
@@ -10,34 +10,48 @@
       "rank-semantics@2.0.0"
     ],
     "method_pipeline": [
-      {"role": "deterministic", "method": "deterministic", "required": true},
-      {"role": "proposer", "method": "model", "route_name": "semantic-llm-primary-v2", "required": true}
+      { "role": "deterministic", "method": "deterministic", "required": true },
+      {
+        "role": "proposer",
+        "method": "model",
+        "route_name": "offline-fixture-v2",
+        "required": true
+      }
     ],
     "model_routes": [
       {
-        "route_name": "semantic-llm-primary-v2",
-        "provider": "openai-compatible",
-        "model": "gpt-5.6-sol",
-        "resolved_revision": "runtime-configured",
-        "processing_region": "configured-gateway",
-        "allowed_data_classifications": ["public", "internal"],
-        "retention_policy": "deployment-controlled"
+        "route_name": "offline-fixture-v2",
+        "provider": "offline-fixture",
+        "model": "semantic-judge-fixture-v2",
+        "resolved_revision": "fixture-2026-08-27",
+        "processing_region": "local-test",
+        "allowed_data_classifications": ["public", "internal", "restricted-test"],
+        "retention_policy": "no-provider-retention"
       }
     ],
-    "inference_configs": {"semantic-llm-primary-v2": {"response_format": "json_schema", "single_model": true}},
-    "timeout_retry_policy": {"timeout_ms": 120000, "max_attempts": 3, "retryable_error_codes": ["llm_api_timeout", "llm_api_network_error", "llm_api_rate_limited", "llm_api_upstream_unavailable"]},
-    "acceptance_thresholds": {"default": 0.9, "unknown": 0.95},
+    "inference_configs": {
+      "offline-fixture-v2": { "temperature": 0, "seed": 20260827, "max_output_tokens": 4096 }
+    },
+    "timeout_retry_policy": {
+      "timeout_ms": 30000,
+      "max_attempts": 2,
+      "retryable_error_codes": ["model_timeout", "provider_unavailable"]
+    },
+    "acceptance_thresholds": { "default": 0.9, "unknown": 0.95 },
     "disagreement_policy": "review",
-    "evidence_budget": {"maximum_answer_code_points": 200000, "maximum_spans": 1000, "maximum_chunks": 100},
-    "cost_budget": {},
-    "fallback_policy": {"action": "abstain"},
-    "status": "published",
-    "published_at": "2026-08-28T00:00:00Z",
-    "created_at": "2026-08-28T00:00:00Z"
+    "evidence_budget": {
+      "maximum_answer_code_points": 200000,
+      "maximum_spans": 1000,
+      "maximum_chunks": 100
+    },
+    "cost_budget": { "maximum_cost_amount": 0 },
+    "fallback_policy": { "action": "review" },
+    "status": "experimental",
+    "created_at": "2026-08-27T00:00:00Z"
   },
   {
-    "name": "semantic-v2-primary-model",
-    "version": "2.1.0",
+    "name": "semantic-v2-shadow-model",
+    "version": "2.0.0",
     "compatible_task_refs": [
       "recommendation-relation@2.0.0",
       "stance-and-pairwise@2.0.0",
@@ -50,28 +64,62 @@
       "risk-adjudication@2.0.0"
     ],
     "method_pipeline": [
-      {"role": "proposer", "method": "model", "route_name": "semantic-llm-primary-v2", "required": true}
+      {
+        "role": "proposer",
+        "method": "model",
+        "route_name": "offline-fixture-v2",
+        "required": true
+      },
+      {
+        "role": "verifier",
+        "method": "model",
+        "route_name": "offline-fixture-v2-verifier",
+        "required": false
+      }
     ],
     "model_routes": [
       {
-        "route_name": "semantic-llm-primary-v2",
-        "provider": "openai-compatible",
-        "model": "gpt-5.6-sol",
-        "resolved_revision": "runtime-configured",
-        "processing_region": "configured-gateway",
-        "allowed_data_classifications": ["public", "internal"],
-        "retention_policy": "deployment-controlled"
+        "route_name": "offline-fixture-v2",
+        "provider": "offline-fixture",
+        "model": "semantic-judge-fixture-v2",
+        "resolved_revision": "fixture-2026-08-27",
+        "processing_region": "local-test",
+        "allowed_data_classifications": ["public", "internal", "restricted-test"],
+        "retention_policy": "no-provider-retention"
+      },
+      {
+        "route_name": "offline-fixture-v2-verifier",
+        "provider": "offline-fixture",
+        "model": "semantic-verifier-fixture-v2",
+        "resolved_revision": "fixture-2026-08-27",
+        "processing_region": "local-test",
+        "allowed_data_classifications": ["public", "internal", "restricted-test"],
+        "retention_policy": "no-provider-retention"
       }
     ],
-    "inference_configs": {"semantic-llm-primary-v2": {"response_format": "json_schema", "single_model": true}},
-    "timeout_retry_policy": {"timeout_ms": 120000, "max_attempts": 3, "retryable_error_codes": ["llm_api_timeout", "llm_api_network_error", "llm_api_rate_limited", "llm_api_upstream_unavailable"]},
-    "acceptance_thresholds": {"default": 0.9, "unknown": 0.95, "critical": 0.98},
+    "inference_configs": {
+      "offline-fixture-v2": { "temperature": 0, "seed": 20260827, "max_output_tokens": 4096 },
+      "offline-fixture-v2-verifier": {
+        "temperature": 0,
+        "seed": 20260828,
+        "max_output_tokens": 4096
+      }
+    },
+    "timeout_retry_policy": {
+      "timeout_ms": 30000,
+      "max_attempts": 2,
+      "retryable_error_codes": ["model_timeout", "provider_unavailable"]
+    },
+    "acceptance_thresholds": { "default": 0.9, "unknown": 0.95, "critical": 0.98 },
     "disagreement_policy": "review",
-    "evidence_budget": {"maximum_answer_code_points": 200000, "maximum_sources": 50, "maximum_chunks": 100},
-    "cost_budget": {},
-    "fallback_policy": {"action": "abstain"},
-    "status": "published",
-    "published_at": "2026-08-28T00:00:00Z",
-    "created_at": "2026-08-28T00:00:00Z"
+    "evidence_budget": {
+      "maximum_answer_code_points": 200000,
+      "maximum_sources": 50,
+      "maximum_chunks": 100
+    },
+    "cost_budget": { "maximum_cost_amount": 0 },
+    "fallback_policy": { "action": "review" },
+    "status": "experimental",
+    "created_at": "2026-08-27T00:00:00Z"
   }
 ]

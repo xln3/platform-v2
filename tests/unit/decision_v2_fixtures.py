@@ -42,13 +42,13 @@ def registry() -> DecisionTaskRegistry:
     return load_builtin_task_definitions()
 
 
-def task(name: str) -> DecisionTaskDefinition:
-    return registry().get(f"{name}@2.0.0")
+def task(name: str, *, version: str = "2.0.0") -> DecisionTaskDefinition:
+    return registry().get(f"{name}@{version}")
 
 
-def policy_for(task_name: str) -> JudgePolicyDefinition:
+def policy_for(task_name: str, *, version: str = "2.0.0") -> JudgePolicyDefinition:
     tasks = registry()
-    task_ref = f"{task_name}@2.0.0"
+    task_ref = f"{task_name}@{version}"
     return next(
         policy
         for policy in load_builtin_judge_policies(tasks=tasks)
@@ -93,14 +93,10 @@ def make_attempt(
     provider = model = revision = None
     inference_config: dict[str, Any] = {}
     if method in {DecisionMethod.MODEL, DecisionMethod.HYBRID}:
-        route = policy_for(task_definition.name).model_routes[0]
+        route = policy_for(task_definition.name, version=task_definition.version).model_routes[0]
         provider = route.provider
         model = route.model
-        revision = (
-            "fixture-verifier-revision"
-            if verifier_route
-            else "fixture-primary-revision"
-        )
+        revision = "fixture-verifier-revision" if verifier_route else "fixture-primary-revision"
         inference_config = {"temperature": 0, "route_name": route.route_name}
     response_hash = canonical_hash(output) if output is not None else None
     return SemanticDecisionAttempt(

@@ -13,7 +13,7 @@ import hashlib
 import json
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +27,7 @@ if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
 from geo_platform.config import get_settings  # noqa: E402
-from geo_platform.knowledge.models import ConnectorRun  # noqa: E402
+from geo_platform.knowledge.models import Candidate, ConnectorRun, Evidence  # noqa: E402
 from geo_platform.knowledge.repository import KnowledgeRepository  # noqa: E402
 from geo_platform.tenancy.database import SessionLocal  # noqa: E402
 from geo_platform.tenancy.repository import TenantRepository  # noqa: E402
@@ -43,6 +43,15 @@ from tools.run_knowledge_connector_queue import reconcile_snapshot  # noqa: E402
 NAMESPACE = "shared"
 DOMAIN = "brand/entity-resolution"
 ADAPTER = "siliconindex-static"
+TERMINAL_CANDIDATE_STATES = {
+    "rejected",
+    "deferred",
+    "local_published",
+    "exported",
+    "externally_published",
+    "reconciled",
+    "superseded",
+}
 
 
 def _json_hash(value: dict[str, Any]) -> str:
@@ -140,6 +149,88 @@ def _finish_run(
         session.commit()
 
 
+def _queue_details(
+    session: Any,
+    *,
+    tenant_pub_id: str,
+    generated_at: datetime,
+) -> dict[str, Any]:
+    period_start = generated_at - timedelta(days=7)
+    stale_before = generated_at - timedelta(days=14)
+    candidates = list(
+        session.scalars(
+            select(Candidate)
+            .where(
+                Candidate.tenant_pub_id == tenant_pub_id,
+                Candidate.namespace == NAMESPACE,
+                Candidate.domain == DOMAIN,
+                Candidate.state.not_in(TERMINAL_CANDIDATE_STATES),
+            )
+            .order_by(Candidate.first_seen_at, Candidate.pub_id)
+        )
+    )
+    evidence_rows = (
+        list(
+            session.scalars(
+                select(Evidence).where(
+                    Evidence.tenant_pub_id == tenant_pub_id,
+                    Evidence.namespace == NAMESPACE,
+                    Evidence.domain == DOMAIN,
+                    Evidence.candidate_id.in_([row.id for row in candidates]),
+                )
+            )
+        )
+        if candidates
+        else []
+    )
+    evidence_by_candidate: dict[Any, list[Evidence]] = {}
+    for row in evidence_rows:
+        evidence_by_candidate.setdefault(row.candidate_id, []).append(row)
+
+    gaps: list[dict[str, Any]] = []
+    for candidate in candidates:
+        evidence = evidence_by_candidate.get(candidate.id, [])
+        stances = {row.stance for row in evidence}
+        missing = []
+        if "supports" not in stances:
+            missing.append("supporting_evidence")
+        if "opposes" not in stances:
+            missing.append("opposing_or_counterexample_evidence")
+        if candidate.source_count < 2:
+            missing.append("independent_source_diversity")
+        if missing:
+            gaps.append(
+                {
+                    "candidate_pub_id": candidate.pub_id,
+                    "state": candidate.state,
+                    "observation_count": candidate.observation_count,
+                    "source_count": candidate.source_count,
+                    "missing": missing,
+                }
+            )
+    return {
+        "period_start": period_start.isoformat(),
+        "period_end": generated_at.isoformat(),
+        "new_candidate_count": sum(1 for row in candidates if row.first_seen_at >= period_start),
+        "new_candidate_pub_ids": [
+            row.pub_id for row in candidates if row.first_seen_at >= period_start
+        ],
+        "evidence_gap_count": len(gaps),
+        "evidence_gaps": gaps,
+        "long_unhandled_count": sum(1 for row in candidates if row.first_seen_at < stale_before),
+        "long_unhandled": [
+            {
+                "candidate_pub_id": row.pub_id,
+                "state": row.state,
+                "age_seconds": int((generated_at - row.first_seen_at).total_seconds()),
+                "priority": row.priority,
+            }
+            for row in candidates
+            if row.first_seen_at < stale_before
+        ],
+    }
+
+
 def run(*, tenant_pub_id: str, refresh: bool, snapshot_source: Path) -> dict[str, Any]:
     settings = get_settings()
     store = KnowledgeReleaseStore(settings.knowledge_release_dir)
@@ -161,6 +252,7 @@ def run(*, tenant_pub_id: str, refresh: bool, snapshot_source: Path) -> dict[str
 
     adapter_result = None
     reconciliation: dict[str, Any] | None = None
+    generated_at = datetime.now(UTC)
     try:
         adapter_result = SiliconIndexAdapter().import_release(str(snapshot_source))
         with SessionLocal() as session:
@@ -171,6 +263,11 @@ def run(*, tenant_pub_id: str, refresh: bool, snapshot_source: Path) -> dict[str
                 knowledge_release_dir=Path(settings.knowledge_release_dir),
             )
             metrics = KnowledgeRepository(session, tenant_pub_id).metrics()
+            queue_details = _queue_details(
+                session,
+                tenant_pub_id=tenant_pub_id,
+                generated_at=generated_at,
+            )
             session.commit()
     except SiliconIndexSyncError as exc:
         error_code = type(exc).__name__
@@ -209,7 +306,7 @@ def run(*, tenant_pub_id: str, refresh: bool, snapshot_source: Path) -> dict[str
     )
     report = {
         "schema_version": "knowledge-governance-report-v1",
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": generated_at.isoformat(),
         "namespace": NAMESPACE,
         "domain": DOMAIN,
         "connector": {
@@ -232,6 +329,7 @@ def run(*, tenant_pub_id: str, refresh: bool, snapshot_source: Path) -> dict[str
             "review_ready": metrics["review_ready"],
             "oldest_candidate_age_seconds": metrics["oldest_candidate_age_seconds"],
             "conflicts": metrics["conflicts"],
+            **queue_details,
         },
         "required_actions": [
             action

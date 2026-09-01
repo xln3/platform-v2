@@ -189,9 +189,7 @@ const contributionStateLabel = (row: MetricV2Contribution): string => {
   );
   const diagnosticReasonCodes =
     decisionReasonCodes.length > 0 ? decisionReasonCodes : row.reason_codes;
-  return diagnosticReasonCodes.some((reason) =>
-    reason.toLowerCase().startsWith('llm_api_'),
-  )
+  return diagnosticReasonCodes.some((reason) => reason.toLowerCase().startsWith('llm_api_'))
     ? infrastructureFailureLabel(diagnosticReasonCodes)
     : eligibilityLabels.analysis_failed;
 };

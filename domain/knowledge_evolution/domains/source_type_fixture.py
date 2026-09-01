@@ -285,6 +285,12 @@ class SourceTypeFixturePack:
                         "knowledge_status": decision.knowledge_status.value,
                         "confidence": decision.confidence,
                         "policy_version": self.policy_version,
+                        "model_provider": decision.model_provider,
+                        "requested_model": decision.requested_model_name,
+                        "model": decision.model_name,
+                        "model_identity_source": decision.model_identity_source,
+                        "model_catalog_revision": request.model_catalog_revision,
+                        "prompt_version": decision.prompt_version,
                     },
                 )
             )
@@ -322,6 +328,9 @@ class SourceTypeFixturePack:
             "entries": entries,
         }
 
+    def materialization_view(self, document: Mapping[str, Any]) -> Any:
+        return dict(document)
+
     def validate_release(
         self,
         objects: Iterable[Mapping[str, Any]],
@@ -353,12 +362,15 @@ class SourceTypeFixturePack:
             "object_count": len(object_rows),
         }
 
-    def validate_release_impact(
+    def evaluate_release_impact(
         self,
+        *,
         changes: Iterable[Mapping[str, Any]],
-        quality_report: Mapping[str, Any],
+        candidate_document: Mapping[str, Any],
+        parent_release_id: str | None,
+        candidate_release_id: str,
     ) -> Mapping[str, Any]:
-        del quality_report
+        del candidate_document, parent_release_id, candidate_release_id
         return {
             "passed": True,
             "replay_required": False,

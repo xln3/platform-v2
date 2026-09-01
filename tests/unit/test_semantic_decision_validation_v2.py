@@ -291,7 +291,7 @@ def test_known_empty_and_negative_outputs_do_not_invent_evidence_spans() -> None
 
     for task_name, output in cases:
         result = validate_decision_output(
-            task=task(task_name),
+            task=task(task_name, version="2.1.0"),
             output=output,
             candidate_set=candidate_set(),
             answer_text=text,
@@ -311,7 +311,7 @@ def test_positive_fact_still_requires_a_valid_answer_span() -> None:
     }
 
     result = validate_decision_output(
-        task=task("recommendation-relation"),
+        task=task("recommendation-relation", version="2.1.0"),
         output=output,
         candidate_set=candidate_set(),
         answer_text=text,
@@ -335,7 +335,7 @@ def test_high_severity_risk_is_valid_with_single_strong_model_and_evidence() -> 
     }
 
     result = validate_decision_output(
-        task=task("risk-adjudication"),
+        task=task("risk-adjudication", version="2.1.0"),
         output=output,
         candidate_set=candidate_set(),
         answer_text=text,

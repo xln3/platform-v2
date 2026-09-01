@@ -95,9 +95,7 @@ async def test_query_llm_failure_stays_failed_through_metric_evaluation() -> Non
             ),
         },
     )
-    definition = load_definitions().get(
-        "ai_recommendation_organic_mention_rate_v2", "2.0.0"
-    )
+    definition = load_definitions().get("ai_recommendation_organic_mention_rate_v2", "2.0.0")
 
     evaluation = MetricEvaluator().evaluate(definition, subject)
 

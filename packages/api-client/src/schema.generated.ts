@@ -3446,6 +3446,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/metrics/operations/projects/{project_pub_id}/semantic-backfill/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Semantic Backfill Options V2 */
+        get: operations["getSemanticBackfillOptionsV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/operations/projects/{project_pub_id}/semantic-backfill/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Plan Semantic Backfill V2 */
+        post: operations["planSemanticBackfillV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/operations/projects/{project_pub_id}/semantic-backfill/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Semantic Backfill V2 */
+        post: operations["startSemanticBackfillV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/operations/projects/{project_pub_id}/semantic-backfill/status/{selection_hash}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Semantic Backfill Status V2 */
+        get: operations["getSemanticBackfillStatusV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides": {
         parameters: {
             query?: never;
@@ -5231,6 +5299,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/knowledge/v1/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inference Model Catalog */
+        get: operations["inference_model_catalog_api_v2_knowledge_v1_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/knowledge/v1/runtime/resolve": {
         parameters: {
             query?: never;
@@ -5398,6 +5483,26 @@ export interface paths {
         put?: never;
         /** Publish Release */
         post: operations["publish_release_api_v2_knowledge_v1_releases_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/knowledge/v1/releases/{release_id}/replica": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Release Replica
+         * @description Return one complete verified artifact for an authenticated client replica.
+         */
+        get: operations["download_release_replica_api_v2_knowledge_v1_releases__release_id__replica_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8002,18 +8107,7 @@ export interface components {
         /** CompetitorListView */
         CompetitorListView: {
             /** Items */
-            items: components["schemas"]["CompetitorView"][];
-        };
-        /** CompetitorView */
-        CompetitorView: {
-            /** Pub Id */
-            pub_id: string;
-            /** Name */
-            name: string;
-            /** Website */
-            website: string | null;
-            /** Created At */
-            created_at: string;
+            items: components["schemas"]["geo_platform__intake_form__schemas__CompetitorView"][];
         };
         /** CompleteIntervention */
         CompleteIntervention: {
@@ -9439,6 +9533,10 @@ export interface components {
             model_name: string | null;
             /** Model Version */
             model_version: string | null;
+            /** Requested Model Name */
+            requested_model_name?: string | null;
+            /** Model Identity Source */
+            model_identity_source?: string | null;
             /** Prompt Id */
             prompt_id: string | null;
             /** Prompt Version */
@@ -11057,6 +11155,80 @@ export interface components {
             /** Payload Hash */
             payload_hash: string;
         };
+        /** KnowledgeModelCatalogView */
+        KnowledgeModelCatalogView: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "unavailable";
+            /** Catalog Revision */
+            catalog_revision: string;
+            /** Default Model */
+            default_model: string | null;
+            /** Models */
+            models: components["schemas"]["KnowledgeModelOptionView"][];
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+        };
+        /** KnowledgeModelOptionView */
+        KnowledgeModelOptionView: {
+            /** Model */
+            model: string;
+            /** Label */
+            label: string;
+            /** Provider */
+            provider: string;
+            /** Model Version */
+            model_version: string;
+            /** Capability */
+            capability: string;
+            /** Strict Output Verified */
+            strict_output_verified: boolean;
+            /**
+             * Tool Capability Status
+             * @enum {string}
+             */
+            tool_capability_status: "verified" | "not_required" | "not_verified";
+            /** Verified At */
+            verified_at: string | null;
+            /** Verification Reference */
+            verification_reference: string | null;
+            /** Input Usd Per Million Tokens */
+            input_usd_per_million_tokens: number | null;
+            /** Output Usd Per Million Tokens */
+            output_usd_per_million_tokens: number | null;
+            /**
+             * Pricing Status
+             * @enum {string}
+             */
+            pricing_status: "catalog_snapshot" | "unknown";
+            /**
+             * Pricing Currency
+             * @constant
+             */
+            pricing_currency: "USD";
+            /**
+             * Token Price Unit
+             * @constant
+             */
+            token_price_unit: "per_million_tokens";
+            /** Pricing Observed At */
+            pricing_observed_at: string | null;
+            /** Pricing Source Url */
+            pricing_source_url: string | null;
+            /**
+             * Pricing Notice
+             * @constant
+             */
+            pricing_notice: "catalog_snapshot_provider_invoice_authoritative";
+            /** Catalog Revision */
+            catalog_revision: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Recommended */
+            recommended: boolean;
+        };
         /**
          * KnowledgeStatus
          * @enum {string}
@@ -11532,6 +11704,10 @@ export interface components {
             connector_last_success_at: string | null;
             /** Export Lag Seconds */
             export_lag_seconds: number | null;
+            /** Requested Model Metrics */
+            requested_model_metrics?: components["schemas"]["ModelMetricView"][];
+            /** Actual Model Metrics */
+            actual_model_metrics?: components["schemas"]["ModelMetricView"][];
         };
         /** ModelAdmissionCreate */
         ModelAdmissionCreate: {
@@ -11566,6 +11742,31 @@ export interface components {
             admitted_at: string;
             /** Revoked At */
             revoked_at: string | null;
+        };
+        /** ModelMetricView */
+        ModelMetricView: {
+            /** Model */
+            model: string;
+            /** Inference Count */
+            inference_count: number;
+            /** Provider Call Count */
+            provider_call_count: number;
+            /** Error Count */
+            error_count: number;
+            /** Cache Hit Count */
+            cache_hit_count: number;
+            /** Cache Hit Rate */
+            cache_hit_rate: number;
+            /** Provider Latency Avg Ms */
+            provider_latency_avg_ms: number | null;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Cost Unknown Count */
+            cost_unknown_count: number;
         };
         /** NativeLoginRequest */
         NativeLoginRequest: {
@@ -14099,6 +14300,8 @@ export interface components {
              * @default false
              */
             allow_external_model: boolean;
+            /** Model */
+            model?: string | null;
             /** Max Latency Ms */
             max_latency_ms?: number | null;
             /** Max Cost Usd */
@@ -14132,6 +14335,27 @@ export interface components {
             model_name: string | null;
             /** Model Version */
             model_version: string | null;
+            /** Requested Model Name */
+            requested_model_name?: string | null;
+            /** Model Identity Source */
+            model_identity_source?: string | null;
+            /** Model Catalog Revision */
+            model_catalog_revision?: string | null;
+            /**
+             * Model Inference Used
+             * @default false
+             */
+            model_inference_used: boolean;
+            /**
+             * Model Inference Adopted
+             * @default false
+             */
+            model_inference_adopted: boolean;
+            /**
+             * Provider Call Attempted
+             * @default false
+             */
+            provider_call_attempted: boolean;
             /** Latency Ms */
             latency_ms: number;
             /** Cache Status */
@@ -14333,6 +14557,239 @@ export interface components {
             circular_citation_risk: number | string;
             /** Workflow Operation Id */
             workflow_operation_id?: string | null;
+        };
+        /** SemanticBackfillCandidateView */
+        SemanticBackfillCandidateView: {
+            /** Answer Pub Id */
+            answer_pub_id: string;
+            /** Query Text */
+            query_text: string;
+            /** Model */
+            model: string;
+            /** Region */
+            region: string;
+            /** Mode */
+            mode: string;
+            /** Channel */
+            channel: string;
+            /**
+             * Capture Time
+             * Format: date-time
+             */
+            capture_time: string;
+            /**
+             * Preparation State
+             * @enum {string}
+             */
+            preparation_state: "ready" | "unknown";
+            /** Reason Codes */
+            reason_codes?: string[];
+        };
+        /** SemanticBackfillModelView */
+        SemanticBackfillModelView: {
+            /** Model */
+            model: string;
+            /** Label */
+            label: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "economy" | "premium";
+            /** Input Usd Per Million Tokens */
+            input_usd_per_million_tokens: number;
+            /** Output Usd Per Million Tokens */
+            output_usd_per_million_tokens: number;
+            /** Context Window Tokens */
+            context_window_tokens: number;
+            /** Recommended */
+            recommended: boolean;
+            /** Catalog Revision */
+            catalog_revision: string;
+            /** Pricing Observed At */
+            pricing_observed_at: string;
+            /** Pricing Source Url */
+            pricing_source_url: string;
+            /**
+             * Pricing Currency
+             * @constant
+             */
+            pricing_currency: "USD";
+            /**
+             * Token Price Unit
+             * @constant
+             */
+            token_price_unit: "per_million_tokens";
+            /**
+             * Pricing Notice
+             * @constant
+             */
+            pricing_notice: "catalog_snapshot_provider_invoice_authoritative";
+        };
+        /** SemanticBackfillOptionsView */
+        SemanticBackfillOptionsView: {
+            /**
+             * Schema Version
+             * @default semantic-backfill-options-v2
+             * @constant
+             */
+            schema_version: "semantic-backfill-options-v2";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Candidate Count */
+            candidate_count: number;
+            /** Candidates */
+            candidates: components["schemas"]["SemanticBackfillCandidateView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Max Batch Size */
+            max_batch_size: number;
+            /** Default Model */
+            default_model: string;
+            /** Models */
+            models: components["schemas"]["SemanticBackfillModelView"][];
+        };
+        /** SemanticBackfillPlanRequest */
+        SemanticBackfillPlanRequest: {
+            /** Answer Pub Ids */
+            answer_pub_ids: string[];
+            /** Model */
+            model: string;
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+        };
+        /** SemanticBackfillPlanView */
+        SemanticBackfillPlanView: {
+            /**
+             * Schema Version
+             * @default semantic-backfill-plan-v2
+             * @constant
+             */
+            schema_version: "semantic-backfill-plan-v2";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Model */
+            model: string;
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            window: components["schemas"]["SnapshotWindow"];
+            /** Focal Entity Ids */
+            focal_entity_ids: string[];
+            /** Selected Answer Count */
+            selected_answer_count: number;
+            /** Executable Answer Count */
+            executable_answer_count: number;
+            /** Preparation Unknown Count */
+            preparation_unknown_count: number;
+            /** Estimated Atomic Decisions */
+            estimated_atomic_decisions: number;
+            /** Estimated Input Tokens */
+            estimated_input_tokens: number;
+            /** Estimated Output Tokens */
+            estimated_output_tokens: number;
+            /** Estimated Cost Usd */
+            estimated_cost_usd: number;
+            /** Estimated Cost High Usd */
+            estimated_cost_high_usd: number;
+            /** Budget Limit Usd */
+            budget_limit_usd: number;
+            /** Selection Hash */
+            selection_hash: string;
+            /** Confirmation Token */
+            confirmation_token: string;
+            /** Start Allowed */
+            start_allowed: boolean;
+            /** Blocker Codes */
+            blocker_codes?: string[];
+            /**
+             * Estimate Notice
+             * @default bounded_estimate_provider_invoice_authoritative
+             * @constant
+             */
+            estimate_notice: "bounded_estimate_provider_invoice_authoritative";
+        };
+        /** SemanticBackfillStartRequest */
+        SemanticBackfillStartRequest: {
+            /** Answer Pub Ids */
+            answer_pub_ids: string[];
+            /** Model */
+            model: string;
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Selection Hash */
+            selection_hash: string;
+            /** Confirmation Token */
+            confirmation_token: string;
+        };
+        /** SemanticBackfillStartView */
+        SemanticBackfillStartView: {
+            /**
+             * Schema Version
+             * @default semantic-backfill-start-v2
+             * @constant
+             */
+            schema_version: "semantic-backfill-start-v2";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Job Pub Id */
+            job_pub_id: string;
+            /** Selection Hash */
+            selection_hash: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "started" | "reused";
+            /** Selected Answer Count */
+            selected_answer_count: number;
+            /** Model */
+            model: string;
+        };
+        /** SemanticBackfillStatusView */
+        SemanticBackfillStatusView: {
+            /**
+             * Schema Version
+             * @default semantic-backfill-status-v2
+             * @constant
+             */
+            schema_version: "semantic-backfill-status-v2";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Selection Hash */
+            selection_hash: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "succeeded" | "failed";
+            /** Processed Answer Count */
+            processed_answer_count: number;
+            /** Metric Evaluation Count */
+            metric_evaluation_count: number;
+            /** Snapshot Set Pub Id */
+            snapshot_set_pub_id?: string | null;
+            /** Failure Code */
+            failure_code?: string | null;
         };
         /** SemanticDecisionDetailView */
         SemanticDecisionDetailView: {
@@ -16034,6 +16491,33 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /** CompetitorView */
+        geo_platform__analytics__router__CompetitorView: {
+            /** Competitor */
+            competitor: string;
+            /** Mention Count */
+            mention_count: number;
+            /** Answer Count */
+            answer_count: number;
+            /** Average Rank */
+            average_rank: number;
+            /** Top1 Count */
+            top1_count: number;
+            /** Top3 Count */
+            top3_count: number;
+            /** Top10 Count */
+            top10_count: number;
+            /** Mention Rate */
+            mention_rate: number;
+            /** Top1 Rate */
+            top1_rate: number;
+            /** Top3 Rate */
+            top3_rate: number;
+            /** Top10 Rate */
+            top10_rate: number;
+            /** Metric Version */
+            metric_version: string;
+        };
         /** ResourceView */
         geo_platform__collection__governance_router__ResourceView: {
             /** Pub Id */
@@ -16157,6 +16641,17 @@ export interface components {
             licenses: {
                 [key: string]: string;
             }[];
+        };
+        /** CompetitorView */
+        geo_platform__intake_form__schemas__CompetitorView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Name */
+            name: string;
+            /** Website */
+            website: string | null;
+            /** Created At */
+            created_at: string;
         };
         /** EvidenceCreate */
         geo_platform__knowledge__schemas__EvidenceCreate: {
@@ -26595,9 +27090,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["geo_platform__analytics__router__CompetitorView"][];
                 };
             };
             /** @description Bad Request */
@@ -31425,6 +31918,291 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getSemanticBackfillOptionsV2: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+                as_of?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SemanticBackfillOptionsView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    planSemanticBackfillV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SemanticBackfillPlanRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SemanticBackfillPlanView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    startSemanticBackfillV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SemanticBackfillStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SemanticBackfillStartView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getSemanticBackfillStatusV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                selection_hash: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SemanticBackfillStatusView"];
                 };
             };
             /** @description Bad Request */
@@ -39803,7 +40581,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CompetitorView"];
+                    "application/json": components["schemas"]["geo_platform__intake_form__schemas__CompetitorView"];
                 };
             };
             /** @description Bad Request */
@@ -40965,6 +41743,72 @@ export interface operations {
             };
         };
     };
+    inference_model_catalog_api_v2_knowledge_v1_models_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeModelCatalogView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     resolve_runtime_api_v2_knowledge_v1_runtime_resolve_post: {
         parameters: {
             query?: never;
@@ -41838,6 +42682,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReleaseView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_release_replica_api_v2_knowledge_v1_releases__release_id__replica_get: {
+        parameters: {
+            query: {
+                namespace: string;
+                domain: string;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                release_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Bad Request */

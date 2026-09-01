@@ -266,6 +266,8 @@ def test_directory_pagination_rejects_an_incomplete_snapshot_pair() -> None:
             mode=None,
             snapshot_id=f"als_{'a' * 24}",
             snapshot_at=None,
+            metric_snapshot_set_pub_id=None,
+            metric_snapshot_set_hash=None,
             offset=8,
             limit=8,
             principal=Principal(

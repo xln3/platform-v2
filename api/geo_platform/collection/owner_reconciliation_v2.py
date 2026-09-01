@@ -8,7 +8,7 @@ produce reconciliation evidence, but it has no submit or journal-write port.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from hashlib import sha256
 from typing import Annotated, Literal, NoReturn, Protocol, Self, cast
@@ -338,24 +338,26 @@ SELECT grant_resource.resource_role,
          WHEN capacity.current_fencing_token = grant_resource.fence_generation
            THEN capacity.capacity_state <> 'leased'
          ELSE false
-       END AS capacity_is_fenced
+       END AS capacity_is_fenced,
+       grant_resource.resource_pub_id,
+       grant_resource.fence_generation,
+       lease.pub_id,
+       grant_resource.owner_gateway_handle
 FROM platform.collection_execution_grant_resource AS grant_resource
 JOIN platform.collection_resource_capacity_unit AS capacity
   ON capacity.id = grant_resource.capacity_unit_id
  AND capacity.tenant_id = grant_resource.tenant_id
  AND capacity.project_id = grant_resource.project_id
+JOIN platform.resource_lease AS lease
+  ON lease.id = grant_resource.resource_lease_id
+ AND lease.tenant_id = grant_resource.tenant_id
+ AND lease.project_id = grant_resource.project_id
 WHERE grant_resource.execution_grant_id = %(execution_grant_id)s
   AND grant_resource.tenant_id = %(tenant_id)s
   AND grant_resource.project_id = %(project_id)s
-ORDER BY grant_resource.resource_role, grant_resource.resource_ordinal
-"""
-
-LOAD_OWNER_NOT_SENT_FENCE_HASH_SQL = """
-SELECT platform.collection_dispatch_fence_set_hash_s10(
-  %(tenant_id)s,
-  %(project_id)s,
-  %(execution_grant_id)s
-)
+ORDER BY grant_resource.resource_role,
+         grant_resource.resource_pub_id,
+         lease.pub_id
 """
 
 RECORD_OWNER_NOT_SENT_PROOF_SQL = """
@@ -392,7 +394,6 @@ WHERE proof.id = %(proof_id)s
   AND proof.tenant_id = %(tenant_id)s
   AND proof.project_id = %(project_id)s
   AND proof.operation_id = %(operation_id)s
-FOR KEY SHARE OF proof
 """
 
 
@@ -574,18 +575,21 @@ class PostgresAcceptedOwnerNotSentProofStore:
                     # operation. Re-read every authority input; any concurrent
                     # drift rolls the function effects back in this transaction.
                     locked = self._load_authority(connection, request.operation)
-                    if locked != observed:
+                    if locked.operation_reconciliation_state != "in_progress" or locked != replace(
+                        observed,
+                        operation_reconciliation_state="in_progress",
+                    ):
                         _fail("postgres_owner_reconciliation_authority_drift")
                     self._assert_request_authority(locked=locked, request=request)
-                    self._lock_and_assert_terminated_resources(
+                    current_fence_hash = self._lock_and_assert_terminated_resources(
                         connection=connection,
                         locked=locked,
                     )
-                    self._assert_current_fence_hash(
-                        connection=connection,
-                        locked=locked,
-                        expected=request.terminated_fence_set_sha256,
-                    )
+                    if (
+                        current_fence_hash != request.terminated_fence_set_sha256
+                        or current_fence_hash != locked.grant_resource_set_sha256
+                    ):
+                        _fail("postgres_owner_not_sent_current_fence_drift")
                     return self._load_accepted_proof(
                         connection=connection,
                         locked=locked,
@@ -789,7 +793,7 @@ class PostgresAcceptedOwnerNotSentProofStore:
         *,
         connection: RepositoryConnection,
         locked: _LockedOwnerProofAuthority,
-    ) -> None:
+    ) -> str:
         params = {
             "tenant_id": self._scope.tenant_id,
             "project_id": self._scope.project_id,
@@ -821,13 +825,16 @@ class PostgresAcceptedOwnerNotSentProofStore:
             params,
         ).fetchall()
         capacity_lease_ids: set[UUID] = set()
+        canonical_fences: list[str] = []
         for raw in capacity_rows:
             values = _database_row(
                 raw,
-                size=4,
+                size=8,
                 code="postgres_owner_not_sent_capacity_row_invalid",
             )
-            _database_text(values[0], "postgres_owner_not_sent_resource_role_invalid")
+            resource_role = _database_text(
+                values[0], "postgres_owner_not_sent_resource_role_invalid"
+            )
             ordinal = _database_integer(
                 values[1], "postgres_owner_not_sent_resource_ordinal_invalid"
             )
@@ -841,31 +848,35 @@ class PostgresAcceptedOwnerNotSentProofStore:
             if lease_id in capacity_lease_ids:
                 _fail("postgres_owner_not_sent_duplicate_capacity_lease")
             capacity_lease_ids.add(lease_id)
+            resource_pub_id = _database_text(
+                values[4], "postgres_owner_not_sent_resource_pub_id_invalid"
+            )
+            fence_generation = _database_integer(
+                values[5], "postgres_owner_not_sent_fence_generation_invalid"
+            )
+            if fence_generation < 1:
+                _fail("postgres_owner_not_sent_fence_generation_invalid")
+            lease_pub_id = _database_text(values[6], "postgres_owner_not_sent_lease_pub_id_invalid")
+            owner_handle = _database_text(values[7], "postgres_owner_not_sent_owner_handle_invalid")
+            canonical_fences.append(
+                '{"binding_resource_pub_id":"'
+                + resource_pub_id
+                + '","generation":'
+                + str(fence_generation)
+                + ',"lease_pub_id":"'
+                + lease_pub_id
+                + '","owner_handle":"'
+                + owner_handle
+                + '","resource_role":"'
+                + resource_role
+                + '"}'
+            )
         if not capacity_lease_ids or capacity_lease_ids != lease_ids:
             _fail("postgres_owner_not_sent_resource_lease_set_drift")
-
-    def _assert_current_fence_hash(
-        self,
-        *,
-        connection: RepositoryConnection,
-        locked: _LockedOwnerProofAuthority,
-        expected: str,
-    ) -> None:
-        row = _database_row(
-            connection.execute(
-                LOAD_OWNER_NOT_SENT_FENCE_HASH_SQL,
-                {
-                    "tenant_id": self._scope.tenant_id,
-                    "project_id": self._scope.project_id,
-                    "execution_grant_id": locked.execution_grant_id,
-                },
-            ).fetchone(),
-            size=1,
-            code="postgres_owner_not_sent_fence_hash_missing",
+        material = (
+            '{"fences":[' + ",".join(canonical_fences) + '],"version":"lease-fence-identity-v1"}'
         )
-        current = _database_sha256(row[0], "postgres_owner_not_sent_fence_hash_invalid")
-        if current != expected or current != locked.grant_resource_set_sha256:
-            _fail("postgres_owner_not_sent_current_fence_drift")
+        return sha256(material.encode()).hexdigest()
 
     def _record_proof(
         self,

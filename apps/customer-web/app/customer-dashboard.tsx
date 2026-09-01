@@ -2829,6 +2829,7 @@ function CustomerAnalyticsV2LiveWorkspace({
           </small>
         </div>
       </section>
+
       <nav className="geo-metric-v2-navigation" aria-label="客户指标业务入口与暴露范围">
         <div role="group" aria-label="业务入口">
           {(Object.keys(customerBusinessViewLabels) as CustomerBusinessViewV2[]).map((value) => (
@@ -2942,16 +2943,11 @@ function CustomerAnalyticsV2LiveWorkspace({
 
 export function CustomerAnalyticsWorkspace({
   focus = 'overview',
-  contract = 'stable-v1',
 }: {
   focus?: CustomerAnalyticsFocus;
-  contract?: 'stable-v1' | 'metrics-v2';
 }) {
   const experience = useOptionalExperienceContext();
-  // The V2 UI must be opted into only by a release that also ships its API route,
-  // database schema and published snapshots. Customer routes stay on the stable
-  // customer-dashboard-v1 contract until that release boundary is complete.
-  if (contract === 'metrics-v2' && experience?.source === 'live') {
+  if (experience?.source === 'live') {
     const workspace = experience.projectPubId ? (
       <CustomerAnalyticsV2LiveWorkspace focus={focus} projectPubId={experience.projectPubId} />
     ) : (

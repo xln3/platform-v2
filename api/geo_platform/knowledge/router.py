@@ -23,6 +23,7 @@ from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
 from ..tenancy.repository import TenantRepository
 from . import service
+from .inference_models import KnowledgeModelError, model_catalog
 from .models import Candidate, Evidence, Proposal
 from .repository import KnowledgeConflict, KnowledgeNotFound, KnowledgeRepository
 from .schemas import (
@@ -41,6 +42,7 @@ from .schemas import (
     EvidenceView,
     IngestReceipt,
     KnowledgeEventView,
+    KnowledgeModelCatalogView,
     MetricsView,
     ObservationBatchRequest,
     ProposalCreate,
@@ -189,6 +191,8 @@ def _connector_view(row: Any) -> ConnectorRunView:
 
 def _translate_error(exc: Exception) -> HTTPException:
     code = str(exc)
+    if isinstance(exc, KnowledgeModelError):
+        return HTTPException(status_code=422, detail={"code": exc.code})
     if isinstance(exc, KnowledgeNotFound | KeyError):
         return HTTPException(status_code=404, detail={"code": code.strip("'")})
     if isinstance(exc, KnowledgeConflict):
@@ -199,6 +203,15 @@ def _translate_error(exc: Exception) -> HTTPException:
         status = 503 if code.startswith(("model_", "invalid_model", "tool_", "provider_")) else 409
         return HTTPException(status_code=status, detail={"code": code})
     return HTTPException(status_code=422, detail={"code": code})
+
+
+@router.get("/models", response_model=KnowledgeModelCatalogView)
+def inference_model_catalog(
+    principal: Principal = Depends(get_principal),
+) -> KnowledgeModelCatalogView:
+    if not principal.allows("knowledge:read"):
+        principal.require("knowledge:resolve")
+    return KnowledgeModelCatalogView.model_validate(model_catalog(get_settings()))
 
 
 @router.post("/runtime/resolve", response_model=RuntimeResolveResponse)
@@ -464,6 +477,50 @@ def list_releases(
     return [_release_view(row) for row in rows]
 
 
+@router.get("/releases/{release_id}/replica")
+def download_release_replica(
+    release_id: str,
+    namespace: str = Query(max_length=120),
+    domain: str = Query(max_length=160),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Return one complete verified artifact for an authenticated client replica."""
+
+    principal.require("knowledge:read")
+    repository = _repository(session, principal)
+    release = repository.scoped_release(
+        namespace=namespace,
+        domain=domain,
+        release_id=release_id,
+    )
+    if release is None:
+        raise _translate_error(KnowledgeNotFound("release_not_found"))
+    settings = get_settings()
+    store = KnowledgeReleaseStore(settings.knowledge_release_dir)
+    try:
+        documents, manifest = store.load_documents(release_id)
+    except KnowledgeReleaseError as exc:
+        raise _translate_error(exc) from exc
+    if release.content_hash != manifest.get("content_hash"):
+        raise _translate_error(KnowledgeConflict("release_database_hash_mismatch"))
+    release_document = documents.get(domain)
+    if not isinstance(release_document, dict):
+        raise _translate_error(KnowledgeConflict("release_materialization_quality_failed"))
+    try:
+        service.verify_release_materialization(
+            repository=repository,
+            settings=settings,
+            namespace=namespace,
+            domain=domain,
+            release_id=release_id,
+            release_document=release_document,
+        )
+    except KnowledgeConflict as exc:
+        raise _translate_error(exc) from exc
+    return {"manifest": manifest, "documents": documents}
+
+
 @router.post(
     "/releases/{release_id}/activate",
     status_code=204,
@@ -646,6 +703,7 @@ def _status(*, readiness: bool, session: Session) -> ServiceStatus:
     current: str | None = None
     previous: str | None = None
     verified = False
+    verified_manifest: dict[str, Any] | None = None
     checks: dict[str, str] = {
         "database": "unknown",
         "model_gateway": "configured" if service.gateway(settings) is not None else "disabled",
@@ -659,12 +717,77 @@ def _status(*, readiness: bool, session: Session) -> ServiceStatus:
         current = store.current_release_id()
         previous = store.previous_release_id()
         if current is not None:
-            store.verify(current)
+            verified_manifest = store.verify(current)
             verified = True
         checks["release"] = "verified" if verified else "not_initialized"
     except (KnowledgeReleaseError, OSError, UnicodeError) as exc:
         checks["release"] = f"invalid:{type(exc).__name__}"
-    ready = verified and checks["database"] == "reachable"
+    governance_tenant = settings.knowledge_governance_tenant_pub_id
+    if checks["database"] == "reachable" and governance_tenant:
+        try:
+            TenantRepository(session, governance_tenant)
+            repository = KnowledgeRepository(session, governance_tenant)
+            database_release = repository.active_release_id(
+                namespace="shared",
+                domain="brand/entity-resolution",
+            )
+            if database_release != current:
+                checks["database_release"] = (
+                    f"mismatch:artifact={current or 'none'}:database={database_release or 'none'}"
+                )
+            elif current is None:
+                checks["database_release"] = "not_initialized"
+            else:
+                release_row = repository.scoped_release(
+                    namespace="shared",
+                    domain="brand/entity-resolution",
+                    release_id=current,
+                )
+                if (
+                    release_row is None
+                    or verified_manifest is None
+                    or release_row.content_hash != verified_manifest.get("content_hash")
+                    or (
+                        verified_manifest.get("quality_report_hash") is not None
+                        and dict(release_row.quality_report)
+                        != verified_manifest.get("quality_report")
+                    )
+                ):
+                    raise KnowledgeConflict("release_database_manifest_mismatch")
+                object_count = len(
+                    repository.current_objects(
+                        namespace="shared",
+                        domain="brand/entity-resolution",
+                        release_id=current,
+                    )
+                )
+                release_document, _release_manifest = store.load_domain(
+                    "brand/entity-resolution",
+                    current,
+                )
+                service.verify_release_materialization(
+                    repository=repository,
+                    settings=settings,
+                    namespace="shared",
+                    domain="brand/entity-resolution",
+                    release_id=current,
+                    release_document=release_document,
+                )
+                checks["database_release"] = f"matched:objects={object_count}"
+        except (
+            KnowledgeConflict,
+            KnowledgeNotFound,
+            KnowledgeReleaseError,
+            SQLAlchemyError,
+        ) as exc:
+            checks["database_release"] = f"invalid:{type(exc).__name__}"
+    else:
+        checks["database_release"] = "tenant_not_configured"
+    ready = (
+        verified
+        and checks["database"] == "reachable"
+        and not checks["database_release"].startswith(("mismatch:", "invalid:"))
+    )
     status: Literal["ok", "degraded", "not_ready"] = (
         "ok" if ready else ("not_ready" if readiness else "degraded")
     )

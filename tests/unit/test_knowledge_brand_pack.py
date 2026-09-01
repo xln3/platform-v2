@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -19,6 +21,7 @@ from domain.knowledge_evolution.domains.brand import (
     apply_adopted_model_decisions,
 )
 from domain.knowledge_evolution.registry import DomainRegistry
+from domain.knowledge_evolution.release import KnowledgeReleaseStore
 from domain.knowledge_evolution.runtime import ReasoningEngine
 
 
@@ -359,3 +362,40 @@ def test_brand_release_impact_requires_reproducible_historical_replay() -> None:
     rejected = pack.validate_release_impact(({"kind": "knowledge_object"},), report)
     assert rejected["passed"] is False
     assert "historical_replay_regression_budget_exceeded" in rejected["issues"]
+
+
+def test_brand_release_impact_is_executed_server_side_and_bound_to_candidate(
+    tmp_path: Path,
+) -> None:
+    projected = json.loads(
+        (
+            Path(__file__).parents[2]
+            / "domain/brandrank/rules_data/siliconindex_projection_cybersecurity.json"
+        ).read_text(encoding="utf-8")
+    )
+    candidate_document = {
+        "schema_version": "brand-knowledge-v1",
+        "domain": "brand/entity-resolution",
+        "analysis_domains": {"cybersecurity": projected},
+    }
+    store = KnowledgeReleaseStore(tmp_path)
+    store.publish(
+        release_id="knowledge-baseline",
+        schema_version="knowledge-release-v1",
+        documents={"brand/entity-resolution": candidate_document},
+        parent_release_id=None,
+        quality_report={},
+        activate=True,
+    )
+    result = BrandEntityResolutionPack(knowledge_release_dir=str(tmp_path)).evaluate_release_impact(
+        changes=({"kind": "knowledge_object"},),
+        candidate_document=candidate_document,
+        parent_release_id="knowledge-baseline",
+        candidate_release_id="knowledge-candidate",
+    )
+    assert result["execution"] == "server"
+    assert result["runner"] == "brand-domain-pack-v2"
+    assert result["candidate_release_id"] == "knowledge-candidate"
+    assert result["candidate_state_hash"].startswith("sha256:")
+    assert result["evaluated_request_count"] == 22
+    assert result["passed"] is True

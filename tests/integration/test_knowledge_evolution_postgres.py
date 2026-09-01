@@ -14,11 +14,16 @@ import pytest
 from fastapi.testclient import TestClient
 from geo_platform.config import get_settings
 from geo_platform.knowledge import router as knowledge_router_module
-from geo_platform.knowledge.models import ChangeSet
+from geo_platform.knowledge import service as knowledge_service_module
+from geo_platform.knowledge.models import ChangeSet, InferenceTrace
 from geo_platform.knowledge.repository import KnowledgeRepository
 from geo_platform.main import app
 from geo_platform.tenancy.database import SessionLocal
 from geo_platform.tenancy.ids import new_pub_id
+from geo_platform.tenancy.repository import TenantRepository
+
+from domain.knowledge_evolution.gateway import GatewayError
+from domain.knowledge_evolution.release import KnowledgeReleaseStore
 
 TEST_DATABASE_URL = os.getenv("KNOWLEDGE_POSTGRES_DSN")
 POSTGRES_DSN = (TEST_DATABASE_URL or "").replace("postgresql+psycopg://", "postgresql://", 1)
@@ -79,6 +84,114 @@ def _member(
     )
     assert response.status_code == 201, response.text
     return _headers(admin_headers["X-Tenant-Id"], subject, role)
+
+
+def test_release_membership_rollback_switches_database_read_state(
+    tmp_path: Path,
+) -> None:
+    marker = secrets.token_hex(6)
+    with TestClient(app) as client:
+        tenant, _admin = _bootstrap(client, marker)
+    with SessionLocal() as session:
+        TenantRepository(session, tenant)
+        repository = KnowledgeRepository(session, tenant)
+        first = repository.add_release(
+            namespace="shared",
+            domain="source/type-fixture",
+            release_id=f"membership-first-{marker}",
+            parent_release_id=None,
+            schema_version="1",
+            content_hash="sha256:" + "1" * 64,
+            artifact_uri=str(tmp_path / "first"),
+            quality_report={},
+            actor="publisher-a",
+        )
+        repository.materialize_changes(
+            namespace="shared",
+            domain="source/type-fixture",
+            changes=(
+                {
+                    "kind": "knowledge_object",
+                    "operation": "upsert",
+                    "stable_id": "source-type:forum",
+                    "object_type": "source_type",
+                    "attributes": {"key": "forum", "source_type": "social_source-v1"},
+                },
+            ),
+            release=first,
+            base_release_id=None,
+        )
+        repository.activate_release(
+            namespace="shared",
+            domain="source/type-fixture",
+            release_id=first.release_id,
+            previous_release_id=None,
+            action="activate",
+            actor="publisher-a",
+        )
+        session.commit()
+
+        second = repository.add_release(
+            namespace="shared",
+            domain="source/type-fixture",
+            release_id=f"membership-second-{marker}",
+            parent_release_id=first.release_id,
+            schema_version="1",
+            content_hash="sha256:" + "2" * 64,
+            artifact_uri=str(tmp_path / "second"),
+            quality_report={},
+            actor="publisher-b",
+        )
+        repository.materialize_changes(
+            namespace="shared",
+            domain="source/type-fixture",
+            changes=(
+                {
+                    "kind": "knowledge_object",
+                    "operation": "upsert",
+                    "stable_id": "source-type:forum",
+                    "object_type": "source_type",
+                    "attributes": {"key": "forum", "source_type": "social_source-v2"},
+                },
+            ),
+            release=second,
+            base_release_id=first.release_id,
+        )
+        repository.activate_release(
+            namespace="shared",
+            domain="source/type-fixture",
+            release_id=second.release_id,
+            previous_release_id=first.release_id,
+            action="activate",
+            actor="publisher-b",
+        )
+        session.commit()
+        assert (
+            repository.current_objects(namespace="shared", domain="source/type-fixture")[
+                0
+            ].attributes["source_type"]
+            == "social_source-v2"
+        )
+
+        repository.activate_release(
+            namespace="shared",
+            domain="source/type-fixture",
+            release_id=first.release_id,
+            previous_release_id=second.release_id,
+            action="rollback",
+            actor="publisher-c",
+        )
+        session.commit()
+        rolled_back = repository.current_objects(namespace="shared", domain="source/type-fixture")
+        assert rolled_back[0].attributes["source_type"] == "social_source-v1"
+        assert (
+            repository.current_objects(
+                namespace="shared",
+                domain="source/type-fixture",
+                release_id=second.release_id,
+            )[0].attributes["source_type"]
+            == "social_source-v2"
+        )
 
 
 def test_observation_to_release_closure_rbac_rls_and_append_only(
@@ -293,6 +406,69 @@ def test_observation_to_release_closure_rbac_rls_and_append_only(
         assert reread.json()["release"]["release_id"] == release_id
         assert reread.json()["decisions"][0]["value"] == {"source_type": "social_source"}
         assert reread.json()["decisions"][0]["knowledge_status"] == "reviewed_local"
+
+        # A database membership that does not project to the immutable artifact
+        # must be rejected before either activation pointer moves.
+        malformed_release_id = f"fixture-malformed-{marker}"
+        store = KnowledgeReleaseStore(tmp_path / "releases")
+        current_documents, _current_manifest = store.load_documents(release_id)
+        malformed_manifest = store.publish(
+            release_id=malformed_release_id,
+            schema_version="source-type-v1",
+            documents=current_documents,
+            parent_release_id=release_id,
+            quality_report={"fixture_contract": "deliberate_materialization_mismatch"},
+            activate=False,
+        )
+        with SessionLocal() as direct_session:
+            TenantRepository(direct_session, tenant)
+            direct_repository = KnowledgeRepository(direct_session, tenant)
+            malformed_release = direct_repository.add_release(
+                namespace="integration",
+                domain="source/type-fixture",
+                release_id=malformed_release_id,
+                parent_release_id=release_id,
+                schema_version="source-type-v1",
+                content_hash=str(malformed_manifest["content_hash"]),
+                artifact_uri=str(tmp_path / "releases" / malformed_release_id),
+                quality_report={"fixture_contract": "deliberate_materialization_mismatch"},
+                actor="integration:malformed-publisher",
+            )
+            direct_repository.materialize_changes(
+                namespace="integration",
+                domain="source/type-fixture",
+                changes=(
+                    {
+                        "kind": "knowledge_object",
+                        "operation": "upsert",
+                        "stable_id": "source-type:forum",
+                        "object_type": "source_type",
+                        "attributes": {"key": "forum", "source_type": "editorial_source"},
+                        "review_status": "reviewed",
+                        "visibility": "public",
+                    },
+                ),
+                release=malformed_release,
+                base_release_id=release_id,
+            )
+            direct_session.commit()
+        malformed_activation = client.post(
+            f"/api/v2/knowledge/v1/releases/{malformed_release_id}/activate",
+            headers=admin,
+            json={"namespace": "integration", "domain": "source/type-fixture"},
+        )
+        assert malformed_activation.status_code == 409, malformed_activation.text
+        assert malformed_activation.json()["error"]["code"] == ("release_materialization_mismatch")
+        assert store.current_release_id() == release_id
+        with SessionLocal() as direct_session:
+            TenantRepository(direct_session, tenant)
+            assert (
+                KnowledgeRepository(direct_session, tenant).active_release_id(
+                    namespace="integration",
+                    domain="source/type-fixture",
+                )
+                == release_id
+            )
 
         upstream_reopen = client.post(
             f"/api/v2/knowledge/v1/candidates/{candidate_pub_id}/reopen",
@@ -598,3 +774,233 @@ def test_metrics_only_count_unresolved_connector_conflicts() -> None:
         session.flush()
         assert repository.metrics()["conflicts"] == 0
         session.rollback()
+
+
+def test_requested_and_actual_model_lineage_persists_and_aggregates_separately() -> None:
+    tenant = f"tnt_model_metrics_{secrets.token_hex(5)}"
+
+    def trace(
+        request_id: str,
+        *,
+        requested: str | None,
+        actual: str | None,
+        called: bool,
+        cache_status: str,
+        cost_usd: float | None,
+        degradation: list[str],
+    ) -> dict[str, object]:
+        return {
+            "request_id": request_id,
+            "namespace": "shared",
+            "domain": "brand/entity-resolution",
+            "task": "resolve-brand-identity",
+            "input_hash": "sha256:" + "a" * 64,
+            "policy_id": "integration-model-lineage",
+            "policy_version": "1",
+            "reasoning_policy": "llm_required",
+            "knowledge_release_id": "knowledge-2026-08-27.6",
+            "knowledge_content_hash": "sha256:" + "b" * 64,
+            "prompt_id": "brand-entity-resolution",
+            "prompt_version": "brand-entity-resolution-v5",
+            "model_provider": "fixture",
+            "requested_model": requested,
+            "model": actual,
+            "model_version": "deployment",
+            "model_identity_source": "provider_response" if actual else None,
+            "model_catalog_revision": "catalog-integration-1",
+            "model_call_attempted": called,
+            "tool_version": "brand-tool-v1",
+            "adopt_model_inferred": False,
+            "adopted_model_decisions": 0,
+            "latency_ms": 20,
+            "model_latency_ms": 12 if called and actual else None,
+            "input_tokens": 20 if called and actual else 0,
+            "output_tokens": 5 if called and actual else 0,
+            "cost_usd": cost_usd,
+            "cache_status": cache_status,
+            "degradation": degradation,
+            "data_classification": "internal",
+            "tool_summary": [],
+        }
+
+    with SessionLocal() as session:
+        repository = KnowledgeRepository(session, tenant)
+        repository.record_trace(
+            tenant,
+            trace(
+                "qwen-call",
+                requested="qwen3.7-plus",
+                actual="qwen3.7-plus-20260828",
+                called=True,
+                cache_status="miss",
+                cost_usd=None,
+                degradation=[],
+            ),
+        )
+        repository.record_trace(
+            tenant,
+            trace(
+                "qwen-cache",
+                requested="qwen3.7-plus",
+                actual="qwen3.7-plus-20260828",
+                called=False,
+                cache_status="hit",
+                cost_usd=0,
+                degradation=[],
+            ),
+        )
+        repository.record_trace(
+            tenant,
+            trace(
+                "gpt-timeout",
+                requested="gpt-5.6-luna",
+                actual=None,
+                called=True,
+                cache_status="miss",
+                cost_usd=None,
+                degradation=["model_timeout"],
+            ),
+        )
+        repository.record_trace(
+            tenant,
+            trace(
+                "qwen-invalid-output",
+                requested="qwen3.7-plus",
+                actual="qwen3.7-plus-20260828",
+                called=True,
+                cache_status="miss",
+                cost_usd=None,
+                degradation=["invalid_model_output"],
+            ),
+        )
+        repository.record_trace(
+            tenant,
+            trace(
+                "qwen-tool-failure",
+                requested="qwen3.7-plus",
+                actual=None,
+                called=True,
+                cache_status="miss",
+                cost_usd=None,
+                degradation=["tool_failure"],
+            ),
+        )
+        repository.record_trace(
+            tenant,
+            trace(
+                "legacy-provider-call",
+                requested=None,
+                actual="legacy-model",
+                called=False,
+                cache_status="miss",
+                cost_usd=None,
+                degradation=[],
+            ),
+        )
+        session.flush()
+
+        stored = session.query(InferenceTrace).filter_by(tenant_pub_id=tenant).all()
+        assert {(row.requested_model_name, row.model_name) for row in stored} == {
+            ("qwen3.7-plus", "qwen3.7-plus-20260828"),
+            ("qwen3.7-plus", None),
+            ("gpt-5.6-luna", None),
+            (None, "legacy-model"),
+        }
+        metrics = repository.metrics()
+        requested = {row["model"]: row for row in metrics["requested_model_metrics"]}
+        actual = {row["model"]: row for row in metrics["actual_model_metrics"]}
+        assert requested["qwen3.7-plus"] == {
+            "model": "qwen3.7-plus",
+            "inference_count": 4,
+            "provider_call_count": 3,
+            "error_count": 2,
+            "cache_hit_count": 1,
+            "cache_hit_rate": 0.25,
+            "provider_latency_avg_ms": 12.0,
+            "input_tokens": 40,
+            "output_tokens": 10,
+            "cost_usd": 0.0,
+            "cost_unknown_count": 3,
+        }
+        assert requested["gpt-5.6-luna"]["provider_call_count"] == 1
+        assert requested["gpt-5.6-luna"]["error_count"] == 1
+        assert requested["gpt-5.6-luna"]["cost_unknown_count"] == 1
+        assert set(actual) == {"legacy-model", "qwen3.7-plus-20260828"}
+        assert actual["legacy-model"]["provider_call_count"] == 1
+        assert actual["legacy-model"]["cost_unknown_count"] == 1
+        assert metrics["model_call_count"] == 5
+        assert actual["qwen3.7-plus-20260828"]["inference_count"] == 3
+        assert actual["qwen3.7-plus-20260828"]["error_count"] == 1
+        assert actual["qwen3.7-plus-20260828"]["cache_hit_rate"] == pytest.approx(1 / 3)
+        session.rollback()
+
+
+def test_fail_fast_model_error_commits_sanitized_trace_without_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    marker = secrets.token_hex(6)
+    request_id = f"model-fail-trace-{marker}"
+    settings = get_settings().model_copy(
+        update={
+            "knowledge_llm_api_key": "integration-placeholder",
+            "knowledge_llm_base_url": "https://models.invalid",
+            "knowledge_llm_model": "gpt-5.6-luna",
+            "knowledge_llm_models": "gpt-5.6-luna,qwen3.7-plus",
+        }
+    )
+
+    class FailingGateway:
+        provider = "integration-provider"
+        model = "gpt-5.6-luna"
+        model_version = "integration-deployment"
+        catalog_revision = "integration-catalog"
+
+        def infer(self, prompt: object) -> None:
+            del prompt
+            raise GatewayError("model_timeout")
+
+    monkeypatch.setattr(knowledge_router_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        knowledge_service_module,
+        "gateway",
+        lambda selected_settings, model=None: FailingGateway(),
+    )
+
+    with TestClient(app) as client:
+        tenant, admin = _bootstrap(client, marker)
+        response = client.post(
+            "/api/v2/knowledge/v1/runtime/resolve",
+            headers=admin,
+            json={
+                "request_id": request_id,
+                "namespace": "integration",
+                "domain": "source/type-fixture",
+                "task": "classify",
+                "items": [{"id": "forum", "value": "unlisted-forum"}],
+                "context": {},
+                "policy": "llm_required",
+                "policy_id": "fail-fast-trace-integration",
+                "policy_version": "1",
+                "model": "gpt-5.6-luna",
+                "allow_external_model": True,
+                "on_model_failure": "fail",
+            },
+        )
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == "model_timeout"
+
+    with SessionLocal() as session:
+        trace = (
+            session.query(InferenceTrace)
+            .filter_by(
+                tenant_pub_id=tenant,
+                request_id=request_id,
+            )
+            .one()
+        )
+        assert trace.requested_model_name == "gpt-5.6-luna"
+        assert trace.model_name is None
+        assert trace.model_call_attempted is True
+        assert trace.degradation == ["model_timeout"]
+        assert trace.input_hash.startswith("sha256:")
+        assert "unlisted-forum" not in str(trace.__dict__)

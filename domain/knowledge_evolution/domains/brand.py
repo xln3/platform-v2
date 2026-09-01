@@ -10,6 +10,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime
 from math import isfinite
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -17,6 +18,7 @@ from domain.brandrank.entities import (
     EntityIdentity,
     EntityMaster,
     EntityRecord,
+    _parse_master,
     classify_entity,
     load_entity_master,
 )
@@ -51,6 +53,62 @@ def _analysis_domain(request: RuntimeRequest) -> str:
     if not value:
         raise ValueError("brand_analysis_domain_required")
     return value
+
+
+def _canonical_hash(value: Any) -> str:
+    rendered = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(rendered.encode()).hexdigest()
+
+
+def _replay_failures(master: EntityMaster, gold: Mapping[str, Any]) -> dict[str, list[str]]:
+    analysis_domain = str(gold.get("analysis_domain") or "")
+    rules = load_domain(analysis_domain)
+    failures: dict[str, list[str]] = {}
+    for raw_case in gold.get("cases", []):
+        if not isinstance(raw_case, Mapping):
+            continue
+        case_id = str(raw_case.get("id") or "missing")
+        expected = raw_case.get("expected")
+        if not isinstance(expected, Mapping):
+            failures[case_id] = ["expected_result_missing"]
+            continue
+        mentions = [str(value) for value in raw_case.get("mentions", [])]
+        scopes = tuple(str(value) for value in raw_case.get("comparison_scopes", []))
+        expected_identities = expected.get("identity_by_mention") or {}
+        expected_types = expected.get("identity_types") or {}
+        expected_relations = expected.get("relationships") or {}
+        expected_roll_up = expected.get("roll_up_entity_id", expected.get("entity_id"))
+        roll_ups: set[str] = set()
+        errors: list[str] = []
+        for mention in mentions:
+            row = classify_entity(
+                mention,
+                rules=rules,
+                master=master,
+                comparison_scopes=scopes,
+            )
+            reviewed = (
+                row.get("review_status") == "reviewed" and row.get("entity_type") != "unknown"
+            )
+            identity_id = row.get("identity_entity_id") if reviewed else None
+            roll_up_id = row.get("entity_id") if reviewed else None
+            if identity_id != expected_identities.get(mention, expected.get("entity_id")):
+                errors.append(f"identity:{mention}")
+            expected_type = expected_types.get(mention)
+            if expected_type is not None and row.get("identity_entity_type") != expected_type:
+                errors.append(f"identity_type:{mention}")
+            if roll_up_id != expected_roll_up:
+                errors.append(f"roll_up:{mention}")
+            if row.get("relationship_to_canonical") != expected_relations.get(mention):
+                errors.append(f"relation:{mention}")
+            if bool(row.get("competitor_eligible")) != bool(expected.get("eligible")):
+                errors.append(f"eligibility:{mention}")
+            roll_ups.add(str(roll_up_id) if roll_up_id else f"unresolved:{mention}")
+        if len(roll_ups) != int(expected.get("deduped_entity_count") or 0):
+            errors.append("dedupe")
+        if errors:
+            failures[case_id] = sorted(set(errors))
+    return failures
 
 
 def apply_adopted_model_decisions(
@@ -1057,7 +1115,10 @@ class BrandEntityResolutionPack:
                         "knowledge_status": decision.knowledge_status.value,
                         "confidence": decision.confidence,
                         "model_provider": decision.model_provider,
+                        "requested_model": decision.requested_model_name,
                         "model": decision.model_name,
+                        "model_identity_source": decision.model_identity_source,
+                        "model_catalog_revision": request.model_catalog_revision,
                         "prompt_version": decision.prompt_version,
                         "caller_safe_context_hash": (
                             "sha256:" + hashlib.sha256(caller_summary.encode()).hexdigest()
@@ -1214,6 +1275,123 @@ class BrandEntityResolutionPack:
             "allowed_new_error_count": counts.get("allowed_new_error_count"),
         }
 
+    def evaluate_release_impact(
+        self,
+        *,
+        changes: Iterable[Mapping[str, Any]],
+        candidate_document: Mapping[str, Any],
+        parent_release_id: str | None,
+        candidate_release_id: str,
+    ) -> Mapping[str, Any]:
+        """Execute the release replay inside the trusted publishing process.
+
+        The public API never accepts caller-provided pass/fail counters as the
+        release gate.  It rebuilds the candidate master from the server-side
+        preview, evaluates the committed time-frozen set, and binds the result
+        to the exact projected state hash.
+        """
+
+        change_rows = list(changes)
+        issues: list[str] = []
+        gold_path = Path(__file__).with_name("brand_eval_v1.json")
+        try:
+            gold = json.loads(gold_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            return {
+                "passed": False,
+                "replay_required": True,
+                "execution": "server",
+                "issues": [f"historical_replay_dataset_unavailable:{type(exc).__name__}"],
+                "change_count": len(change_rows),
+            }
+        if not isinstance(gold, dict) or not isinstance(gold.get("cases"), list):
+            return {
+                "passed": False,
+                "replay_required": True,
+                "execution": "server",
+                "issues": ["historical_replay_dataset_invalid"],
+                "change_count": len(change_rows),
+            }
+        if not parent_release_id or not self.knowledge_release_dir:
+            issues.append("historical_replay_baseline_release_required")
+            baseline_failures: dict[str, list[str]] = {}
+        else:
+            try:
+                baseline_master = load_entity_master(
+                    str(gold.get("analysis_domain") or ""),
+                    knowledge_release_dir=self.knowledge_release_dir,
+                    release_id=parent_release_id,
+                )
+                baseline_failures = _replay_failures(baseline_master, gold)
+            except (OSError, UnicodeError, ValueError) as exc:
+                issues.append(f"historical_replay_baseline_invalid:{type(exc).__name__}")
+                baseline_failures = {}
+
+        analysis_domains = candidate_document.get("analysis_domains")
+        analysis_domain = str(gold.get("analysis_domain") or "")
+        projected = (
+            analysis_domains.get(analysis_domain) if isinstance(analysis_domains, Mapping) else None
+        )
+        if not isinstance(projected, dict):
+            issues.append("historical_replay_candidate_domain_missing")
+            candidate_failures: dict[str, list[str]] = {}
+        else:
+            try:
+                candidate_master = _parse_master(
+                    {
+                        **projected,
+                        "source_system": "knowledge_evolution",
+                        "source_release_id": candidate_release_id,
+                        "source_content_hash": _canonical_hash(candidate_document),
+                    },
+                    domain=analysis_domain,
+                    source_label=f"candidate:{candidate_release_id}",
+                    source_mode="candidate_release_preview",
+                )
+                candidate_failures = _replay_failures(candidate_master, gold)
+            except ValueError as exc:
+                issues.append(f"historical_replay_candidate_invalid:{type(exc).__name__}")
+                candidate_failures = {}
+
+        baseline_error_ids = {
+            f"{case_id}:{failure}"
+            for case_id, failures in baseline_failures.items()
+            for failure in failures
+        }
+        candidate_error_ids = {
+            f"{case_id}:{failure}"
+            for case_id, failures in candidate_failures.items()
+            for failure in failures
+        }
+        corrected = sorted(baseline_error_ids - candidate_error_ids)
+        new_errors = sorted(candidate_error_ids - baseline_error_ids)
+        if new_errors:
+            issues.append("historical_replay_regression_budget_exceeded")
+        report = {
+            "schema_version": "historical-replay-v2",
+            "execution": "server",
+            "runner": "brand-domain-pack-v2",
+            "evaluation_set_hash": _canonical_hash(gold),
+            "time_cutoff": gold.get("time_cutoff"),
+            "candidate_state_hash": _canonical_hash(candidate_document),
+            "baseline_release_id": parent_release_id,
+            "candidate_release_id": candidate_release_id,
+            "evaluated_request_count": len(gold["cases"]),
+            "baseline_error_count": len(baseline_error_ids),
+            "candidate_error_count": len(candidate_error_ids),
+            "corrected_error_count": len(corrected),
+            "new_error_count": len(new_errors),
+            "allowed_new_error_count": 0,
+            "corrected_case_ids": corrected,
+            "new_error_case_ids": new_errors,
+            "baseline_failed_cases": baseline_failures,
+            "candidate_failed_cases": candidate_failures,
+            "change_count": len(change_rows),
+            "issues": sorted(set(issues)),
+        }
+        report["passed"] = not report["issues"]
+        return report
+
     def project_release(
         self,
         objects: Iterable[Mapping[str, Any]],
@@ -1254,3 +1432,29 @@ class BrandEntityResolutionPack:
             "domain": "brand/entity-resolution",
             "analysis_domains": projected_domains,
         }
+
+    def materialization_view(self, document: Mapping[str, Any]) -> Any:
+        domains = document.get("analysis_domains")
+        if not isinstance(domains, Mapping):
+            raise ValueError("brand_release_analysis_domains_missing")
+        view: dict[str, Any] = {}
+        for analysis_domain, raw in sorted(domains.items()):
+            if not isinstance(raw, Mapping) or not isinstance(raw.get("entities"), list):
+                raise ValueError("brand_release_analysis_domain_invalid")
+            if any(not isinstance(entity, Mapping) for entity in raw["entities"]):
+                raise ValueError("brand_release_entity_invalid")
+            view[str(analysis_domain)] = {
+                "entities": sorted(
+                    [
+                        {
+                            key: value
+                            for key, value in entity.items()
+                            if key not in {"knowledge_status", "origin", "sync_status"}
+                        }
+                        for entity in raw["entities"]
+                        if isinstance(entity, Mapping)
+                    ],
+                    key=lambda value: (str(value.get("entity_id") or "")),
+                )
+            }
+        return view

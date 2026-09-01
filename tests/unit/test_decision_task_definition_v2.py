@@ -13,34 +13,36 @@ from domain.analysis.v2.decision_task_loader import (
 )
 from domain.analysis.v2.decision_task_schema import DecisionTaskDefinition
 
-EXPECTED_TASK_REFS = {
-    "query-intent@2.0.0",
-    "query-brand-entity-resolution@2.0.0",
-    "answer-entity-resolution@2.0.0",
-    "substantive-entity-mention@2.0.0",
-    "recommendation-relation@2.0.0",
-    "rank-semantics@2.0.0",
-    "stance-and-pairwise@2.0.0",
-    "requested-dimension-applicability@2.0.0",
-    "answer-dimension-coverage@2.0.0",
-    "claim-extraction@2.0.0",
-    "claim-verifiability@2.0.0",
-    "claim-evidence-verdict@2.0.0",
-    "citation-claim-support@2.0.0",
-    "risk-adjudication@2.0.0",
+TASK_NAMES = {
+    "query-intent",
+    "query-brand-entity-resolution",
+    "answer-entity-resolution",
+    "substantive-entity-mention",
+    "recommendation-relation",
+    "rank-semantics",
+    "stance-and-pairwise",
+    "requested-dimension-applicability",
+    "answer-dimension-coverage",
+    "claim-extraction",
+    "claim-verifiability",
+    "claim-evidence-verdict",
+    "citation-claim-support",
+    "risk-adjudication",
 }
+EXPECTED_TASK_REFS = {f"{name}@{version}" for name in TASK_NAMES for version in ("2.0.0", "2.1.0")}
 
 
 def test_builtin_registry_covers_every_required_semantic_capability() -> None:
     registry = load_builtin_task_definitions()
 
     assert {definition.task_ref for definition in registry.definitions} == EXPECTED_TASK_REFS
-    extraction_index = registry.topological_refs.index("claim-extraction@2.0.0")
-    verifiability_index = registry.topological_refs.index("claim-verifiability@2.0.0")
-    assert extraction_index < verifiability_index
-    assert registry.topological_refs.index(
-        "claim-verifiability@2.0.0"
-    ) < registry.topological_refs.index("claim-evidence-verdict@2.0.0")
+    for version in ("2.0.0", "2.1.0"):
+        extraction_index = registry.topological_refs.index(f"claim-extraction@{version}")
+        verifiability_index = registry.topological_refs.index(f"claim-verifiability@{version}")
+        assert extraction_index < verifiability_index
+        assert verifiability_index < registry.topological_refs.index(
+            f"claim-evidence-verdict@{version}"
+        )
 
 
 def test_definition_hash_is_key_order_independent_and_semantic_change_sensitive() -> None:
@@ -101,10 +103,22 @@ def test_task_schema_and_policy_forbid_open_outputs_and_heuristic_fallback() -> 
 
 
 def test_online_tasks_require_only_one_proposer_without_nested_review_gates() -> None:
-    definitions = load_builtin_task_definitions().definitions
+    definitions = tuple(
+        item for item in load_builtin_task_definitions().definitions if item.version == "2.1.0"
+    )
 
     assert all(item.adjudication_policy.required_roles == ("proposer",) for item in definitions)
-    assert all(
-        not item.evidence_requirements.requires_independent_verifier for item in definitions
-    )
+    assert all(not item.evidence_requirements.requires_independent_verifier for item in definitions)
     assert all(item.adjudication_policy.high_severity_requires is None for item in definitions)
+
+
+def test_frozen_v2_tasks_remain_available_with_their_original_review_gates() -> None:
+    registry = load_builtin_task_definitions()
+
+    assert registry.get(
+        "claim-evidence-verdict@2.0.0"
+    ).evidence_requirements.requires_independent_verifier
+    assert (
+        registry.get("risk-adjudication@2.0.0").adjudication_policy.high_severity_requires
+        == "double_judge"
+    )

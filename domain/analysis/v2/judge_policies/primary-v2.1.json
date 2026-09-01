@@ -1,0 +1,136 @@
+[
+  {
+    "name": "semantic-v2-primary-hybrid",
+    "version": "2.1.0",
+    "compatible_task_refs": [
+      "query-intent@2.1.0",
+      "query-brand-entity-resolution@2.1.0",
+      "answer-entity-resolution@2.1.0",
+      "substantive-entity-mention@2.1.0",
+      "rank-semantics@2.1.0"
+    ],
+    "method_pipeline": [
+      {
+        "role": "deterministic",
+        "method": "deterministic",
+        "required": true
+      },
+      {
+        "role": "proposer",
+        "method": "model",
+        "route_name": "semantic-llm-primary-v2",
+        "required": true
+      }
+    ],
+    "model_routes": [
+      {
+        "route_name": "semantic-llm-primary-v2",
+        "provider": "openai-compatible",
+        "model": "gpt-5.6-sol",
+        "resolved_revision": "runtime-configured",
+        "processing_region": "configured-gateway",
+        "allowed_data_classifications": ["public", "internal"],
+        "retention_policy": "deployment-controlled"
+      }
+    ],
+    "inference_configs": {
+      "semantic-llm-primary-v2": {
+        "response_format": "json_schema",
+        "single_model": true
+      }
+    },
+    "timeout_retry_policy": {
+      "timeout_ms": 120000,
+      "max_attempts": 3,
+      "retryable_error_codes": [
+        "llm_api_timeout",
+        "llm_api_network_error",
+        "llm_api_rate_limited",
+        "llm_api_upstream_unavailable"
+      ]
+    },
+    "acceptance_thresholds": {
+      "default": 0.9,
+      "unknown": 0.95
+    },
+    "disagreement_policy": "review",
+    "evidence_budget": {
+      "maximum_answer_code_points": 200000,
+      "maximum_spans": 1000,
+      "maximum_chunks": 100
+    },
+    "cost_budget": {},
+    "fallback_policy": {
+      "action": "abstain"
+    },
+    "status": "experimental",
+    "created_at": "2026-08-28T00:00:00Z"
+  },
+  {
+    "name": "semantic-v2-primary-model",
+    "version": "2.1.0",
+    "compatible_task_refs": [
+      "recommendation-relation@2.1.0",
+      "stance-and-pairwise@2.1.0",
+      "requested-dimension-applicability@2.1.0",
+      "answer-dimension-coverage@2.1.0",
+      "claim-extraction@2.1.0",
+      "claim-verifiability@2.1.0",
+      "claim-evidence-verdict@2.1.0",
+      "citation-claim-support@2.1.0",
+      "risk-adjudication@2.1.0"
+    ],
+    "method_pipeline": [
+      {
+        "role": "proposer",
+        "method": "model",
+        "route_name": "semantic-llm-primary-v2",
+        "required": true
+      }
+    ],
+    "model_routes": [
+      {
+        "route_name": "semantic-llm-primary-v2",
+        "provider": "openai-compatible",
+        "model": "gpt-5.6-sol",
+        "resolved_revision": "runtime-configured",
+        "processing_region": "configured-gateway",
+        "allowed_data_classifications": ["public", "internal"],
+        "retention_policy": "deployment-controlled"
+      }
+    ],
+    "inference_configs": {
+      "semantic-llm-primary-v2": {
+        "response_format": "json_schema",
+        "single_model": true
+      }
+    },
+    "timeout_retry_policy": {
+      "timeout_ms": 120000,
+      "max_attempts": 3,
+      "retryable_error_codes": [
+        "llm_api_timeout",
+        "llm_api_network_error",
+        "llm_api_rate_limited",
+        "llm_api_upstream_unavailable"
+      ]
+    },
+    "acceptance_thresholds": {
+      "default": 0.9,
+      "unknown": 0.95,
+      "critical": 0.98
+    },
+    "disagreement_policy": "review",
+    "evidence_budget": {
+      "maximum_answer_code_points": 200000,
+      "maximum_sources": 50,
+      "maximum_chunks": 100
+    },
+    "cost_budget": {},
+    "fallback_policy": {
+      "action": "abstain"
+    },
+    "status": "experimental",
+    "created_at": "2026-08-28T00:00:00Z"
+  }
+]

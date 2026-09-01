@@ -19,16 +19,17 @@ sudo systemctl enable --now geo-platform-v2-knowledge-backup.timer
 ## 周度流程
 
 1. 读取当前 local knowledge release 和 hash。
-2. 尝试下载并完整验证 SiliconIndex manifest 与所有数据文件。
+2. 尝试下载并完整验证 SiliconIndex manifest、所有数据文件和声明的官方 JSON Schema。Schema `1.2.0` 必须执行七个 Draft-07 schema；旧 `1.1.x` 只保留兼容性手工校验，不能误报为“已执行官方 schema”。
 3. 从本机知识 artifact 读取最后共同的 SiliconIndex release，而不是把“当前远端”误当 base。
 4. 将共同 base、已验证 upstream 和当前 `local_ahead` 对象编译成相同品牌投影后做三方对账。
 5. 远端变化幂等写入 `shared` observation；同一远端 release 不重复计数。终态候选只有新 release 形成新 evidence version 时才重开。
 6. 同字段双写形成 state=`conflict` 的 change set；冲突变化或消失时旧冲突转 `superseded`，metrics 只统计仍未解决的冲突。
-7. 生成内容寻址 governance report 和公开增量候选；查看 backlog、review ready、oldest age、evidence gap 和 conflicts。
+7. 生成内容寻址 governance report 和公开增量候选；报告周期、新候选及其 ID、支持/反对/来源多样性缺口、长期未处理项年龄和优先级、backlog、review ready、远端/本地未合并变化及 conflicts。报告不得含客户原文或 surface form。
 8. 审核新增观察、证据缺口和冲突，用四眼流程形成 change set。
-9. 运行有时间截点的历史回放；品牌 impact gate 检查评测集 hash 和新错误预算后，发布新的本机 release。
-10. 只导出 reviewed、public、`local_ahead`、有公开证据且已脱敏的增量。
-11. SiliconIndex 发布后从公网回读 manifest、数据和 hash；publish connector 只有版本/hash 与预期一致才记录 success。
+9. 由服务端领域包投影候选并运行有时间截点的历史回放；品牌 impact gate 检查评测集 hash、候选状态 hash 和新错误预算后，发布新的本机 release。调用方上传的 replay 计数不作为批准证据。
+10. 只导出 reviewed、public、`local_ahead`、有公开 HTTPS 证据且已脱敏的增量。删除或撤回名称必须由 change-set 血缘和公开证据明确表达，不能靠输入中“没出现”推断。
+11. connector 必须先取得无冲突的三方对账收据，再在临时 clone 中生成确定性 change bundle。approval 绑定 base/local/target/result/replay、两名不同审核人和预期内容 hash；通过数据构建、quality、schema、测试、lint、站点构建后才允许普通 Git push，禁止 force push。
+12. SiliconIndex 发布后从公网回读 manifest、数据和 hash；只有公开版本/hash 与预期一致才记录 success。重试若发现同一目标版本已经以相同内容公开，记录 `already_published`，不能创建第二次发布。
 
 人工离线验证命令：
 
@@ -45,7 +46,7 @@ sudo systemctl enable --now geo-platform-v2-knowledge-backup.timer
 
 ## 远端连续失败七天
 
-不要修改 `CURRENT`，不要删除已验证 snapshot，也不要让 API 临时联网。每天检查 sync status 的 current release 是否未变。继续接收观察、审核候选和发布本地 release。远端恢复后从上次共同 base 做三方合并，再导出 local-ahead 变更；不得用恢复后的 upstream 覆盖本地知识。
+不要修改 `CURRENT`，不要删除已验证 snapshot，也不要让 API 临时联网。每天检查 sync status 的 current release 是否未变，并把每次尝试追加到带前序 hash 的 `sync-history.jsonl`。继续接收观察、审核候选和发布本地 release。远端恢复后从上次共同 base 做三方合并：同字段双写进入冲突；不同字段的变化合成双方最新值；已经在远端收敛的本地对象不再重复导出。不得用恢复后的 upstream 覆盖本地知识。
 
 ## 核查命令
 

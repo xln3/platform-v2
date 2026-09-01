@@ -24,8 +24,20 @@ const project: Project = {
   brandrank_domain: 'cybersecurity',
 };
 
+function projectWith(domain: string | null): Project {
+  return {
+    pub_id: 'prj_test',
+    name: '测试项目',
+    state: 'active',
+    updated_at: '2026-08-10T00:00:00Z',
+    brandrank_domain: domain,
+  };
+}
+
 describe('VisibilityWorkspace', () => {
   const requestedUrls: string[] = [];
+  const brandVisibilityUrls: string[] = [];
+  const collectionRunUrls: string[] = [];
   let snapshot = officialSnapshot(['brd_own', 'cmp_a']);
   let brandRows: BrandVisibilityRow[] = [];
   let entities = [
@@ -35,6 +47,8 @@ describe('VisibilityWorkspace', () => {
 
   beforeEach(() => {
     requestedUrls.length = 0;
+    brandVisibilityUrls.length = 0;
+    collectionRunUrls.length = 0;
     snapshot = officialSnapshot(['brd_own', 'cmp_a']);
     brandRows = [
       {
@@ -180,6 +194,7 @@ describe('VisibilityWorkspace', () => {
           ]);
         }
         if (url.includes('/brand-visibility')) {
+          brandVisibilityUrls.push(url);
           return json({
             project_pub_id: 'prj_test',
             window_days: 30,
@@ -188,6 +203,10 @@ describe('VisibilityWorkspace', () => {
               overall: { merged: brandRows },
               entity_resolution: {
                 mode: 'governed_hybrid_v2',
+                master: {
+                  revision: 'cybersecurity-20260826.3',
+                  aggregation_level: 'brand_family',
+                },
                 counts: { alias_collapses_within_answers: 3, unclassified_distinct_names: 2 },
               },
             },
@@ -210,6 +229,7 @@ describe('VisibilityWorkspace', () => {
           });
         }
         if (url.includes('/collection/runs?')) {
+          collectionRunUrls.push(url);
           return new Response(JSON.stringify([run(1), run(2)]), {
             status: 200,
             headers: {
@@ -298,6 +318,37 @@ describe('VisibilityWorkspace', () => {
     expect(requestedUrls.some((url) => url.includes('/semantic-backfill/start'))).toBe(true);
   });
 
+  it('requests brand visibility without an industry param and shows the project rule pack domain', async () => {
+    brandRows = [
+      {
+        rank: 1,
+        brand: '新大陆',
+        score: 1,
+        avg_rank: 1,
+        occurrences: 1,
+        appearance_rate: 10,
+        industry_fit: 'scenario_specific_adjacent',
+        eligibility_note: '仅在数字身份/网证场景作为竞品。',
+      },
+    ];
+    render(<VisibilityWorkspace session={session} project={projectWith('cybersecurity')} />);
+    await screen.findByText(/品牌可见度榜单（近 30 天 · 规则包：cybersecurity）/);
+    await screen.findByText('新大陆');
+    await screen.findByText('场景型相关');
+    await screen.findByText(/同一答案内消除 3 次重复别名/);
+    await screen.findByText(/另有 2 个名称待语义复核/);
+    expect(screen.getByRole('heading', { name: '采样进度' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '采样记录' })).toBeTruthy();
+    await waitFor(() => expect(collectionRunUrls).toHaveLength(1));
+    expect(new URL(collectionRunUrls[0]!).searchParams.get('page_size')).toBe('2');
+    expect(document.querySelectorAll('.runs-panel tbody tr')).toHaveLength(2);
+
+    expect(brandVisibilityUrls).toHaveLength(1);
+    const url = new URL(brandVisibilityUrls[0]!);
+    expect(url.searchParams.has('industry')).toBe(false);
+    expect(url.searchParams.get('window_days')).toBe('30');
+  });
+
   it('shows ten official entities by default and lets the operator change the page size', async () => {
     const ids = ['brd_own', ...Array.from({ length: 20 }, (_, index) => `cmp_${index + 1}`)];
     snapshot = officialSnapshot(ids);
@@ -356,6 +407,48 @@ describe('VisibilityWorkspace', () => {
     await screen.findByText('official 快照暂不可用。');
     expect(await screen.findByRole('table', { name: '品牌可见度榜单' })).toBeTruthy();
     expect(requestedUrls.some((url) => /\/brand-visibility(?:\?|$)/u.test(url))).toBe(true);
+  });
+
+  it('shows the brandrank_domain_unresolved guidance when the project has no rule pack domain', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.includes('/brand-visibility')) {
+          return new Response(JSON.stringify({ error: { code: 'brandrank_domain_unresolved' } }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (url.includes('/snapshot-sets/current')) return json(officialSnapshot(['brd_own']));
+        if (url.includes('/metrics/catalog')) return json(metricCatalog());
+        if (url.includes('/analytics/sampling-progress')) {
+          return new Response(
+            JSON.stringify({
+              project_pub_id: 'prj_test',
+              config_revision_start: null,
+              config_revision_end: null,
+              columns: [],
+              rows: [],
+              page: { page: 1, page_size: 4, total_count: 0, total_pages: 0 },
+              observed_cells: 0,
+              total_cells: 0,
+              answer_count: 0,
+              latest_capture_time: null,
+              live_runs: 0,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+    render(<VisibilityWorkspace session={session} project={projectWith(null)} />);
+    await screen.findByText(/项目未设置品牌规则包域，请先在项目设置中配置 brandrank_domain/);
+    expect(screen.getByText(/规则包信息加载中…/)).toBeTruthy();
   });
 });
 

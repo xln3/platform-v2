@@ -229,7 +229,11 @@ class CustomerDashboardV2Service:
         aggregation_method: str,
     ) -> dict[str, Any]:
         metric = MetricSnapshotView.model_validate(
-            {name: raw_metric[name] for name in MetricSnapshotView.model_fields}
+            {
+                name: raw_metric[name]
+                for name in MetricSnapshotView.model_fields
+                if name in raw_metric
+            }
         ).model_dump(mode="python")
         metric_name = str(metric["metric_name"])
         return {

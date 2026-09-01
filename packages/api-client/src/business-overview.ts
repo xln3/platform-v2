@@ -1,8 +1,5 @@
 import { allowsFixtureIdentityHeaders, type BrowserBuildIdentityEnv } from './index';
-import {
-  containsClientSecret,
-  containsUnsafeClientControlCharacter,
-} from './browser-security';
+import { containsClientSecret, containsUnsafeClientControlCharacter } from './browser-security';
 
 export const businessOverviewProjectStates = ['draft', 'active', 'paused', 'archived'] as const;
 export type BusinessOverviewProjectState = (typeof businessOverviewProjectStates)[number];

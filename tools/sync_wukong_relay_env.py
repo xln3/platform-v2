@@ -78,9 +78,7 @@ def _rewrite_env(env_path: Path, proxy_url: str, *, apply: bool) -> int:
     if len(upstream_indexes) != 1:
         raise SystemExit("relay env must contain exactly one UPSTREAM_PROXY_URL entry")
     port_values = [
-        line.split("=", 1)[1].strip()
-        for line in lines
-        if line.startswith("RELAY_PORT=")
+        line.split("=", 1)[1].strip() for line in lines if line.startswith("RELAY_PORT=")
     ]
     if len(port_values) != 1 or not port_values[0].isdigit():
         raise SystemExit("relay env must contain exactly one numeric RELAY_PORT entry")

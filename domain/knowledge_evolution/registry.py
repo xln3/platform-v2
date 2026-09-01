@@ -41,10 +41,13 @@ class DomainPack(Protocol):
         assertions: Iterable[Mapping[str, Any]],
     ) -> Mapping[str, Any]: ...
 
-    def validate_release_impact(
+    def evaluate_release_impact(
         self,
+        *,
         changes: Iterable[Mapping[str, Any]],
-        quality_report: Mapping[str, Any],
+        candidate_document: Mapping[str, Any],
+        parent_release_id: str | None,
+        candidate_release_id: str,
     ) -> Mapping[str, Any]: ...
 
     def project_release(
@@ -52,6 +55,8 @@ class DomainPack(Protocol):
         objects: Iterable[Mapping[str, Any]],
         assertions: Iterable[Mapping[str, Any]],
     ) -> dict[str, Any]: ...
+
+    def materialization_view(self, document: Mapping[str, Any]) -> Any: ...
 
 
 class DomainRegistry:

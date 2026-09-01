@@ -55,8 +55,10 @@ class Settings(BaseSettings):
     semantic_decision_llm_model_revision: str = "runtime-configured"
     semantic_decision_llm_timeout_seconds: float = 120.0
     semantic_decision_llm_max_retries: int = 2
-    # Positive by default so a configured credential actually executes the
-    # automatic judge.  Operations may set zero to stop new calls explicitly.
+    # A positive default keeps the automatic judge connected whenever a
+    # credential is configured.  Operations may explicitly set zero as a
+    # fail-closed spending stop; this remains a call gate, not a monetary
+    # counter.
     semantic_decision_daily_budget: float = 100.0
     semantic_decision_judge_policy_version: str = ""
     minio_endpoint: str = "http://127.0.0.1:19000"
@@ -126,6 +128,13 @@ class Settings(BaseSettings):
     siliconindex_snapshot_dir: str = "data/siliconindex-snapshots"
     # 仅独立同步任务访问此发布端点；API/榜单请求不会逐项目联网查询。
     siliconindex_base_url: str = "https://siliconindex-consumer.onrender.com/data/v1"
+    # Outbound publication is an explicit, reviewed connector action. The
+    # request path never clones or pushes Git repositories.
+    siliconindex_publisher_enabled: bool = False
+    siliconindex_publisher_repository_url: str = ""
+    siliconindex_publisher_branch: str = "main"
+    siliconindex_publisher_deploy_timeout_seconds: float = 600.0
+    siliconindex_publisher_poll_seconds: float = 10.0
     # 内容寻址的本机知识 release。请求热路径只读该目录，不访问 SiliconIndex。
     knowledge_release_dir: str = "data/knowledge-releases"
     knowledge_governance_tenant_pub_id: str = ""
@@ -136,6 +145,9 @@ class Settings(BaseSettings):
     knowledge_llm_base_url_fallback: str = ""
     knowledge_llm_provider: str = "openai-compatible"
     knowledge_llm_model: str = ""
+    # 知识推理专用允许清单（GEO_KNOWLEDGE_LLM_MODELS，逗号分隔）。空值保留旧部署
+    # 的单模型兼容路径；非空时只有通过知识严格结构输出准入的目录项才可用。
+    knowledge_llm_models: str = ""
     knowledge_llm_model_version: str = "deployment"
     knowledge_llm_timeout_seconds: float = 60.0
     knowledge_llm_max_retries: int = 1

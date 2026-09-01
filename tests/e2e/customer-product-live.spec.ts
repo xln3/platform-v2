@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expectAccessible } from './accessibility';
+import { expectSafeLocatorScreenshot } from './screenshot-safety';
 import { installSyntheticHttpResponses, syntheticHttpResponseCount } from './synthetic-http';
 
 const customerReportHtml =
@@ -1464,6 +1465,11 @@ test('validated customer reads mounted data and serializes every write without s
   const sourceLink = htmlPreview.getByRole('link', { name: '查看公开来源' });
   await expect(sourceLink).toHaveAttribute('href', 'https://source.example/report');
   await expect(sourceLink).toHaveAttribute('rel', 'noopener noreferrer');
+  await expectSafeLocatorScreenshot(page, htmlPreview, 'customer-live-html-report-preview.png', {
+    animations: 'disabled',
+    caret: 'hide',
+    maxDiffPixelRatio: 0.005,
+  });
   await page.getByRole('button', { name: '关闭在线报告预览' }).click();
   await page.getByRole('button', { name: '打开 PDF' }).click();
   await expect(page.getByRole('dialog', { name: '真实客户报告' })).toBeVisible();

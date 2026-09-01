@@ -1,0 +1,91 @@
+{
+  "evidence_type": "knowledge-release-membership-and-rollback-v1",
+  "generated_at": "2026-08-27T21:45:37+08:00",
+  "source_tree_base_commit": "18c2240d0adfffef5068ddc40031067178b2ac14",
+  "database": {
+    "kind": "isolated clone of the production knowledge database",
+    "production_database_modified": false,
+    "migration_head": "s17_0004_release_membership",
+    "release_membership_tables": [
+      "knowledge.knowledge_release_object",
+      "knowledge.knowledge_release_assertion"
+    ]
+  },
+  "backfill": {
+    "knowledge-2026-08-27.1": {
+      "objects": 40,
+      "assertions": 0
+    },
+    "knowledge-2026-08-27.2": {
+      "objects": 40,
+      "assertions": 0
+    },
+    "knowledge-2026-08-27.3": {
+      "objects": 40,
+      "assertions": 0
+    },
+    "knowledge-2026-08-27.6": {
+      "objects": 40,
+      "assertions": 0
+    }
+  },
+  "representative_object": {
+    "stable_id": "CYB-BR-TENCENT",
+    "knowledge-2026-08-27.3": {
+      "object_version": 1,
+      "postgres_json_md5": "b0e7391cebbd530e8da1333e35ecb87f"
+    },
+    "knowledge-2026-08-27.6": {
+      "object_version": 2,
+      "postgres_json_md5": "54b7ee7ea9e5a4ff5002bfffece725a6"
+    },
+    "rollback_sequence": [
+      {
+        "release_id": "knowledge-2026-08-27.6",
+        "object_version": 2
+      },
+      {
+        "release_id": "knowledge-2026-08-27.3",
+        "object_version": 1
+      },
+      {
+        "release_id": "knowledge-2026-08-27.6",
+        "object_version": 2
+      }
+    ],
+    "restored_exactly": true
+  },
+  "artifact_database_consistency": {
+    "releases_checked": [
+      "knowledge-2026-08-27.1",
+      "knowledge-2026-08-27.2",
+      "knowledge-2026-08-27.3",
+      "knowledge-2026-08-27.6"
+    ],
+    "logical_views_equal": true,
+    "malformed_membership_activation": {
+      "http_status": 409,
+      "error_code": "release_materialization_mismatch",
+      "artifact_pointer_unchanged": true,
+      "database_active_release_unchanged": true
+    }
+  },
+  "automated_checks": {
+    "empty_database_migration_and_knowledge_integrations": {
+      "passed": 5,
+      "failed": 0
+    },
+    "release_membership_integration": {
+      "passed": 3,
+      "failed": 0
+    },
+    "connector_three_way_integration": {
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "limitations": [
+    "The hashes above are PostgreSQL md5 hashes of canonical jsonb text and are used only to demonstrate exact before/after equality inside the drill.",
+    "This file records the isolated pre-deployment drill. Production migration and rollback results must be recorded separately after deployment."
+  ]
+}

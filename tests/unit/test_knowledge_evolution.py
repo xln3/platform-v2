@@ -233,6 +233,18 @@ class OverreachingFixturePack(FixturePack):
         )
 
 
+class InvalidModelOutputFixturePack(FixturePack):
+    def validate_model_output(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        request: RuntimeRequest,
+        deterministic: tuple[Decision, ...],
+    ) -> tuple[Decision, ...]:
+        del payload, request, deterministic
+        raise ValueError("provider output details must not escape")
+
+
 def _request(**changes: Any) -> RuntimeRequest:
     base = RuntimeRequest(
         request_id="request-1",
@@ -286,10 +298,30 @@ def test_policy_model_failure_privacy_and_cache_contracts() -> None:
     assert degraded.degradation == ("model_error:TimeoutError",)
     assert "secret" not in str(degraded)
 
+    failing_persistence = MemoryPersistence()
     with pytest.raises(ReasoningError, match="model_error:TimeoutError"):
-        _engine(MemoryPersistence(), FakeGateway(fail=True)).decide(
-            _request(on_model_failure="fail")
+        _engine(failing_persistence, FakeGateway(fail=True)).decide(
+            _request(on_model_failure="fail", model="fake-model")
         )
+    assert failing_persistence.observations == []
+    assert len(failing_persistence.traces) == 1
+    assert failing_persistence.traces[0]["requested_model"] == "fake-model"
+    assert failing_persistence.traces[0]["model"] is None
+    assert failing_persistence.traces[0]["model_call_attempted"] is True
+    assert failing_persistence.traces[0]["degradation"] == ["model_error:TimeoutError"]
+
+    invalid_persistence = MemoryPersistence()
+    with pytest.raises(ReasoningError, match="invalid_model_output"):
+        _engine(
+            invalid_persistence,
+            FakeGateway(),
+            InvalidModelOutputFixturePack(),
+        ).decide(_request(on_model_failure="fail", model="fake-model"))
+    assert invalid_persistence.observations == []
+    assert invalid_persistence.cache == {}
+    assert len(invalid_persistence.traces) == 1
+    assert invalid_persistence.traces[0]["model"] == "fake-model"
+    assert invalid_persistence.traces[0]["degradation"] == ["invalid_model_output"]
 
     denied_gateway = FakeGateway()
     denied = _engine(MemoryPersistence(), denied_gateway).decide(
@@ -298,16 +330,17 @@ def test_policy_model_failure_privacy_and_cache_contracts() -> None:
     assert denied_gateway.calls == 0
     assert denied.degradation == ("model_denied_by_data_policy",)
 
-    restricted_gateway = FakeGateway()
-    restricted = _engine(MemoryPersistence(), restricted_gateway).decide(
-        _request(
-            request_id="restricted",
-            allow_external_model=True,
-            data_classification="restricted",
+    for classification in ("confidential", "restricted"):
+        classified_gateway = FakeGateway()
+        classified = _engine(MemoryPersistence(), classified_gateway).decide(
+            _request(
+                request_id=classification,
+                allow_external_model=True,
+                data_classification=classification,
+            )
         )
-    )
-    assert restricted_gateway.calls == 0
-    assert restricted.degradation == ("model_denied_by_data_policy",)
+        assert classified_gateway.calls == 0
+        assert classified.degradation == ("model_denied_by_data_policy",)
 
     cached_persistence = MemoryPersistence()
     cached_gateway = FakeGateway()
@@ -323,6 +356,86 @@ def test_policy_model_failure_privacy_and_cache_contracts() -> None:
     changed_release = _engine(cached_persistence, cached_gateway, FixturePack("release-2"))
     changed_release.decide(_request(request_id="cache-3"))
     assert cached_gateway.calls == 2
+
+    corrupt_key = next(iter(cached_persistence.cache))
+    cached_persistence.cache[corrupt_key] = {"payload": []}
+    recovered = engine.decide(_request(request_id="cache-corrupt"))
+    assert recovered.cache_status == "miss"
+    assert "invalid_semantic_cache_entry" in recovered.degradation
+    assert cached_gateway.calls == 3
+    assert isinstance(cached_persistence.cache[corrupt_key]["payload"], dict)
+
+    cached_persistence.cache[corrupt_key]["requested_model"] = "other-model"
+    lineage_recovered = engine.decide(_request(request_id="cache-lineage-corrupt"))
+    assert lineage_recovered.cache_status == "miss"
+    assert "invalid_semantic_cache_entry" in lineage_recovered.degradation
+    assert cached_gateway.calls == 4
+    assert cached_persistence.cache[corrupt_key]["requested_model"] is None
+
+    cached_persistence.cache[corrupt_key]["payload"] = {"wrong": "domain-shape"}
+    domain_recovered = engine.decide(_request(request_id="cache-domain-corrupt"))
+    assert domain_recovered.cache_status == "miss"
+    assert "invalid_semantic_cache_entry" in domain_recovered.degradation
+    assert cached_gateway.calls == 5
+    assert cached_persistence.cache[corrupt_key]["payload"] == {"value": "model-class"}
+
+
+def test_requested_model_and_catalog_revision_are_cache_boundaries_and_traced() -> None:
+    persistence = MemoryPersistence()
+    first_gateway = FakeGateway()
+    first_gateway.model = "model-a"
+    first = _engine(persistence, first_gateway).decide(
+        _request(
+            request_id="model-a-1",
+            model="model-a",
+            model_catalog_revision="catalog-1",
+        )
+    )
+    repeated = _engine(persistence, first_gateway).decide(
+        _request(
+            request_id="model-a-2",
+            model="model-a",
+            model_catalog_revision="catalog-1",
+        )
+    )
+    assert first.cache_status == "miss"
+    assert repeated.cache_status == "hit"
+    assert first_gateway.calls == 1
+    assert first.requested_model_name == "model-a"
+    assert first.model_name == "model-a"
+    assert first.provider_call_attempted is True
+    assert repeated.provider_call_attempted is False
+    assert persistence.traces[0]["requested_model"] == "model-a"
+    assert persistence.traces[0]["model_catalog_revision"] == "catalog-1"
+
+    second_gateway = FakeGateway()
+    second_gateway.model = "model-b"
+    _engine(persistence, second_gateway).decide(
+        _request(
+            request_id="model-b-1",
+            model="model-b",
+            model_catalog_revision="catalog-1",
+        )
+    )
+    assert second_gateway.calls == 1
+    assert len(persistence.cache) == 2
+
+    _engine(persistence, first_gateway).decide(
+        _request(
+            request_id="model-a-catalog-2",
+            model="model-a",
+            model_catalog_revision="catalog-2",
+        )
+    )
+    assert first_gateway.calls == 2
+    assert len(persistence.cache) == 3
+
+
+def test_deterministic_policy_rejects_an_explicit_model() -> None:
+    with pytest.raises(ReasoningError, match="knowledge_model_not_applicable"):
+        _engine(MemoryPersistence(), None).decide(
+            _request(policy=ReasoningPolicy.DETERMINISTIC_ONLY, model="fake-model")
+        )
 
 
 def test_optional_persistence_failures_do_not_block_the_current_decision() -> None:
@@ -514,6 +627,99 @@ def test_http_sdk_is_business_module_independent() -> None:
     assert result["request_id"] == "request-1"
 
 
+def test_http_sdk_installs_verified_replica_and_resolves_new_request_offline(
+    tmp_path: Path,
+) -> None:
+    import httpx
+
+    documents = {
+        "source/type-fixture": {
+            "schema_version": "source-type-v2",
+            "domain": "source/type-fixture",
+            "entries": [
+                {
+                    "key": "forum",
+                    "source_type": "social_source",
+                    "knowledge_status": "reviewed_local",
+                }
+            ],
+        }
+    }
+    server_store = KnowledgeReleaseStore(tmp_path / "server")
+    manifest = server_store.publish(
+        release_id="knowledge-2026-08-27.99",
+        schema_version="knowledge-release-v1",
+        documents=documents,
+        parent_release_id=None,
+        quality_report={"quality_gate": "passed"},
+        activate=True,
+    )
+
+    def online(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/runtime/resolve"):
+            return httpx.Response(
+                200,
+                json={
+                    "request_id": "online",
+                    "release": {
+                        "release_id": manifest["release_id"],
+                        "content_hash": manifest["content_hash"],
+                        "schema_version": manifest["schema_version"],
+                        "source": "knowledge_service",
+                        "degraded": False,
+                    },
+                    "decisions": [],
+                    "degradation": [],
+                },
+            )
+        if request.url.path.endswith("/replica"):
+            return httpx.Response(200, json={"manifest": manifest, "documents": documents})
+        return httpx.Response(404)
+
+    replica_dir = tmp_path / "client-replica"
+    initial_request = RuntimeRequest(
+        request_id="install-replica",
+        tenant="tenant-a",
+        namespace="shared",
+        domain="source/type-fixture",
+        task="classify",
+        items=({"id": "unknown", "value": "unknown"},),
+        context={},
+        policy=ReasoningPolicy.DETERMINISTIC_ONLY,
+        policy_id="replica-test",
+        policy_version="1",
+    )
+    KnowledgeHttpClient(
+        "https://knowledge.example",
+        transport=httpx.MockTransport(online),
+        replica_dir=replica_dir,
+    ).resolve(initial_request)
+    assert KnowledgeReleaseStore(replica_dir).current_release_id() == manifest["release_id"]
+
+    registry = DomainRegistry()
+    registry.register(SourceTypeFixturePack(knowledge_release_dir=str(replica_dir)))
+
+    def offline(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline")
+
+    result = KnowledgeHttpClient(
+        "https://knowledge.example",
+        transport=httpx.MockTransport(offline),
+        replica_dir=replica_dir,
+        local_registry=registry,
+    ).resolve(
+        replace(
+            initial_request,
+            request_id="new-offline-request",
+            items=({"id": "forum", "value": "forum"},),
+        )
+    )
+    assert result["cache_status"] == "client_local_replica"
+    assert result["release"]["degraded"] is True
+    assert result["decisions"][0]["value"] == {"source_type": "social_source"}
+    assert "local_replica_deterministic_only" in result["degradation"]
+
+
 def test_structured_gateway_executes_allowlisted_tool_and_returns_safe_summary() -> None:
     import json
 
@@ -526,6 +732,7 @@ def test_structured_gateway_executes_allowlisted_tool_and_returns_safe_summary()
         calls += 1
         body = json.loads(request.read())
         assert request.headers["Authorization"] == "Bearer test-secret"
+        assert body["model"] == "fixture-model"
         if calls == 1:
             return httpx.Response(
                 200,
@@ -594,6 +801,37 @@ def test_structured_gateway_executes_allowlisted_tool_and_returns_safe_summary()
     assert result.output_tokens == 6
     assert result.tool_summary[0]["tool"] == "catalog_lookup"
     assert "known" not in str(result.tool_summary)
+    assert result.requested_model == "fixture-model"
+    assert result.model == "fixture-model"
+    assert result.model_identity_source == "requested_fallback"
+
+
+def test_structured_gateway_records_provider_resolved_model_separately() -> None:
+    import httpx
+
+    gateway = OpenAICompatibleGateway(
+        api_key="test-secret",
+        base_url="https://model.example",
+        base_url_fallback="",
+        provider="fixture",
+        model="fixture-alias",
+        model_version="1",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json={
+                    "model": "fixture-model-20260828",
+                    "choices": [{"message": {"content": '{"value":"resolved"}'}}],
+                },
+            )
+        ),
+    )
+
+    result = gateway.infer(ModelPrompt("resolved-model", "1", "system", "user", {"type": "object"}))
+
+    assert result.requested_model == "fixture-alias"
+    assert result.model == "fixture-model-20260828"
+    assert result.model_identity_source == "provider_response"
 
 
 def test_structured_gateway_sanitizes_tool_failure() -> None:
@@ -684,3 +922,81 @@ def test_structured_gateway_retries_a_transient_provider_failure() -> None:
     result = gateway.infer(ModelPrompt("retry-test", "1", "system", "user", {"type": "object"}))
     assert result.payload == {"value": "resolved"}
     assert calls == 2
+
+
+@pytest.mark.parametrize("status", [429, 500])
+def test_structured_gateway_discloses_terminal_upstream_status_without_body(
+    status: int,
+) -> None:
+    import httpx
+
+    gateway = OpenAICompatibleGateway(
+        api_key="test-secret",
+        base_url="https://model.example",
+        base_url_fallback="",
+        provider="fixture",
+        model="fixture-model",
+        model_version="1",
+        max_retries=0,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(status, json={"error": "private provider detail"})
+        ),
+    )
+
+    with pytest.raises(GatewayError, match=f"model_upstream_{status}") as exc_info:
+        gateway.infer(ModelPrompt("status-test", "1", "system", "user", {"type": "object"}))
+    assert "private provider detail" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("response", "code"),
+    [
+        (
+            {"content": b"not-json", "headers": {"Content-Type": "application/json"}},
+            "model_invalid_json",
+        ),
+        ({"json": {"choices": []}}, "model_invalid_shape"),
+    ],
+)
+def test_structured_gateway_rejects_malformed_provider_responses(
+    response: dict[str, Any],
+    code: str,
+) -> None:
+    import httpx
+
+    def transport_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, **response)
+
+    gateway = OpenAICompatibleGateway(
+        api_key="test-secret",
+        base_url="https://model.example",
+        base_url_fallback="",
+        provider="fixture",
+        model="fixture-model",
+        model_version="1",
+        max_retries=0,
+        transport=httpx.MockTransport(transport_handler),
+    )
+    with pytest.raises(GatewayError, match=code):
+        gateway.infer(ModelPrompt("shape-test", "1", "system", "user", {"type": "object"}))
+
+
+def test_structured_gateway_sanitizes_transport_timeout() -> None:
+    import httpx
+
+    def transport_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("private timeout detail", request=request)
+
+    gateway = OpenAICompatibleGateway(
+        api_key="test-secret",
+        base_url="https://model.example",
+        base_url_fallback="",
+        provider="fixture",
+        model="fixture-model",
+        model_version="1",
+        max_retries=0,
+        transport=httpx.MockTransport(transport_handler),
+    )
+    with pytest.raises(GatewayError, match="model_timeout") as exc_info:
+        gateway.infer(ModelPrompt("timeout-test", "1", "system", "user", {"type": "object"}))
+    assert "private timeout detail" not in str(exc_info.value)

@@ -637,6 +637,7 @@ def override_semantic_decision_v2(
             decision_pub_id=decision_pub_id,
             request=body,
             actor_pub_id=principal.actor_pub_id,
+            allow_official_publication=principal.allows("metrics:publish"),
         )
     except LookupError as exc:
         raise _not_found(exc) from exc

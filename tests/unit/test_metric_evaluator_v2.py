@@ -252,9 +252,7 @@ def test_llm_api_failure_reason_survives_metric_evaluation() -> None:
         query_context=base.query_context,
         focal_entity_id=TARGET,
         exposure_role=ExposureRole.BRAND_NEUTRAL,
-        capability_statuses={
-            "substantive_entity_mention": SemanticCapabilityStatus.FAILED
-        },
+        capability_statuses={"substantive_entity_mention": SemanticCapabilityStatus.FAILED},
         decisions={
             task_ref: SemanticDecisionFact(
                 task_ref=task_ref,

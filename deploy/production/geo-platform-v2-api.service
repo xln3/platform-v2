@@ -8,7 +8,7 @@ Requires=docker.service
 Type=simple
 User=xln
 Group=xln
-WorkingDirectory=/home/xln/geo-system/platform-v2
+WorkingDirectory=/opt/geo-platform-v2/current
 EnvironmentFile=/etc/geo-platform-v2/platform.env
 EnvironmentFile=-/etc/geo-platform-v2/feishu-bot.env
 # Dataset artifacts and provider sessions live outside immutable release snapshots.
@@ -17,7 +17,7 @@ Environment=GEO_SILICONINDEX_SNAPSHOT_DIR=/var/lib/geo-platform-v2/siliconindex
 Environment=GEO_KNOWLEDGE_RELEASE_DIR=/var/lib/geo-platform-v2/knowledge
 # The application logging setup redacts /otp/latest query strings before Uvicorn
 # emits them, preserving useful access diagnostics without logging phone numbers.
-ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/uvicorn geo_platform.main:app --app-dir api --host 127.0.0.1 --port 8020 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
+ExecStart=/opt/geo-platform-v2/current/.venv/bin/uvicorn geo_platform.main:app --app-dir api --host 127.0.0.1 --port 8020 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true

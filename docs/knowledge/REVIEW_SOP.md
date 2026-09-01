@@ -21,9 +21,9 @@
 8. 将批准提案转换成相对 active release 的 change set。
 9. 处理所有三方合并冲突；conflicts 非空时不能批准。
 10. 由第二名 reviewer 批准 change set。
-11. 对品牌等高影响变更，在发布前回放截止时间以前的历史请求；记录评测集 hash、修复数、新错误数和允许预算。回放结果超过预算就退回提案，不能靠文字说明绕过。
-12. 由独立 admin 发布，检查 domain quality gate、impact gate、manifest hash 和 parent release。
-13. 激活后执行 deterministic smoke、报告读取和 connector 对账。
+11. 对品牌等高影响变更，由服务端领域包从 base membership 和变更集投影候选状态，再回放截止时间以前的历史请求；记录候选状态 hash、评测集 hash、修复数、新错误数和允许预算。调用方填写的计数不作为门禁输入，结果超过预算就退回提案。
+12. 由独立 admin 发布，检查 domain quality gate、impact gate、quality report hash、manifest hash、parent release 和数据库 membership。
+13. 激活前比较 artifact 与数据库 materialization 逻辑视图；不一致时两边都保持旧版本。激活后执行 deterministic smoke、代表对象版本读取、报告读取和 connector 对账。
 
 ## 拒绝、延期和重开
 

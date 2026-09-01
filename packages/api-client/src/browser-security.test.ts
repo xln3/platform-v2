@@ -6,12 +6,19 @@ import {
 } from './browser-security';
 
 describe('canonical browser security projection', () => {
-  it.each(['\u0000', '\u001f', '\u007f', '\u0085', '\u009f', '\u2028', '\u2029', '\u202e', '\u2066'])(
-    'rejects unsafe control %j',
-    (control) => {
-      expect(containsUnsafeClientControlCharacter(`安全${control}伪装`)).toBe(true);
-    },
-  );
+  it.each([
+    '\u0000',
+    '\u001f',
+    '\u007f',
+    '\u0085',
+    '\u009f',
+    '\u2028',
+    '\u2029',
+    '\u202e',
+    '\u2066',
+  ])('rejects unsafe control %j', (control) => {
+    expect(containsUnsafeClientControlCharacter(`安全${control}伪装`)).toBe(true);
+  });
 
   it('accepts ordinary multilingual identity text', () => {
     expect(containsUnsafeClientControlCharacter('中意人寿 · 项目 A')).toBe(false);
