@@ -2574,7 +2574,7 @@ def persist_collection_result(
         retrieval_events = (
             normalize_retrieval_events(raw_retrieval_events)
             if raw_retrieval_events
-            else legacy_reference_event(citations)
+            else legacy_reference_event(citations, search_queries=search_queries)
         )
     except ValueError as error:
         raise ApplicationError(

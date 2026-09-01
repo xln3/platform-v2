@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from domain.collection.uvw import normalize_retrieval_events, occurrence_rows
+from domain.collection.uvw import (
+    legacy_reference_event,
+    normalize_retrieval_events,
+    occurrence_rows,
+)
 
 
 def _event(
@@ -147,3 +151,58 @@ def test_observed_open_page_is_pending_content_level_w_analysis() -> None:
     assert row.v_state == "entered"
     assert row.v_open_order == 1
     assert row.w_state == "pending"
+
+
+_CITATIONS = [
+    {
+        "url": "https://example.com/reference",
+        "title": "参考页",
+        "cited_text": "引用片段",
+        "ordinal": 1,
+    }
+]
+
+
+def test_legacy_reference_event_projects_persisted_search_queries() -> None:
+    """兜底造 legacy 事件时带上任务已持久化的 W1 检索词（search_queries_json）。"""
+    events = legacy_reference_event(
+        _CITATIONS,
+        search_queries=[
+            {"query": "盛邦安全 官网", "ordinal": 1},
+            {"query": "盛邦安全 产品", "ordinal": 2},
+        ],
+    )
+
+    assert len(events) == 1
+    event = events[0]
+    assert event["queries"] == ["盛邦安全 官网", "盛邦安全 产品"]
+    # u/v 观察语义不变：历史引用只证明 final 阶段。
+    assert event["u_observation"] == "unobserved"
+    assert event["v_observation"] == "unobserved"
+    assert event["final_reference_observation"] == "observed"
+    assert len(event["final_references"]) == 1
+
+
+def test_legacy_reference_event_without_queries_stays_empty() -> None:
+    for events in (
+        legacy_reference_event(_CITATIONS),
+        legacy_reference_event(_CITATIONS, search_queries=None),
+        legacy_reference_event(_CITATIONS, search_queries=[]),
+    ):
+        assert events[0]["queries"] == []
+
+
+def test_legacy_reference_event_dedupes_queries_preserving_order() -> None:
+    events = legacy_reference_event(
+        _CITATIONS,
+        search_queries=[
+            {"query": " 词二 ", "ordinal": 1},
+            {"query": "词一", "ordinal": 2},
+            {"query": "词二", "ordinal": 3},
+            {"query": "", "ordinal": 4},
+            {"ordinal": 5},
+            "not-a-dict",
+        ],
+    )
+
+    assert events[0]["queries"] == ["词二", "词一"]

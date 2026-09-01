@@ -233,14 +233,38 @@ def retrieval_events_from_trace_path(path: str | Path | None) -> list[dict[str, 
     return retrieval_events_from_trace(payload)
 
 
-def legacy_reference_event(citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Represent legacy final references without fabricating historical U or V."""
+def legacy_reference_event(
+    citations: list[dict[str, Any]],
+    search_queries: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Represent legacy final references without fabricating historical U or V.
 
+    When the caller already holds the task's persisted search queries (W1,
+    ``search_queries_json`` rows shaped ``{"query": str, "ordinal": int}``),
+    project them into ``queries`` in original order with first-occurrence
+    dedupe.  Queries remain genuinely empty only when no words were captured;
+    U/V stay ``unobserved`` regardless — historical references only prove the
+    final stage.
+    """
+
+    queries: list[str] = []
+    seen_queries: set[str] = set()
+    for row in search_queries or []:
+        if not isinstance(row, dict):
+            continue
+        query = row.get("query")
+        if not isinstance(query, str):
+            continue
+        cleaned = query.strip()
+        if not cleaned or cleaned in seen_queries:
+            continue
+        seen_queries.add(cleaned)
+        queries.append(cleaned)
     return normalize_retrieval_events(
         [
             {
                 "ordinal": 1,
-                "queries": [],
+                "queries": queries,
                 "u_observation": "unobserved",
                 "v_observation": "unobserved",
                 "final_reference_observation": "observed",
