@@ -398,6 +398,13 @@
   width: auto;
   padding: 0;
 }
+/* 采集平台分组小标题（网页模拟 / 官方 API）独占一行 */
+.services-page .platform-checks .platform-group-label {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #6b7280;
+}
 .formal-service-picker,
 .formal-pilot-windows {
   min-width: 0;

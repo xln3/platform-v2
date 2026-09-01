@@ -1,5 +1,5 @@
 import { allowsFixtureIdentityHeaders, type BrowserBuildIdentityEnv } from '@geo/api-client';
-import { COLLECTION_PLATFORM_SLUGS, type CollectionPlatformSlug } from '../../platforms';
+import { COLLECTION_PLATFORM_SLUGS } from '../../platforms';
 import { pageFromResponse, type CursorPage } from '../../pagination';
 import type { SessionContext } from '../execution/api';
 
@@ -109,7 +109,9 @@ async function govSend<T>(
 // ── 契约类型（字段逐字按后端契约，勿凭想象改） ──
 
 export const COLLECTION_PLATFORMS = COLLECTION_PLATFORM_SLUGS;
-export type CollectionPlatform = CollectionPlatformSlug;
+// 账号治理只管网页模拟（consumer_web）五平台的浏览器账号；provider_api（*_api）
+// 无浏览器账号对象，收窄回网页五 slug，不随 platforms.tsx 的并集漂移。
+export type CollectionPlatform = (typeof COLLECTION_PLATFORMS)[number];
 
 /** 手机号 × 平台格（runtime_state：idle/running/muted/quota_exhausted/captcha/error）。 */
 export type PlatformAccountCell = {

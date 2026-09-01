@@ -135,6 +135,34 @@ describe('ConfigLauncher', () => {
     ).toBeTruthy();
   });
 
+  it('counts provider_api platforms without the region multiplier and freezes their slugs', async () => {
+    render(
+      <ConfigLauncher
+        session={session}
+        projectPubId="prj_test"
+        groupName="品牌AI认知评测"
+        queryPlaceholder="国内网络空间资产搜索引擎哪家强"
+      />,
+    );
+    // 勾选豆包（API）：API 平台只有 normal、无地域维度 → 每题 5×2 + 1 = 11 任务。
+    fireEvent.click(screen.getByLabelText('豆包（API）'));
+    fillQuestions('问题一\n问题二\n\n问题三');
+    expect(
+      screen.getByText(
+        /3 题（2 个候选组） × 5 平台×模式 × 2 地域 ＋ 1 个 API 平台（无地域维度） = 每轮 33 任务，采样 2 轮共 66 任务/,
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '冻结并启动采样' }));
+    await screen.findByText(/配置 v3 已冻结/);
+    const freezeBody = calls.find((call) => call.url.includes('/config/freeze'))?.body as {
+      models: string[];
+      modes: string[];
+    };
+    expect(freezeBody.models).toEqual(['doubao', 'deepseek', 'yiyan', 'doubao_api']);
+    expect(freezeBody.modes).toEqual(['normal', 'deep_think']);
+  });
+
   it('freezes once and starts one run per sample with distinct idempotency keys', async () => {
     render(
       <ConfigLauncher

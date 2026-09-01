@@ -1,10 +1,24 @@
 import { useMemo, useState } from 'react';
-import { COLLECTION_PLATFORM_SLUGS, PlatformBadge, PLATFORM_REGISTRY } from '../../platforms';
+import {
+  COLLECTION_PLATFORM_SLUGS,
+  isProviderApiSlug,
+  PlatformBadge,
+  PLATFORM_REGISTRY,
+  PROVIDER_API_PLATFORM_SLUGS,
+} from '../../platforms';
 import { executionApi } from '../execution/api';
 import { DEFAULT_REGIONS, RegionMultiSelect } from './RegionMultiSelect';
 import type { SessionContext } from './api';
 
 export const LAUNCHER_PLATFORMS = COLLECTION_PLATFORM_SLUGS.map(
+  (slug) => [slug, PLATFORM_REGISTRY[slug].label] as const,
+);
+
+// provider_api 采集模态（2026-08-31 起）：官方 API 直连，与网页模拟并列勾选；
+// 同一批问题可同时采两路，便于网页版/API 版对比。需运营在 worker env 配置
+// 对应平台 Key（deploy/production/worker-adapters.env.example），未配置的
+// 平台题级诚实失败（wall/adapter_not_configured），不炸整 run。
+export const LAUNCHER_API_PLATFORMS = PROVIDER_API_PLATFORM_SLUGS.map(
   (slug) => [slug, PLATFORM_REGISTRY[slug].label] as const,
 );
 
@@ -33,11 +47,17 @@ function frequencyLabel(value: string): string {
 // （20260810 适配器解锁）；通义测 composer 菜单「快速/思考研究」两种
 // （20260810 适配器解锁）；其余平台仅 normal。与服务端
 // PLATFORM_MODE_CAPABILITIES（workflows/activities/collection.py）保持一致。
+// provider_api 模态（*_api）只有 normal——API 侧没有「网页交互模式」语义。
 const MODES_BY_MODEL: Record<string, string[]> = {
   deepseek: ['normal', 'deep_think'],
   yuanbao: ['normal', 'deep_think'],
   yiyan: ['normal', 'deep_think'],
   tongyi: ['normal', 'deep_think'],
+  doubao_api: ['normal'],
+  deepseek_api: ['normal'],
+  yiyan_api: ['normal'],
+  tongyi_api: ['normal'],
+  yuanbao_api: ['normal'],
 };
 
 function modesForModel(slug: string): string[] {
@@ -96,8 +116,14 @@ export function ConfigLauncher({
   );
   const questionItems = useMemo(() => queryGroups.flat(), [queryGroups]);
   const modes = useMemo(() => [...new Set(models.flatMap(modesForModel))], [models]);
-  const platformModeCount = models.reduce((sum, slug) => sum + modesForModel(slug).length, 0);
-  const perRound = questionItems.length * platformModeCount * regions.length;
+  // provider_api 平台无地域维度（服务端把 region 折叠为哨兵 "api"）：网页平台
+  // 任务数 = 平台×模式 × 地域；API 平台任务数 = 平台数 × 1（仅 normal）。
+  const webPlatformModeCount = models
+    .filter((slug) => !isProviderApiSlug(slug))
+    .reduce((sum, slug) => sum + modesForModel(slug).length, 0);
+  const apiPlatformCount = models.filter(isProviderApiSlug).length;
+  const perRound =
+    questionItems.length * (webPlatformModeCount * regions.length + apiPlatformCount);
   const boundedSamples = Number.isSafeInteger(samples) ? Math.min(Math.max(samples, 1), 5) : 2;
   const total = perRound * boundedSamples;
   const canAct = !busy && questionItems.length > 0 && models.length > 0 && regions.length > 0;
@@ -186,7 +212,25 @@ export function ConfigLauncher({
         <fieldset>
           <legend>2. 采集平台</legend>
           <div className="platform-checks">
+            <p className="platform-group-label">网页模拟（consumer_web）</p>
             {LAUNCHER_PLATFORMS.map(([slug]) => (
+              <label key={slug}>
+                <input
+                  type="checkbox"
+                  checked={models.includes(slug)}
+                  onChange={(event) =>
+                    setModels((current) =>
+                      event.target.checked
+                        ? [...current, slug]
+                        : current.filter((item) => item !== slug),
+                    )
+                  }
+                />
+                <PlatformBadge platform={slug} />
+              </label>
+            ))}
+            <p className="platform-group-label">官方 API（provider_api，无地域维度）</p>
+            {LAUNCHER_API_PLATFORMS.map(([slug]) => (
               <label key={slug}>
                 <input
                   type="checkbox"
@@ -233,9 +277,10 @@ export function ConfigLauncher({
       </div>
       <p className="setup-summary" aria-live="polite">
         {questionItems.length} 题
-        {queryGroups.length > 1 ? `（${queryGroups.length} 个候选组）` : ''} × {platformModeCount}{' '}
-        平台×模式 × {regions.length} 地域 = 每轮 {perRound} 任务，采样 {boundedSamples} 轮共 {total}{' '}
-        任务
+        {queryGroups.length > 1 ? `（${queryGroups.length} 个候选组）` : ''} × {webPlatformModeCount}{' '}
+        平台×模式 × {regions.length} 地域
+        {apiPlatformCount > 0 ? ` ＋ ${apiPlatformCount} 个 API 平台（无地域维度）` : ''} = 每轮{' '}
+        {perRound} 任务，采样 {boundedSamples} 轮共 {total} 任务
       </p>
       <p className="setup-summary">
         用空行分隔不同候选问题组；正式报告按证据完整度和样本覆盖选取 3 组，全部候选组保留在附录。
