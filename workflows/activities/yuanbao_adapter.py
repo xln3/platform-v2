@@ -363,6 +363,10 @@ _PACE_AFTER_NEW_CHAT_S = (0.6, 1.2)
 
 # 登录模态（CONFIRMED：匿名发送后弹出，微信扫码/手机号/QQ；dialog 文案匹配抗 class 哈希轮换）
 _LOGIN_WALL_HINTS: tuple[str, ...] = (
+    "*:text-is('请使用微信扫描二维码登录')",
+    "*:text-is('登录失败，请稍后重试')",
+    "*:text-is('获取登录态超时，请刷新后重试')",
+    "*:text-is('微信登录')",
     "div[role='dialog']:has-text('微信登录')",
     "div[role='dialog']:has-text('手机号登录')",
     "div[role='dialog']:has-text('扫码登录')",
@@ -371,6 +375,30 @@ _LOGIN_WALL_HINTS: tuple[str, ...] = (
     "div[class*='LoginModal']:visible",
     "iframe[src*='login']",
     "iframe[src*='passport']",
+)
+
+# 20260831 北京账号现场校准：登录态失效时元宝不一定弹 modal，而是保留可见
+# composer/模式工具栏，同时右上角显示「登录」、账号区显示「未登录」。如果只在
+# composer 缺失时检查登录墙，这种静态壳会一路落到 mode_toggle_failed，误报成
+# 选择器漂移并触发账号熔断。必须用「可见登录入口 + 未登录文案」组合判断，避免
+# 把回答正文里偶然出现的“登录”二字误判成墙。
+_STATIC_LOGIN_BUTTON_SELECTORS: tuple[str, ...] = (
+    "button:text-is('登录')",
+    "[role='button']:text-is('登录')",
+    "a:text-is('登录')",
+)
+
+# 20260831 北京现场失败页原文。服务页可能仍保留 composer，因此必须先于模式
+# 开关判定；否则平台临时故障会被永久归因为 mode_toggle_failed。
+_SERVICE_UNAVAILABLE_PHRASES: tuple[str, ...] = (
+    "拉取配置信息失败，请稍后重试",
+    "服务异常，请稍后重试",
+    "网络异常，请稍后重试",
+)
+_SERVICE_RETRY_SELECTORS: tuple[str, ...] = (
+    "button:text-is('重试')",
+    "[role='button']:text-is('重试')",
+    "button:has-text('重新加载')",
 )
 
 # 验证码组件（旧链 login_state.CAPTCHA_SELECTORS 权威词表，通用）
@@ -593,6 +621,10 @@ class _IncompleteCapture(RuntimeError):
         super().__init__(message)
         self.evidence_path = evidence_path
         self.evidence_refs: list[CollectionEvidenceRef] = []
+
+
+class _TransientServiceUnavailable(_IncompleteCapture):
+    """元宝临时服务页未恢复；提升到 activity 边界，在同一题上重新 attach。"""
 
 
 class _ModeToggleFailed(RuntimeError):
@@ -1020,22 +1052,16 @@ def _task_result_from_collected(
     """CollectedAnswer → CollectionTaskResult 映射（answer 组装/出界 DLP 自检）。
     run_yuanbao_collection 与 batch per-item ok 映射共用。"""
     raw_record = _yuanbao_record_from_raw_evidence(collected.raw_evidence)
-    use_raw_sources = raw_record is not None and bool(
-        raw_record.get("search_guid_observed")
-    )
+    use_raw_sources = raw_record is not None and bool(raw_record.get("search_guid_observed"))
     references = (
-        list(raw_record.get("references") or [])
-        if use_raw_sources
-        else collected.references
+        list(raw_record.get("references") or []) if use_raw_sources else collected.references
     )
     answer_text = _compose_answer_text(collected.answer_text, references)
     citations = [
         {
             "url": str(ref["url"]),
             "title": str(ref["title"]).strip() if ref.get("title") else None,
-            "cited_text": (
-                str(ref["summary"]).strip() if ref.get("summary") else None
-            ),
+            "cited_text": (str(ref["summary"]).strip() if ref.get("summary") else None),
             "platform_ordinal": ref.get("platform_ordinal", index),
             "ordinal_base": ref.get("ordinal_base", 1),
         }
@@ -1114,9 +1140,7 @@ def _yuanbao_record_from_sse(raw_sse: str) -> dict[str, Any] | None:
     search_guid_observed = False
     for block in re.split(r"\r?\n\r?\n", raw_sse):
         data_lines = [
-            line[len("data:") :].strip()
-            for line in block.splitlines()
-            if line.startswith("data:")
+            line[len("data:") :].strip() for line in block.splitlines() if line.startswith("data:")
         ]
         if not data_lines:
             continue
@@ -1157,9 +1181,7 @@ def _yuanbao_record_from_sse(raw_sse: str) -> dict[str, Any] | None:
             "url": url,
             "title": str(title).strip() if isinstance(title, str) and title.strip() else None,
             "summary": (
-                str(summary).strip()
-                if isinstance(summary, str) and summary.strip()
-                else None
+                str(summary).strip() if isinstance(summary, str) and summary.strip() else None
             ),
             "platform_ordinal": index,
             "ordinal_base": 1,
@@ -1180,9 +1202,7 @@ def _yuanbao_record_from_sse(raw_sse: str) -> dict[str, Any] | None:
             )
 
     citation_indexes = list(
-        dict.fromkeys(
-            int(value) for value in _YUANBAO_CITATION_RE.findall("".join(answer_parts))
-        )
+        dict.fromkeys(int(value) for value in _YUANBAO_CITATION_RE.findall("".join(answer_parts)))
     )
     references: list[dict[str, Any]] = []
     unresolved: list[int] = []
@@ -1371,6 +1391,11 @@ class _PlaywrightYuanbaoSession:
                         for rest in items[index + 1 :]
                     )
                     return outcomes
+                except _TransientServiceUnavailable:
+                    # 服务异常是平台/会话级瞬时故障，不是本题内容失败。提升到
+                    # activity 边界，让 Temporal maximum_attempts=2 在同一题上
+                    # 重新 attach；否则 itemwise run 会永久固化一条 failed。
+                    raise
                 except _IncompleteCapture as inc:
                     outcomes.append(
                         self._failure_outcome(spec, "incomplete", "answer_capture_incomplete", inc)
@@ -1510,7 +1535,7 @@ class _PlaywrightYuanbaoSession:
                         page.goto(_HOME_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
                     page.wait_for_timeout(_HYDRATION_SETTLE_MS)  # Next.js 重 hydration（实测 ≥10s）
                     _try_close_overlays(page, self._rng)
-                    if _detect_login_wall(page):
+                    if _detect_login_wall(page) and not _recover_login_page(page, self._rng):
                         raise _WallError(
                             "wall_login_required",
                             "yuanbao login wall detected right after navigation",
@@ -1569,6 +1594,30 @@ class _PlaywrightYuanbaoSession:
                 # 墙/失败存证截图：batch 内按 per-item stem 命名（逐题区分）。
                 return self._shot(page, suffix, stem=spec.file_stem)
 
+            # 元宝偶发把已登录聊天页替换成「拉取配置失败/服务异常」页；该页可能
+            # 仍渲染 composer，因此不能依赖 await_input 暴露故障。先点一次官方
+            # 重试，再导航聊天首页兜底；恢复不了按临时 incomplete 重试，绝不把
+            # 它记为模式选择器漂移并熔断账号。
+            service_error = _service_unavailable_reason(page)
+            if service_error is not None:
+                on_stage("recover_service_page")
+                if not _recover_service_page(page, self._rng):
+                    raise _TransientServiceUnavailable(
+                        f"yuanbao-service-unavailable: {service_error}",
+                        _shot("service_unavailable"),
+                    )
+
+            # 静态掉登录壳仍有 composer；必须无条件检查，而不是仅在找不到输入框
+            # 时才检查 login modal。
+            if _detect_login_wall(page):
+                on_stage("recover_login_page")
+                if not _recover_login_page(page, self._rng):
+                    raise _WallError(
+                        "wall_login_required",
+                        "yuanbao logged-out shell or login wall surfaced before input",
+                        _shot("login"),
+                    )
+
             input_loc = _wait_for_input(page, timeout_ms=15_000)
             if input_loc is None:
                 hit = _captcha_hit(page)
@@ -1618,6 +1667,55 @@ class _PlaywrightYuanbaoSession:
             # 行为，无开关可确保）。必须在打字/发送之前完成并经后置校验确认；确认
             # 不了即诚实失败，绝不静默按错误口径采集（模型/思考错态 = 答案口径错标）。
             on_stage("ensure_mode")
+            # Next.js 会在 composer 出现后继续异步挂载模式控件；给健康页面一个短
+            # settle 窗。等待期间若转成服务异常/掉登录页，按真实状态分流，不再
+            # 一律报 mode_toggle_failed。
+            if not _wait_for_mode_surface(page, timeout_ms=5_000):
+                if _detect_login_wall(page):
+                    on_stage("recover_login_page")
+                    if not _recover_login_page(page, self._rng):
+                        raise _WallError(
+                            "wall_login_required",
+                            "yuanbao logged-out shell surfaced while awaiting mode controls",
+                            _shot("login"),
+                        )
+                else:
+                    service_error = _service_unavailable_reason(page)
+                    if service_error is not None:
+                        on_stage("recover_service_page")
+                        if not _recover_service_page(page, self._rng):
+                            raise _TransientServiceUnavailable(
+                                f"yuanbao-service-unavailable-before-mode: {service_error}",
+                                _shot("service_unavailable"),
+                            )
+                # 恢复动作可能重新导航，原 Locator 会在 Playwright 中重解析；重新
+                # 确保 composer、新会话和模式控件后再进入硬校验。
+                input_loc = _wait_for_input(page, timeout_ms=15_000)
+                if input_loc is None:
+                    raise _IncompleteCapture(
+                        "could-not-find-chat-input-after-page-recovery",
+                        _shot("no_input"),
+                    )
+                _ensure_fresh_chat(
+                    page,
+                    input_loc,
+                    self._rng,
+                    pace=_pace,
+                    shot=_shot,
+                )
+                if not _wait_for_mode_surface(page, timeout_ms=5_000):
+                    if _detect_login_wall(page):
+                        raise _WallError(
+                            "wall_login_required",
+                            "yuanbao login wall persisted after recovery",
+                            _shot("login"),
+                        )
+                    service_error = _service_unavailable_reason(page)
+                    if service_error is not None:
+                        raise _TransientServiceUnavailable(
+                            f"yuanbao-service-unavailable-after-recovery: {service_error}",
+                            _shot("service_unavailable"),
+                        )
             if not _set_collection_mode(page, self._rng, spec.mode):
                 raise _ModeToggleFailed(
                     f"mode toggles could not be confirmed for mode={spec.mode!r} "
@@ -1706,9 +1804,7 @@ class _PlaywrightYuanbaoSession:
                 )
                 sse_record = None
             sse_answer = (
-                str(sse_record.get("answer_text") or "").strip()
-                if sse_record is not None
-                else ""
+                str(sse_record.get("answer_text") or "").strip() if sse_record is not None else ""
             )
             if sse_answer:
                 # ``/api/chat/`` 是本次请求的机器响应真相源。DOM 仍承担页面截图、
@@ -1721,9 +1817,7 @@ class _PlaywrightYuanbaoSession:
                     else _references_from_dom(page)
                 )
             else:
-                answer_text = _wait_answer_stable(
-                    page, max_seconds=30.0, quiet_seconds=2.5
-                )
+                answer_text = _wait_answer_stable(page, max_seconds=30.0, quiet_seconds=2.5)
                 answer_transport = "dom_fallback"
                 references = _references_from_dom(page)
             on_stage("answer_extracted")
@@ -1793,8 +1887,7 @@ class _PlaywrightYuanbaoSession:
             thinking_text = _extract_thinking_text(page) if spec.mode == "deep_think" else ""
             trace_references = (
                 []
-                if sse_record is not None
-                and sse_record.get("search_guid_observed")
+                if sse_record is not None and sse_record.get("search_guid_observed")
                 else references
             )
             trace_path: Path | None = None
@@ -1803,9 +1896,9 @@ class _PlaywrightYuanbaoSession:
                 try:
                     trace_candidate.write_text(
                         json.dumps(
-                                _build_yuanbao_trace(
-                                    thinking_text,
-                                    trace_references,
+                            _build_yuanbao_trace(
+                                thinking_text,
+                                trace_references,
                                 deep_think_active=bool(thinking_text),
                             ),
                             ensure_ascii=False,
@@ -1955,11 +2048,7 @@ class _ChatStreamCapture:
                 url = self._url_by_request_id.get(req_id, "")
                 method = self._method_by_request_id.get(req_id, "")
                 mime_type = str(response.get("mimeType") or "").lower()
-                if (
-                    "/api/chat/" in url
-                    and method == "POST"
-                    and "event-stream" in mime_type
-                ):
+                if "/api/chat/" in url and method == "POST" and "event-stream" in mime_type:
                     if req_id not in self._stream_request_ids:
                         self._stream_request_ids.append(req_id)
             elif name == "Network.loadingFinished":
@@ -2054,7 +2143,80 @@ def _detect_login_wall(page: Any) -> bool:
                 return True
         except Exception:
             continue
+    # 静态掉登录页没有 dialog，且仍可能保留 composer/模式工具栏。双条件门避免
+    # 单凭全页文案误伤正常回答。
+    if "未登录" not in _read_page_text(page):
+        return False
+    for sel in _STATIC_LOGIN_BUTTON_SELECTORS:
+        try:
+            if page.locator(sel).first.is_visible(timeout=500):
+                return True
+        except Exception:
+            continue
     return False
+
+
+def _service_unavailable_reason(page: Any) -> str | None:
+    """返回元宝临时服务故障页的原始命中文案；健康页返回 None。"""
+    text = _read_page_text(page)
+    # 北京 live 页面实际出现过 ASCII `, `，截图/旧版本则是中文逗号；空白与
+    # 标点差异不应让同一故障页漏过分类门。
+    normalized = re.sub(r"\s+", "", text).replace(",", "，")
+    for phrase in _SERVICE_UNAVAILABLE_PHRASES:
+        if re.sub(r"\s+", "", phrase).replace(",", "，") in normalized:
+            return phrase
+    return None
+
+
+def _recover_service_page(page: Any, rng: random.Random) -> bool:
+    """best-effort 恢复元宝服务异常页：官方重试一次，再导航 /chat 兜底。
+
+    只在已确认服务异常文案后调用。返回值只说明故障文案是否消失；模式控件与
+    登录态仍由后续独立硬门确认，避免一次恢复动作掩盖掉登录或 selector drift。
+    """
+    if _service_unavailable_reason(page) is None:
+        return True
+    for sel in _SERVICE_RETRY_SELECTORS:
+        try:
+            retry = page.locator(sel).first
+            if retry.count() == 0 or not retry.is_visible(timeout=500):
+                continue
+            human_click(retry, page, rng)
+            page.wait_for_timeout(2_500)
+            break
+        except Exception:
+            continue
+    if _service_unavailable_reason(page) is None:
+        return True
+    try:
+        page.goto(_CHAT_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+        page.wait_for_timeout(_HYDRATION_SETTLE_MS)
+        _try_close_overlays(page, rng)
+    except Exception:
+        return False
+    return _service_unavailable_reason(page) is None
+
+
+def _recover_login_page(page: Any, rng: random.Random) -> bool:
+    """恢复元宝偶发的登录失败弹层；真正掉登录时保持 fail-closed。
+
+    北京 live 会在已登录 profile 上短暂弹出「登录失败，请稍后重试 / 微信登录」，
+    随后刷新又恢复原账号。先按真人动作关弹层，再导航聊天首页重新 hydration；
+    最终仍见登录墙才返回 False，绝不把匿名壳当作已登录。
+    """
+    if not _detect_login_wall(page):
+        return True
+    _try_close_overlays(page, rng)
+    page.wait_for_timeout(1_500)
+    if not _detect_login_wall(page):
+        return True
+    try:
+        page.goto(_CHAT_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+        page.wait_for_timeout(_HYDRATION_SETTLE_MS)
+        _try_close_overlays(page, rng)
+    except Exception:
+        return False
+    return not _detect_login_wall(page)
 
 
 def _captcha_hit(page: Any) -> str | None:
@@ -2232,6 +2394,29 @@ def _combined_mode_state(page: Any) -> dict[str, Any] | None:
     return state
 
 
+def _mode_surface_ready(page: Any) -> bool:
+    """新版合并控件或完整旧版 Hy3/toggle 控件已经可观测。"""
+    if _combined_mode_state(page) is not None:
+        return True
+    return _model_family(page) is not None and _deep_think_engaged(page) is not None
+
+
+def _wait_for_mode_surface(page: Any, *, timeout_ms: int) -> bool:
+    """等待 Next.js 在 composer 之后异步挂载模式控件。"""
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        # 服务异常页会短暂保留上一帧模式控件；错误态必须比残留控件优先，
+        # 否则后续 _set_collection_mode 会把平台故障误记为 selector drift。
+        if _detect_login_wall(page) or _service_unavailable_reason(page) is not None:
+            return False
+        if _mode_surface_ready(page):
+            return True
+        page.wait_for_timeout(300)
+    if _detect_login_wall(page) or _service_unavailable_reason(page) is not None:
+        return False
+    return _mode_surface_ready(page)
+
+
 def _combined_menu_model(page: Any) -> str | None:
     """新版合并弹层里当前模型（hy3/hy4/deepseek）；弹层未打开或文案未知
     返回 None。模型行是当前 UI 唯一可观察的模型 ground-truth。"""
@@ -2274,10 +2459,25 @@ def _close_combined_menu(page: Any, rng: random.Random, trigger: Any) -> bool:
     try:
         human_click(trigger, page, rng)
     except Exception:
+        pass
+    # 北京新版菜单的 aria-expanded 会晚于点击动画更新，200ms 单拍会把已在
+    # Hy3+快速回答的健康页面误判为 mode_toggle_failed。先给点击完整收口窗口；
+    # 仍未关闭时用标准 Escape 语义兜底，再以 aria-expanded 后置校验。
+    for _ in range(5):
+        page.wait_for_timeout(200)
+        state = _combined_mode_state(page)
+        if state is not None and not state.get("expanded"):
+            return True
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
         return False
-    page.wait_for_timeout(200)
-    state = _combined_mode_state(page)
-    return bool(state is not None and not state.get("expanded"))
+    for _ in range(5):
+        page.wait_for_timeout(200)
+        state = _combined_mode_state(page)
+        if state is not None and not state.get("expanded"):
+            return True
+    return False
 
 
 def _ensure_combined_mode(page: Any, rng: random.Random, mode: str) -> bool | None:

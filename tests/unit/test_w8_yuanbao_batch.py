@@ -57,6 +57,8 @@ _OVERLAY_BB = {"x": 300.0, "y": 200.0, "width": 90.0, "height": 32.0}
 _THINK_BB = {"x": 90.0, "y": 660.0, "width": 90.0, "height": 28.0}
 _MODEL_SWITCH_BB = {"x": 200.0, "y": 660.0, "width": 90.0, "height": 28.0}
 _HY3_OPTION_BB = {"x": 200.0, "y": 500.0, "width": 160.0, "height": 40.0}
+_SERVICE_RETRY_BB = {"x": 560.0, "y": 360.0, "width": 100.0, "height": 36.0}
+_LOGIN_BB = {"x": 1160.0, "y": 24.0, "width": 72.0, "height": 32.0}
 
 _ANSWER_TEXT = "这是元宝的真实回答。"
 
@@ -256,6 +258,9 @@ class _FakePage:
         deep_think_on: bool = False,
         has_think_toggle: bool = True,
         has_model_switch: bool = True,
+        service_error: bool = False,
+        service_retry_recovers: bool = False,
+        logged_out_shell: bool = False,
         sse_body: str = "data: {}\n\n",
     ) -> None:
         self.clock = _FakeClock()
@@ -271,7 +276,14 @@ class _FakePage:
         self.new_chat_button = new_chat_button
         self.goto_clears = goto_clears
         self.visible_overlays = visible_overlays or frozenset()
-        self.body_text = ""
+        self.service_error = service_error
+        self.service_retry_recovers = service_retry_recovers
+        self.logged_out_shell = logged_out_shell
+        self.body_text = (
+            "拉取配置信息失败，请稍后重试 服务异常，请稍后重试"
+            if service_error
+            else ("未登录" if logged_out_shell else "")
+        )
         self.answer_text = ""
         # 发送吞没模拟（风控静默吞发送）：第 N 次（1-based）起 send 区点击不再
         # 清空 composer、不再触发 /api/chat/ 流——驱动 wall_send 路径。
@@ -300,6 +312,10 @@ class _FakePage:
             return ("model_switch", True, _MODEL_SWITCH_BB)
         if self.dropdown_open and selector in yuanbao_adapter._HY3_OPTION_SELECTORS:
             return ("hy3_option", True, _HY3_OPTION_BB)
+        if self.service_error and selector in yuanbao_adapter._SERVICE_RETRY_SELECTORS:
+            return ("service_retry", True, _SERVICE_RETRY_BB)
+        if self.logged_out_shell and selector in yuanbao_adapter._STATIC_LOGIN_BUTTON_SELECTORS:
+            return ("login", True, _LOGIN_BB)
         if selector in self.visible_overlays:
             return ("overlay", True, _OVERLAY_BB)
         return ("none", False, None)
@@ -315,7 +331,11 @@ class _FakePage:
         return []
 
     def route_click(self, x: float, y: float) -> None:
-        if _in_bb(_SEND_BB, x, y):
+        if _in_bb(_SERVICE_RETRY_BB, x, y) and self.service_error:
+            if self.service_retry_recovers:
+                self.service_error = False
+                self.body_text = ""
+        elif _in_bb(_SEND_BB, x, y):
             self.send_clicks += 1
             if self.swallow_sends_from is not None and self.send_clicks >= (
                 self.swallow_sends_from
@@ -1161,6 +1181,113 @@ async def test_collect_one_mode_toggle_failure_is_honest(
     assert exc_info.value.non_retryable is True
     assert not [e for e in page.events if e[0] == "key"]  # 零输入
     assert (evidence / "run-9-task-5-a1-mode_toggle.png").is_file()  # 存证截图落盘
+
+
+def test_service_error_page_retries_before_mode_and_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """北京现场的服务异常页仍带 composer：先点官方重试，恢复后才校验模式；
+    不能把临时故障误报成 selector drift。"""
+    page = _FakePage(messages=0, service_error=True, service_retry_recovers=True)
+    session = _make_session(tmp_path, monkeypatch, page)
+
+    answer = session.collect("家庭装果汁应看哪些标签？", on_stage=lambda s: None)
+
+    assert answer.answer_text == _ANSWER_TEXT
+    retry_clicks = _clicks_in_bb(page.events, _SERVICE_RETRY_BB)
+    assert len(retry_clicks) == 1
+    first_key = next(i for i, event in enumerate(page.events) if event[0] == "key")
+    assert retry_clicks[0] < first_key
+
+
+def test_persistent_service_error_is_retryable_incomplete_not_mode_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """官方重试与 /chat 导航均未恢复时按临时 incomplete 退出，不熔断为
+    mode_toggle_failed。"""
+    evidence = _yuanbao_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0, service_error=True, service_retry_recovers=False)
+    _install_fake_browser(monkeypatch, page)
+    config = YuanbaoAdapterConfig.from_env()
+    session = _PlaywrightYuanbaoSession(config, evidence, "run-9-task-5-a1")
+
+    with pytest.raises(_IncompleteCapture, match="yuanbao-service-unavailable"):
+        session.collect("家庭装果汁应看哪些标签？", on_stage=lambda s: None)
+
+    assert not [event for event in page.events if event[0] == "key"]
+    assert (evidence / "run-9-task-5-a1-service_unavailable.png").is_file()
+
+
+def test_ascii_comma_service_error_is_classified() -> None:
+    """北京 live 文案使用 ASCII `, `，与截图里的中文逗号同类。"""
+    page = _FakePage(messages=0)
+    page.body_text = "服务异常, 请稍后重试\n问题反馈\n重试"
+
+    assert yuanbao_adapter._service_unavailable_reason(page) == "服务异常，请稍后重试"
+
+
+def test_network_error_toast_is_classified_before_stale_mode_menu() -> None:
+    """模型子菜单加载失败时页面仍有快速回答控件，网络 toast 必须先分流。"""
+    page = _FakePage(messages=0)
+    page.body_text = "网络异常，请稍后重试\n快速回答\n模型"
+
+    assert yuanbao_adapter._service_unavailable_reason(page) == "网络异常，请稍后重试"
+
+
+def test_service_error_wins_over_stale_mode_controls() -> None:
+    """故障页残留 Hy3/toggle 时也必须先分流服务异常，不能误报 selector drift。"""
+    page = _FakePage(messages=0, service_error=True)
+
+    assert yuanbao_adapter._mode_surface_ready(page) is True
+    assert yuanbao_adapter._wait_for_mode_surface(page, timeout_ms=600) is False
+
+
+def test_batch_promotes_persistent_service_error_to_activity_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """itemwise batch 不应把平台临时服务页永久固化成一条失败任务。"""
+    page = _FakePage(messages=0, service_error=True, service_retry_recovers=False)
+    session = _make_session(tmp_path, monkeypatch, page)
+
+    with pytest.raises(
+        yuanbao_adapter._TransientServiceUnavailable,
+        match="yuanbao-service-unavailable",
+    ):
+        session.collect_batch(_batch_specs(1), on_stage=lambda _stage: None)
+
+
+def test_live_wechat_login_failure_modal_is_classified() -> None:
+    """新版弹层没有 role=dialog/login-modal class，仍应按专属文案识别。"""
+    selector = "*:text-is('请使用微信扫描二维码登录')"
+    page = _FakePage(messages=0, visible_overlays=frozenset({selector}))
+
+    assert yuanbao_adapter._detect_login_wall(page) is True
+
+
+def test_login_state_timeout_modal_is_classified() -> None:
+    """北京账号新增的登录态超时弹层必须先于模式选择器判定。"""
+    selector = "*:text-is('获取登录态超时，请刷新后重试')"
+    page = _FakePage(messages=0, visible_overlays=frozenset({selector}))
+
+    assert yuanbao_adapter._detect_login_wall(page) is True
+
+
+def test_static_logged_out_shell_with_composer_is_login_wall(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """静态掉登录壳虽保留 composer，也必须在模式选择前识别为登录墙。"""
+    evidence = _yuanbao_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0, logged_out_shell=True)
+    _install_fake_browser(monkeypatch, page)
+    config = YuanbaoAdapterConfig.from_env()
+    session = _PlaywrightYuanbaoSession(config, evidence, "run-9-task-5-a1")
+
+    with pytest.raises(_WallError) as exc_info:
+        session.collect("家庭装果汁应看哪些标签？", on_stage=lambda s: None)
+
+    assert exc_info.value.wall_type == "wall_login_required"
+    assert not [event for event in page.events if event[0] == "key"]
+    assert (evidence / "run-9-task-5-a1-login.png").is_file()
 
 
 async def test_collect_one_switches_model_family_to_hy3(

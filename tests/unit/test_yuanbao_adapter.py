@@ -410,6 +410,7 @@ class _CombinedModePage:
         self.has_hy3 = has_hy3
         self.menu = "closed"
         self.clicks: list[str] = []
+        self.keyboard = _CombinedModeKeyboard(self)
 
     def evaluate(self, script: str) -> dict[str, object]:
         if script == _COMBINED_MODE_STATE_JS:
@@ -438,6 +439,16 @@ class _CombinedModePage:
         del timeout
 
 
+class _CombinedModeKeyboard:
+    def __init__(self, page: _CombinedModePage) -> None:
+        self.page = page
+
+    def press(self, key: str) -> None:
+        assert key == "Escape"
+        self.page.clicks.append("escape")
+        self.page.menu = "closed"
+
+
 def test_combined_mode_normal_verifies_hy3_and_closes_menu(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -449,6 +460,24 @@ def test_combined_mode_normal_verifies_hy3_and_closes_menu(
     )
     assert _ensure_combined_mode(page, random.Random(1), "normal") is True
     assert page.clicks == ["trigger", "trigger"]
+    assert page.menu == "closed"
+
+
+def test_combined_mode_uses_escape_when_trigger_click_does_not_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """北京新版弹层偶发吞关闭点击时，Escape 后仍须以 expanded=false 确认。"""
+    page = _CombinedModePage("normal", "快速回答")
+
+    def click_without_closing(locator: _CombinedModeLocator, _page: object, _rng: object) -> None:
+        page.clicks.append(locator.kind)
+        if locator.kind == "trigger" and page.menu == "closed":
+            page.menu = "main"
+
+    monkeypatch.setattr(yuanbao_module, "human_click", click_without_closing)
+
+    assert _ensure_combined_mode(page, random.Random(1), "normal") is True
+    assert page.clicks == ["trigger", "trigger", "escape"]
     assert page.menu == "closed"
 
 
