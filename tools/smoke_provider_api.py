@@ -21,8 +21,8 @@ from workflows.activities.collection import CollectionBatchInput, CollectionTask
 from workflows.activities.provider_api_adapter import (
     PROVIDER_API_PLATFORM_SLUGS,
     PROVIDER_API_PROFILES,
-    ProviderApiNotConfiguredError,
     ProviderApiConfig,
+    ProviderApiNotConfiguredError,
     run_provider_api_batch,
 )
 
@@ -56,13 +56,17 @@ async def _main() -> int:
     )
     (outcome,) = result.results
     if outcome.status != "ok":
-        print(f"采集失败：{outcome.status}/{outcome.error_type}: {outcome.error_message}", file=sys.stderr)
+        print(
+            f"采集失败：{outcome.status}/{outcome.error_type}: {outcome.error_message}",
+            file=sys.stderr,
+        )
         return 2
     print(f"== 答案（{len(outcome.answer_text or '')} 字）==")
     print(outcome.answer_text)
     print(f"\n== 引用（{len(outcome.citations)} 条）==")
     for citation in outcome.citations:
-        print(f"[{citation.get('platform_ordinal')}] {citation.get('title') or ''} {citation['url']}")
+        title = citation.get("title") or ""
+        print(f"[{citation.get('platform_ordinal')}] {title} {citation['url']}")
     print(f"\n== 检索词（{len(outcome.search_queries)} 条）==")
     for entry in outcome.search_queries:
         print(f"[{entry['ordinal']}] {entry['query']}")
