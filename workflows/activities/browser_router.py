@@ -260,7 +260,10 @@ def _worker_session() -> Session:
 
 
 def _governor_decision(
-    slug: str, region_gb: str, mode: str | None = None
+    slug: str,
+    region_gb: str,
+    mode: str | None = None,
+    run_pub_id: str | None = None,
 ) -> tuple[str, dict[str, Any] | None]:
     """治理层派题判定（读实体表；governor 的 lazy resume/reset 随之提交落库）。
 
@@ -281,7 +284,12 @@ def _governor_decision(
     try:
         with _worker_session() as session:
             governor = AccountGovernor(session)
-            resolved = governor.resolve_collectable(platform=slug, region_gb=region_gb, mode=mode)
+            resolved = governor.resolve_collectable(
+                platform=slug,
+                region_gb=region_gb,
+                mode=mode,
+                run_pub_id=run_pub_id,
+            )
             if resolved is not None:
                 session.commit()
                 return "hit", resolved
@@ -398,7 +406,12 @@ def _route_from_governor_hit(slug: str, region_gb: str, payload: dict[str, Any])
     return route
 
 
-def resolve_browser_instance(platform: str, region: str, mode: str | None = None) -> InstanceRoute:
+def resolve_browser_instance(
+    platform: str,
+    region: str,
+    mode: str | None = None,
+    run_pub_id: str | None = None,
+) -> InstanceRoute:
     """(adapter slug, task region, mode) → 常驻实例路由。
 
     派题链（2026-08-14 起）：先消费 AccountGovernor 实体状态（命中用其绑定实例；
@@ -412,7 +425,7 @@ def resolve_browser_instance(platform: str, region: str, mode: str | None = None
     slug = str(platform or "").strip().lower()
     region_gb = normalize_region_gb(region)
     if region_gb and account_governance_enabled():
-        decision, payload = _governor_decision(slug, region_gb, mode)
+        decision, payload = _governor_decision(slug, region_gb, mode, run_pub_id)
         if decision == "hit" and payload is not None:
             return _route_from_governor_hit(slug, region_gb, payload)
         if decision == "unavailable":
@@ -446,7 +459,7 @@ def resolve_browser_instance(platform: str, region: str, mode: str | None = None
     )
 
 
-def resolve_batch_instance(items: Any) -> InstanceRoute | None:
+def resolve_batch_instance(items: Any, run_pub_id: str | None = None) -> InstanceRoute | None:
     """batch 段（同 adapter 同 region 的连续任务）→ 唯一实例路由。
 
     - 空段 → None（零浏览器交互，空 batch 契约不变）；
@@ -456,7 +469,12 @@ def resolve_batch_instance(items: Any) -> InstanceRoute | None:
     """
     routes: dict[str, InstanceRoute] = {}
     for item in items:
-        route = resolve_browser_instance(item.adapter, item.region, item.mode)
+        route = resolve_browser_instance(
+            item.adapter,
+            item.region,
+            item.mode,
+            run_pub_id=run_pub_id,
+        )
         routes.setdefault(route.instance_key, route)
     if not routes:
         return None

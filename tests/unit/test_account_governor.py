@@ -779,6 +779,58 @@ def test_resolve_collectable_hit(
     }
 
 
+def test_resolve_collectable_claims_and_reuses_run_account(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    _seed_region(session)
+    _seed_browser(session)
+    account = _seed_account(session)
+
+    first = governor.resolve_collectable(
+        platform="doubao", region_gb="310000", run_pub_id="run_sticky"
+    )
+    second = governor.resolve_collectable(
+        platform="doubao", region_gb="310000", run_pub_id="run_sticky"
+    )
+
+    assert first is not None and second is not None
+    assert first["platform_account_pub_id"] == account.pub_id
+    assert second["platform_account_pub_id"] == account.pub_id
+    assert account.runtime_state == "running"
+    assert account.current_run_pub_id == "run_sticky"
+
+
+def test_release_run_reservations_only_releases_running_owner(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    running = _seed_account(
+        session,
+        pub_id="pac_running",
+        runtime_state="running",
+        current_run_pub_id="run_terminal",
+    )
+    captcha = _seed_account(
+        session,
+        pub_id="pac_captcha",
+        runtime_state="captcha",
+        current_run_pub_id="run_terminal",
+    )
+    other = _seed_account(
+        session,
+        pub_id="pac_other",
+        runtime_state="running",
+        current_run_pub_id="run_other",
+    )
+
+    assert governor.release_run_reservations(run_pub_id="run_terminal") == 1
+    assert running.runtime_state == "idle"
+    assert running.current_run_pub_id is None
+    assert captcha.runtime_state == "captcha"
+    assert captcha.current_run_pub_id == "run_terminal"
+    assert other.runtime_state == "running"
+    assert other.current_run_pub_id == "run_other"
+
+
 def test_resolve_collectable_unlimited_quota_remaining_none(
     session: _FakeSession, governor: AccountGovernor, fixed_clock: None
 ) -> None:

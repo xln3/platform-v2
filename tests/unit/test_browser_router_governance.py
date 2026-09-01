@@ -205,6 +205,78 @@ def test_governor_hit_uses_bound_instance_not_env_first(
 
 
 @pytest.mark.usefixtures("_prod_topology")
+def test_run_claims_idle_account_and_reuses_it_across_questions(
+    governance_db: _FakeGovernanceDb,
+) -> None:
+    """一题一个 Activity 仍须把账号粘在 run 上；第二题可复用 running owner。"""
+    _seed_gov_region(governance_db)
+    _seed_gov_browser(governance_db)
+    account = _seed_gov_account(governance_db)
+
+    first = resolve_batch_instance(
+        [_task("first", "doubao", "CN-SH")],
+        run_pub_id="run_sticky",
+    )
+    second = resolve_batch_instance(
+        [_task("second", "doubao", "CN-SH")],
+        run_pub_id="run_sticky",
+    )
+
+    assert first is not None and first.instance_key == "doubao_sh"
+    assert second is not None and second.instance_key == "doubao_sh"
+    assert account.runtime_state == "running"
+    assert account.current_run_pub_id == "run_sticky"
+
+
+@pytest.mark.usefixtures("_prod_topology")
+def test_two_runs_claim_two_distinct_accounts(
+    monkeypatch: pytest.MonkeyPatch, governance_db: _FakeGovernanceDb
+) -> None:
+    """第二个 run 不得复用第一个 run 已认领的账号，应领取同地域下一账号。"""
+    monkeypatch.setenv(ENV_BROWSER_INSTANCES, "doubao_sh,doubao_sh2")
+    _instance(monkeypatch, "doubao_sh2", port=19230, exit_gb="310000")
+    _seed_gov_region(governance_db)
+    _seed_gov_browser(governance_db, instance_key="doubao_sh")
+    _seed_gov_browser(governance_db, instance_key="doubao_sh2")
+    first_account = _seed_gov_account(governance_db, browser_instance_key="doubao_sh")
+    second_account = _seed_gov_account(governance_db, browser_instance_key="doubao_sh2")
+
+    first = resolve_browser_instance("doubao", "CN-SH", run_pub_id="run_one")
+    second = resolve_browser_instance("doubao", "CN-SH", run_pub_id="run_two")
+
+    assert first.instance_key == "doubao_sh"
+    assert second.instance_key == "doubao_sh2"
+    assert first_account.current_run_pub_id == "run_one"
+    assert second_account.current_run_pub_id == "run_two"
+
+
+@pytest.mark.usefixtures("_prod_topology")
+def test_existing_run_owner_wins_over_earlier_idle_account(
+    monkeypatch: pytest.MonkeyPatch, governance_db: _FakeGovernanceDb
+) -> None:
+    """run 已绑定账号后，即使排序更前的账号空闲，也不能在下一题漂移身份。"""
+    monkeypatch.setenv(ENV_BROWSER_INSTANCES, "doubao_sh,doubao_sh2")
+    _instance(monkeypatch, "doubao_sh2", port=19230, exit_gb="310000")
+    _seed_gov_region(governance_db)
+    _seed_gov_browser(governance_db, instance_key="doubao_sh")
+    _seed_gov_browser(governance_db, instance_key="doubao_sh2")
+    idle = _seed_gov_account(governance_db, browser_instance_key="doubao_sh")
+    owner = _seed_gov_account(
+        governance_db,
+        browser_instance_key="doubao_sh2",
+        runtime_state="running",
+        current_run_pub_id="run_owner",
+    )
+
+    route = resolve_browser_instance("doubao", "CN-SH", run_pub_id="run_owner")
+
+    assert route.instance_key == "doubao_sh2"
+    assert idle.runtime_state == "idle"
+    assert idle.current_run_pub_id is None
+    assert owner.current_run_pub_id == "run_owner"
+
+
+@pytest.mark.usefixtures("_prod_topology")
 def test_governor_hit_region_mismatch_fail_closed(
     monkeypatch: pytest.MonkeyPatch, governance_db: _FakeGovernanceDb
 ) -> None:

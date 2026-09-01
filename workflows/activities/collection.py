@@ -2387,6 +2387,13 @@ def mark_collection_run_terminal(
                 project=project,
             )
 
+        # Browser adapters intentionally resolve every one-item Activity.  The
+        # governor therefore reserves one account for the whole run; release
+        # that reservation only at the workflow's real terminal activity.  A
+        # wall state (captcha/muted/quota/error) is not repaired here: only a
+        # still-running reservation becomes idle.
+        AccountGovernor(session).release_run_reservations(run_pub_id=run_pub_id)
+
         if has_failures and run.state != "cancelled":
             from geo_platform.collection.run_service import stage_collection_run
 

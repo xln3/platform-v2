@@ -459,9 +459,14 @@ class AccountGovernor:
     # ------------------------------------------------------------------
 
     def resolve_collectable(
-        self, *, platform: str, region_gb: str, mode: str | None = None
+        self,
+        *,
+        platform: str,
+        region_gb: str,
+        mode: str | None = None,
+        run_pub_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """派题解析：platform ∧ region_gb ∧ mode ∧ idle ∧ 未超 quota ∧ 无熔断。
+        """派题解析：同 run 粘性账号，或原子认领一个可采 idle 账号。
 
         命中 → dict {platform_account_pub_id, browser_instance_key, region_gb,
         remaining_today}（remaining_today=None 表示日预算不限）。
@@ -475,9 +480,17 @@ class AccountGovernor:
         只代表冷却结束，不代表根因恢复。``mode=None`` 保持旧调用兼容且
         fail-closed：任一仍生效的模式额度封锁都会阻断未声明模式的派题。
 
-        注意：本方法会写库——对过期 muted/quota_exhausted 做 lazy resume、对过
-        quota_reset_at 的账号做 lazy 用量清零（「重置点后 lazy 清零」的读侧落点）。
+        ``run_pub_id`` 非空时，已由该 run 占用的 ``running`` 账号优先且独占复
+        用；没有既有占用时才从 idle 账号中选择，并在同一行锁事务内迁移为
+        ``running``。这使一题一个 Activity 的工作流仍保持账号粘性，也防止两
+        个并发 run 同时拿到同一 idle 账号。若 run 已有占用但该账号暂不可采，
+        本方法 fail-closed 返回 None，绝不静默换号。
+
+        注意：本方法会写库——除认领账号外，还会对过期
+        muted/quota_exhausted 做 lazy resume、对过 quota_reset_at 的账号做 lazy
+        用量清零（「重置点后 lazy 清零」的读侧落点）。调用方负责 commit。
         """
+        run_pub_id = str(run_pub_id or "").strip() or None
         now = now_utc()
         region = self._conn.scalar(
             select(CollectionRegion).where(CollectionRegion.region_gb == region_gb)
@@ -493,10 +506,17 @@ class AccountGovernor:
             return None
         candidates = list(
             self._conn.scalars(
-                select(CollectionPlatformAccount).where(
+                select(CollectionPlatformAccount)
+                .where(
                     CollectionPlatformAccount.platform == platform,
                     CollectionPlatformAccount.region_gb == region_gb,
                 )
+                # Lock the small platform+region pool in a deterministic order.
+                # The claim and caller commit are a short transaction; a second
+                # resolver then observes the first account as running and takes
+                # the next idle account instead of double-assigning it.
+                .order_by(CollectionPlatformAccount.id.asc())
+                .with_for_update()
             )
         )
         if not candidates:
@@ -507,11 +527,27 @@ class AccountGovernor:
                 region_gb=region_gb,
             )
             return None
+        owned = [
+            account
+            for account in candidates
+            if run_pub_id is not None
+            and account.runtime_state == "running"
+            and account.current_run_pub_id == run_pub_id
+        ]
+        if owned:
+            # One run must never drift to another identity between questions.
+            candidates = owned
+
         saw_region_mismatch = False
         for account in candidates:
             self._lazy_resume(account, now)
             self._lazy_quota_reset(account, now)
-            if account.runtime_state != "idle":
+            owned_by_run = (
+                run_pub_id is not None
+                and account.runtime_state == "running"
+                and account.current_run_pub_id == run_pub_id
+            )
+            if account.runtime_state != "idle" and not owned_by_run:
                 continue
             if not self._quota_available(account):
                 continue
@@ -602,12 +638,23 @@ class AccountGovernor:
                 if account.quota_day is None
                 else max(account.quota_day - account.used_today, 0)
             )
-            return {
+            if run_pub_id is not None and not owned_by_run:
+                self.set_runtime_state(
+                    platform_account_id=account.id,
+                    new_state="running",
+                    reason="collection_run_claimed",
+                    actor="worker",
+                    run_pub_id=run_pub_id,
+                )
+            payload = {
                 "platform_account_pub_id": account.pub_id,
                 "browser_instance_key": account.browser_instance_key,
                 "region_gb": region_gb,
                 "remaining_today": remaining_today,
             }
+            if run_pub_id is not None:
+                payload["current_run_pub_id"] = run_pub_id
+            return payload
         reason = "region_ip_mismatch" if saw_region_mismatch else "no_collectable_account"
         log.warning(
             "account_resolve_failed",
@@ -616,6 +663,37 @@ class AccountGovernor:
             region_gb=region_gb,
         )
         return None
+
+    def release_run_reservations(self, *, run_pub_id: str) -> int:
+        """Release this run's still-healthy account reservations at terminal.
+
+        Captcha/muted/quota/error rows deliberately retain their protective
+        state; terminal cleanup is not health repair.  The caller owns commit.
+        """
+        normalized_run_pub_id = str(run_pub_id or "").strip()
+        if not normalized_run_pub_id:
+            return 0
+        accounts = list(
+            self._conn.scalars(
+                select(CollectionPlatformAccount)
+                .where(CollectionPlatformAccount.current_run_pub_id == normalized_run_pub_id)
+                .order_by(CollectionPlatformAccount.id.asc())
+                .with_for_update()
+            )
+        )
+        released = 0
+        for account in accounts:
+            if account.runtime_state != "running":
+                continue
+            self.set_runtime_state(
+                platform_account_id=account.id,
+                new_state="idle",
+                reason="collection_run_terminal",
+                actor="worker",
+                run_pub_id=normalized_run_pub_id,
+            )
+            released += 1
+        return released
 
     # ------------------------------------------------------------------
     # 管理页 / API 入口
