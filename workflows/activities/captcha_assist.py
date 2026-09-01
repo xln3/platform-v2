@@ -1024,7 +1024,24 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
             "push_sent": False,
             "solved_at": None,
         }
-        _write_registry(record)
+        try:
+            _write_registry(record)
+        except Exception:
+            # ``sess.start()`` already owns the browser lock/fence and has a
+            # live bridge thread.  A registry filesystem/configuration failure
+            # happens before the session enters ``_SESSIONS``; without this
+            # cleanup neither the normal stop activity nor the TTL registry
+            # path can find it, leaving the resident browser locked until the
+            # worker process is restarted.
+            try:
+                sess.stop()
+            except Exception as cleanup_error:  # noqa: BLE001 - preserve root failure
+                log.warning(
+                    "captcha_assist.start_cleanup_failed",
+                    run_pub_id=input.run_pub_id,
+                    marker=type(cleanup_error).__name__,
+                )
+            raise
 
         pushed = False
         label = _PLATFORM_LABELS.get(input.platform, input.platform)

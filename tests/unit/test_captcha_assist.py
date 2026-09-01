@@ -312,6 +312,26 @@ async def test_start_idempotent_and_stop_closes(monkeypatch: pytest.MonkeyPatch,
     )
 
 
+async def test_registry_write_failure_releases_started_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    browser, handle, _pushes = _wire(monkeypatch, tmp_path, [_FakePage(captcha_visible=True)])
+
+    def fail_registry(_record: dict) -> None:
+        raise OSError("registry directory is not writable")
+
+    monkeypatch.setattr(captcha_assist, "_write_registry", fail_registry)
+    with pytest.raises(OSError, match="not writable"):
+        await captcha_assist_start(_input("run_registry_failure"))
+
+    assert browser.closed is True
+    assert handle.stopped is True
+    assert captcha_assist._SESSIONS == {}
+    lock = browser_lock("doubao")
+    assert lock.acquire(timeout=0.1) is True
+    lock.release()
+
+
 async def test_feishu_app_start_only_enqueues_local_outbox(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
