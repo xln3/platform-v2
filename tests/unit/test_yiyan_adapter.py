@@ -5,6 +5,7 @@ profile 未配置 / screenshot_ref 过 DLP / 代理打码。
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,8 @@ from workflows.activities.yiyan_adapter import (
     _ensure_deep_think,
     _extract_references,
     _ModeToggleFailed,
+    _references_from_sse_raw,
+    _sse_references_from_capture,
     _task_execution_running,
     _task_execution_state,
     _task_result_from_collected,
@@ -619,5 +622,200 @@ def test_strip_thinking_js_serializes_tables_as_markdown() -> None:
     assert "querySelectorAll('table')" in _STRIP_THINKING_JS
     assert "querySelectorAll('th,td')" in _STRIP_THINKING_JS
     assert "'---'" in _STRIP_THINKING_JS
+
+
+# ---------------------------------------------------------------------------
+# SSE referenceList 召回全集（20260903 起，引用主数据源；fixture=20260903 全流量
+# 探针真实响应裁剪：thinkingSteps 帧 referenceList 28→3 条 + 正文帧——探针答案
+# 正文零引用角标，platform_ordinal 诚实缺省不臆造）
+# ---------------------------------------------------------------------------
+
+_FIXTURE_SSE_REFLIST = (
+    Path(__file__).resolve().parent.parent
+    / "fixtures"
+    / "yiyan_sse_conversation_reference_list.txt"
+)
+
+
+def _sse_frame(
+    reference_list: object, *, refer_nums: object = None, generator_as_list: bool = False
+) -> str:
+    """最小形态 thinkingSteps 快照帧（字段名对齐探针真实帧）。"""
+    gdata: dict[str, Any] = {"referenceList": reference_list}
+    if refer_nums is not None:
+        gdata["steps"] = [
+            {
+                "component": "referenceList",
+                "step_name": "searchingOnline",
+                "searchReferNums": refer_nums,
+            }
+        ]
+    generator: Any = {"component": "thinkingSteps", "data": gdata}
+    frame = {
+        "status": 0,
+        "data": {
+            "message": {"content": {"generator": [generator] if generator_as_list else generator}}
+        },
+    }
+    return f"event:message\ndata:{json.dumps(frame, ensure_ascii=False)}\n\n"
+
+
+def test_references_from_sse_raw_parses_probe_fixture() -> None:
+    """正常路径：探针真实帧裁剪 → 3 条全量召回逐字段映射（url/text→title/
+    source→sitename/abstract→summary），searchReferNums 声明值原样带出
+    （fixture 裁了列表没裁声明：28≠3 的差异两面都诚实保留）。"""
+    references, refer_nums = _references_from_sse_raw(
+        _FIXTURE_SSE_REFLIST.read_text(encoding="utf-8")
+    )
+    assert refer_nums == 28
+    assert [r["url"] for r in references] == [
+        "http://www.bilibili.com/video/BV1NN4y1i7wv",
+        "http://www.iqiyi.com/v_255icohdy24.html",
+        "https://baijiahao.baidu.com/s?id=1875193794184185870&wfr=spider&for=pc",
+    ]
+    assert references[0]["title"] == "什么是搜索引擎优化(SEO)?"
+    assert references[0]["sitename"] == "一个互联网公司"
+    assert references[0]["summary"].startswith("全称搜索引擎优化")
+    assert references[2]["title"] == "刘海铭:从词条时代到词元时代的品牌孵化路径嬗变"
+    # 正文锚点在探针答案里不存在：绝不臆造 platform_ordinal
+    assert all("platform_ordinal" not in r for r in references)
+
+
+def test_references_from_sse_raw_last_snapshot_wins() -> None:
+    """快照累进：多帧携带 referenceList 时取最后一帧（最全）。"""
+    text = _sse_frame(
+        [{"url": "https://example.com/old", "text": "旧快照", "source": "s", "abstract": "a"}],
+        refer_nums=1,
+    ) + _sse_frame(
+        [
+            {"url": "https://example.com/new-1", "text": "新1", "source": "s", "abstract": ""},
+            {"url": "https://example.com/new-2", "text": "新2"},
+        ],
+        refer_nums=2,
+    )
+    references, refer_nums = _references_from_sse_raw(text)
+    assert [r["url"] for r in references] == [
+        "https://example.com/new-1",
+        "https://example.com/new-2",
+    ]
+    assert refer_nums == 2
+    # 空串摘要/缺失字段 → None（不发明内容）
+    assert references[0]["summary"] is None
+    assert references[1]["title"] == "新2"
+    assert references[1]["sitename"] is None
+
+
+def test_references_from_sse_raw_generator_list_form() -> None:
+    """generator 兼容 list 形态（探针报告口径 generator[]）。"""
+    text = _sse_frame(
+        [{"url": "https://example.com/x", "text": "t"}],
+        refer_nums="7",  # 字符串形态也容错
+        generator_as_list=True,
+    )
+    references, refer_nums = _references_from_sse_raw(text)
+    assert [r["url"] for r in references] == ["https://example.com/x"]
+    assert refer_nums == 7
+
+
+def test_references_from_sse_raw_missing_component_is_silent() -> None:
+    """缺组件（未联网的题=正常情形）：正文帧/basedata/非 SSE 文本 → ([], None)，
+    fail-open 由调用方维持 DOM 兜底，零告警噪音。"""
+    assert _references_from_sse_raw("") == ([], None)
+    assert _references_from_sse_raw("not an sse stream at all") == ([], None)
+    only_markdown = (
+        'event:basedata\ndata:{"status":0}\n\n'
+        + "event:ping\n\n"
+        + _sse_frame([])  # referenceList 空列表 ≠ 命中
+    )
+    assert _references_from_sse_raw(only_markdown) == ([], None)
+
+
+def test_references_from_sse_raw_malformed_frames_skipped() -> None:
+    """畸形路径：坏 JSON 帧/referenceList 非 list/条目非 dict/url 非 http(s)
+    逐条跳过；唯一合法条目仍出。绝不从正文猜链接。"""
+    text = (
+        "event:message\ndata:{broken json\n\n"
+        + _sse_frame({"not": "a list"})
+        + _sse_frame(
+            [
+                "not-a-dict",
+                {"text": "无 URL 条目"},
+                {"url": "javascript:alert(1)", "text": "坏协议"},
+                {"url": "ftp://example.com/x", "text": "非 http"},
+                {"url": "https://example.com/ok", "text": "合法"},
+            ]
+        )
+    )
+    references, refer_nums = _references_from_sse_raw(text)
+    assert refer_nums is None
+    assert [r["url"] for r in references] == ["https://example.com/ok"]
+
+
+class _FakeRawCapture:
+    """RawTrafficCapture 替身：只实现 dump_sse_raw 返回面。"""
+
+    def __init__(self, result: Path | None, *, raises: bool = False) -> None:
+        self._result = result
+        self._raises = raises
+        self.calls = 0
+
+    def dump_sse_raw(self, directory: Path, stem: str) -> Path | None:
+        self.calls += 1
+        if self._raises:
+            raise OSError("disk full")
+        return self._result
+
+
+def test_sse_references_from_capture_honest_absent_paths() -> None:
+    """raw=None（GEO_RAW_CAPTURE=0）/未命中（dump None）/写盘失败 → ([], None)
+    诚实缺省，DOM 兜底维持。"""
+    assert _sse_references_from_capture(None, Path("/tmp"), "stem") == ([], None)
+    assert _sse_references_from_capture(_FakeRawCapture(None), Path("/tmp"), "stem") == ([], None)
+    assert _sse_references_from_capture(
+        _FakeRawCapture(None, raises=True), Path("/tmp"), "stem"
+    ) == ([], None)
+
+
+def test_sse_references_from_capture_reads_dumped_evidence() -> None:
+    """解析对象就是持久化的 sse_raw 证据文件（证据同源）。"""
+    references, refer_nums = _sse_references_from_capture(
+        _FakeRawCapture(_FIXTURE_SSE_REFLIST), Path("/tmp"), "stem"
+    )
+    assert len(references) == 3
+    assert refer_nums == 28
+
+
+async def test_success_citations_carry_sse_abstract(adapter_env: Path) -> None:
+    """SSE 路径 references（带 summary=abstract）→ citations 的 cited_text；
+    无摘要/空白摘要 → None。platform_ordinal 无锚点可映射 → 键不臆造。"""
+    shot = adapter_env / "run-9-task-5-a1.png"
+    shot.write_bytes(b"\x89PNG-fake")
+    session = _FakeSession(
+        result=CollectedAnswer(
+            answer_text="正文",
+            references=[
+                {
+                    "url": "https://example.com/a",
+                    "title": "标题A",
+                    "sitename": "站点A",
+                    "summary": "平台返回的摘要",
+                },
+                {
+                    "url": "https://example.com/b",
+                    "title": "标题B",
+                    "sitename": None,
+                    "summary": "   ",
+                },
+            ],
+            screenshot_path=shot,
+        )
+    )
+    result = await run_yiyan_collection(
+        _item(), session_factory=_factory(session), heartbeat=lambda p: None
+    )
+    assert result.citations == [
+        {"url": "https://example.com/a", "title": "标题A", "cited_text": "平台返回的摘要"},
+        {"url": "https://example.com/b", "title": "标题B", "cited_text": None},
+    ]
     assert "replaceWith" in _STRIP_THINKING_JS
     assert "'\\n' + lines.join" in _STRIP_THINKING_JS

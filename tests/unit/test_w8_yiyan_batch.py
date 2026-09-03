@@ -204,8 +204,9 @@ class _FakeLocator:
 
 class _FakeCDP:
     """共享总线 fake（2026-08-10 起：yiyan 新增 RawTrafficCapture 挂 page 级
-    CDP session）。默认不发任何事件——镜像文心 ServiceWorker 中转、page 级
-    session 可能看不到 completion 流量的情形（sse_raw 诚实缺省）。"""
+    CDP session）。默认不发任何事件——镜像 page 级 session 看不到 completion
+    流量的情形（sse_raw 诚实缺省；20260903 前以为是 SW 中转常态，探针推翻后
+    保留该路径作为平台改版回退情形）。"""
 
     def __init__(self, page: _FakePage) -> None:
         self._page = page
@@ -228,13 +229,14 @@ class _FakeCDP:
             fn(payload)
 
     def emit_completion_stream(self, rid: str = "req-y1") -> None:
-        """模拟 page 级可见的 completion event-stream（raw capture 命中情形）。"""
+        """模拟 page 级可见的 completion event-stream（raw capture 命中情形）。
+        URL=20260903 探针实证的现行 completion 端点（适配器 hint 同款）。"""
         self.emit(
             "Network.requestWillBeSent",
             {
                 "requestId": rid,
                 "request": {
-                    "url": "https://yiyan.baidu.com/eb/chat/completion",
+                    "url": "https://chat.baidu.com/aichat/api/conversation",
                     "method": "POST",
                 },
             },
@@ -1012,7 +1014,7 @@ async def test_collect_yiyan_batch_activity_defn_registered() -> None:
 
 
 class _StreamVisibleFakePage(_FakePage):
-    """page 级 CDP 可见 completion 流的情形（对照 SW 中转不可见的缺省 fake）。"""
+    """page 级 CDP 可见 completion 流的情形（对照零事件的缺省 fake）。"""
 
     def route_click(self, x: float, y: float) -> None:
         super().route_click(x, y)
@@ -1051,8 +1053,9 @@ def test_collect_batch_ok_item_carries_raw_evidence(
 def test_collect_batch_ok_item_sse_raw_honest_absent_when_stream_invisible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """page 级 session 看不到 completion 流量（SW 中转，缺省 fake 零事件）：
-    sse_raw 诚实缺省（None 不出证据），HAR 有什么算什么（零请求条目也落盘）。"""
+    """page 级 session 看不到 completion 流量（平台改版回退情形，缺省 fake 零
+    事件）：sse_raw 诚实缺省（None 不出证据），HAR 有什么算什么（零请求条目也
+    落盘）。"""
     page = _FakePage(messages=0)
     session = _make_session(tmp_path, monkeypatch, page)
     specs = _batch_specs(1)
@@ -1068,6 +1071,69 @@ def test_collect_batch_ok_item_sse_raw_honest_absent_when_stream_invisible(
     assert har_path.is_file()
     har = json.loads(har_path.read_text(encoding="utf-8"))
     assert har["log"]["entries"] == []
+
+
+# ---------------------------------------------------------------------------
+# SSE referenceList（20260903 起）：引用主数据源从本题 sse_raw 解析（证据同源）
+# ---------------------------------------------------------------------------
+
+_REFLIST_FIXTURE = (
+    Path(__file__).resolve().parent.parent
+    / "fixtures"
+    / "yiyan_sse_conversation_reference_list.txt"
+)
+
+
+class _RefListFakeCDP(_FakeCDP):
+    """getResponseBody 返回带 referenceList 的探针真实裁剪 SSE。"""
+
+    def send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if method == "Network.getResponseBody":
+            return {
+                "body": _REFLIST_FIXTURE.read_text(encoding="utf-8"),
+                "base64Encoded": False,
+            }
+        return {}
+
+
+class _RefListStreamFakePage(_StreamVisibleFakePage):
+    def __init__(self, **kw: Any) -> None:
+        super().__init__(**kw)
+        self.cdp = _RefListFakeCDP(self)
+
+
+def test_collect_batch_references_prefer_sse_reference_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SSE referenceList 全量召回取代 DOM 兜底成 references；trace 的
+    answer_reference_pages 同步带 summary（rank=平台下发顺序）；citations 经
+    _batch_item_result 带 cited_text=abstract；正文无锚点 → 不出
+    platform_ordinal。DOM 兜底仍在：fake DOM 无来源卡片时仅靠 SSE 出引用。"""
+    page = _RefListStreamFakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(1)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert outcomes[0].status == "ok"
+    answer = outcomes[0].answer
+    assert answer is not None
+    assert [r["url"] for r in answer.references] == [
+        "http://www.bilibili.com/video/BV1NN4y1i7wv",
+        "http://www.iqiyi.com/v_255icohdy24.html",
+        "https://baijiahao.baidu.com/s?id=1875193794184185870&wfr=spider&for=pc",
+    ]
+    assert answer.references[0]["summary"].startswith("全称搜索引擎优化")
+    assert all("platform_ordinal" not in r for r in answer.references)
+    # trace 同步（references 在 trace 落盘前已升级为 SSE 全量）
+    assert answer.trace_path is not None
+    trace = json.loads(answer.trace_path.read_text(encoding="utf-8"))
+    rows = trace["answer_reference_pages"]
+    assert [r["url"] for r in rows] == [r["url"] for r in answer.references]
+    assert rows[0]["summary"].startswith("全称搜索引擎优化")
+    # outcome → result 映射带 cited_text=abstract
+    result = yiyan_adapter._batch_item_result(_item(), outcomes[0])
+    assert result.citations[0]["cited_text"].startswith("全称搜索引擎优化")
 
 
 def test_collect_batch_wall_item_carries_raw_har_ref(
