@@ -142,6 +142,33 @@ def _truncate_text(text: str, max_bytes: int) -> tuple[str, bool]:
     return payload[:max_bytes].decode("utf-8", "ignore"), True
 
 
+# Chromium getResponseBody 非 base64 通道按响应 charset 解码；缺省 charset 时
+# 走 WHATWG windows-1252 legacy 默认（5 个 cp1252 未定义字节 0x81/8D/8F/90/9D
+# 按 WHATWG 语义映射到对应 C1 控制符）。逆映射把已被误解码的 str 还原回原始
+# 网络字节；逆映射不覆盖的字符说明 Chromium 用的不是该解码（理论外情形），
+# 此时保留原 str 诚实落盘，绝不硬转。
+_WHATWG_WIN1252_C1_BYTES = frozenset({0x81, 0x8D, 0x8F, 0x90, 0x9D})
+_WIN1252_INVERSE: dict[str, int] = {}
+for _byte in range(256):
+    _WIN1252_INVERSE[
+        chr(_byte) if _byte in _WHATWG_WIN1252_C1_BYTES else bytes([_byte]).decode("cp1252")
+    ] = _byte
+
+
+def _restore_chromium_decoded_body(body: str, charset: str | None) -> str:
+    """还原 Chromium 已按缺省 windows-1252 解码的响应体字节，再按 UTF-8 落 str。
+
+    charset 非空时 Chromium 已按声明 charset 正确解码，原样返回。
+    """
+    if charset:
+        return body
+    try:
+        raw = bytes(_WIN1252_INVERSE[char] for char in body)
+    except KeyError:
+        return body
+    return raw.decode("utf-8", "replace")
+
+
 def _iso_from_wall_time(wall_time: float | None) -> str:
     # CDP 必带 wallTime（epoch 秒）；缺失属防御分支（如实落采集当下时间）。
     stamp = wall_time if isinstance(wall_time, int | float) else None
@@ -394,7 +421,11 @@ class RawTrafficCapture:
 
     def _fetch_body(self, req_id: str) -> None:
         """loadingFinished 同步拉原始响应体（Chromium 只短暂保留缓冲——既有
-        capture 同款纪律）。原文存储：不做 mojibake 修复（raw 证据的价值即原文）。"""
+        capture 同款纪律）。原文存储=忠实还原网络字节：base64 通道直接解码；
+        非 base64 通道 Chromium 已按响应 charset 把字节解码成 str——缺省
+        charset 时按 WHATWG windows-1252（元宝/豆包的 text/event-stream 不
+        带 charset，2026-09-02 实证落盘即 mojibake），此处逆向回原始字节再按
+        UTF-8 还原，不改写内容本身。"""
         if req_id in self._bodies:
             return
         try:
@@ -407,7 +438,18 @@ class RawTrafficCapture:
                 body = base64.b64decode(body).decode("utf-8", "replace")
             except Exception:
                 return
+        else:
+            body = _restore_chromium_decoded_body(body, self._response_charset(req_id))
         self._bodies[req_id] = body
+
+    def _response_charset(self, req_id: str) -> str | None:
+        record = self._records.get(req_id) or {}
+        headers = record.get("response_headers") or {}
+        for name, value in headers.items():
+            if name.lower() == "content-type":
+                match = re.search(r"charset=([\w.-]+)", str(value), re.I)
+                return match.group(1).lower() if match else None
+        return None
 
     # ------------------------------------------------------------------
     # 落盘

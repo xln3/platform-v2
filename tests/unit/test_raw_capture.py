@@ -335,6 +335,56 @@ def test_base64_body_decoded(tmp_path: Path) -> None:
     assert capture.dump_sse_raw(tmp_path, "k-a1").read_text(encoding="utf-8") == _SSE_BODY
 
 
+def test_charset_less_text_body_restored_from_chromium_win1252_decode(tmp_path: Path) -> None:
+    # 元宝/豆包 text/event-stream 无 charset：Chromium getResponseBody 按
+    # WHATWG windows-1252 解码（2026-09-02 费列罗基线实证 mojibake）。
+    # 修复后落盘必须还原为原始 UTF-8 字节对应的文本。
+    original = 'data: {"type":"step","msg":"正在搜索商品","note":"价格¥100~¥200"}\n'
+    mangled = _win1252_mangle(original)
+    cdp = _FakeCDP()
+    cdp.bodies["req-1"] = (mangled, False)
+    capture = _make_capture(cdp, hints=("/api/chat",))
+    _emit_request(cdp, "req-1", "https://yuanbao.tencent.com/api/chat/x", method="POST")
+    _emit_response(
+        cdp,
+        "req-1",
+        "https://yuanbao.tencent.com/api/chat/x",
+        headers={"Content-Type": "text/event-stream"},
+    )
+    _emit_finish(cdp, "req-1")
+
+    assert capture.dump_sse_raw(tmp_path, "k-a1").read_text(encoding="utf-8") == original
+
+
+def test_charset_declared_body_passes_through_untouched(tmp_path: Path) -> None:
+    original = 'data: {"msg":"正常中文"}\n'
+    cdp = _FakeCDP()
+    cdp.bodies["req-1"] = (original, False)
+    capture = _make_capture(cdp, hints=("/aichat/api/conversation",))
+    _emit_request(cdp, "req-1", "https://chat.baidu.com/aichat/api/conversation", method="POST")
+    _emit_response(
+        cdp,
+        "req-1",
+        "https://chat.baidu.com/aichat/api/conversation",
+        headers={"Content-Type": "text/event-stream;charset=UTF-8"},
+    )
+    _emit_finish(cdp, "req-1")
+
+    assert capture.dump_sse_raw(tmp_path, "k-a1").read_text(encoding="utf-8") == original
+
+
+def _win1252_mangle(text: str) -> str:
+    """模拟 Chromium 对无 charset 文本的 WHATWG windows-1252 解码。"""
+    raw = text.encode("utf-8")
+    out = []
+    for byte in raw:
+        if byte in (0x81, 0x8D, 0x8F, 0x90, 0x9D):
+            out.append(chr(byte))
+        else:
+            out.append(bytes([byte]).decode("cp1252"))
+    return "".join(out)
+
+
 def test_loading_failed_marks_entry(tmp_path: Path) -> None:
     cdp = _FakeCDP()
     capture = _make_capture(cdp)
