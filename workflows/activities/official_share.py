@@ -28,6 +28,7 @@ YIYAN_OFFICIAL_SHARE_HOSTS = frozenset(
     {"mr.baidu.com", "mbd.baidu.com", "chat.baidu.com", "wenxin.baidu.com"}
 )
 TONGYI_OFFICIAL_SHARE_HOSTS = frozenset({"qianwen.my.cn"})
+YUANBAO_OFFICIAL_SHARE_HOSTS = frozenset({"yb.tencent.com"})
 
 
 class OfficialShareExportError(RuntimeError):
@@ -329,6 +330,42 @@ def recover_png_from_export_audit(path: Path, audit: dict[str, Any]) -> bool:
     return valid_png(path)
 
 
+def valid_jpeg(path: Path) -> bool:
+    """Require a non-empty JPEG with a real SOI + SOF0/1/2 and positive dimensions.
+
+    Yuanbao's official share poster is rendered as a JPEG data URL.  The check is
+    hand-rolled (same discipline as :func:`valid_png`) so a truncated or mislabeled
+    payload is rejected without decoding attacker-controlled bytes into an image.
+    """
+
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return False
+    if len(data) < 4 or len(data) > _MAX_SHARE_IMAGE_BYTES:
+        return False
+    if data[:2] != b"\xff\xd8":  # SOI
+        return False
+    index = 2
+    while index + 9 <= len(data):
+        if data[index] != 0xFF:
+            index += 1
+            continue
+        marker = data[index + 1]
+        if marker in (0xC0, 0xC1, 0xC2):  # SOF0 baseline / SOF1 ext. sequential / SOF2 progressive
+            height = int.from_bytes(data[index + 5 : index + 7], "big")
+            width = int.from_bytes(data[index + 7 : index + 9], "big")
+            return width > 0 and height > 0
+        if marker in (0x00, 0x01) or 0xD0 <= marker <= 0xD9:  # standalone markers carry no length
+            index += 2
+            continue
+        segment_length = int.from_bytes(data[index + 2 : index + 4], "big")
+        if segment_length < 2:
+            return False
+        index += 2 + segment_length
+    return False
+
+
 def write_share_link_manifest(
     path: Path,
     *,
@@ -376,6 +413,15 @@ def validated_tongyi_share_url(value: object) -> str | None:
     if parsed.port not in {None, 443} or parsed.query or parsed.fragment:
         return None
     if re.fullmatch(r"/share/chat/[A-Fa-f0-9]{32}", parsed.path) is None:
+        return None
+    return url
+
+
+def validated_yuanbao_share_url(value: object) -> str | None:
+    """Accept only Yuanbao's public share URLs (``https://yb.tencent.com/s/<id>``)."""
+
+    url = _validated_share_url(value, hosts=YUANBAO_OFFICIAL_SHARE_HOSTS)
+    if url is None or not urlsplit(url).path.startswith("/s/"):
         return None
     return url
 
@@ -1464,3 +1510,272 @@ def capture_deepseek_official_share(
             except Exception:
                 pass
         _dismiss_deepseek_share_ui(page)
+
+
+# ---------------------------------------------------------------------------
+# Yuanbao（元宝）官方分享导出（20260903 live 校准：费列罗基线 18 题补导全成功，
+# 勘察/流程证据在 clients/client-fll/backfill_yuanbao_share_20260903.py）
+# ---------------------------------------------------------------------------
+
+_YUANBAO_OPEN_SHARE_BAR_JS = r"""() => {
+  const icons = Array.from(document.querySelectorAll(
+    "div[class*='Toolbar_shareIcon'][aria-label='分享']"));
+  if (!icons.length) return 0;
+  // 通常 2 个（问题气泡 + 答案气泡），答案气泡的是最后一个。图标被
+  // agent-chat__bubble__suffix 覆盖层挡住原生点击——JS el.click() 触发
+  // React onClick 即可。
+  icons[icons.length - 1].click();
+  return icons.length;
+}"""
+
+_YUANBAO_SHARE_CHECKS_JS = r"""() => Array.from(
+  document.querySelectorAll('.agent-chat__list__item input.t-checkbox__former')
+).map((box) => box.checked)"""
+
+_YUANBAO_POSTER_IMG_JS = r"""() => {
+  const img = document.querySelector('.PhotoView-Portal img.PhotoView__Photo');
+  if (img && img.src && img.src.startsWith('data:image/') && img.naturalHeight > 500) {
+    return {src: img.src, w: img.naturalWidth, h: img.naturalHeight};
+  }
+  return null;
+}"""
+
+_YUANBAO_CLOSE_PHOTO_VIEW_JS = r"""() => {
+  const btn = document.querySelector('.hyc-photo-view__close');
+  if (btn) btn.click();
+}"""
+
+_YUANBAO_PHOTO_VIEW_OPEN_JS = "() => !!document.querySelector('.PhotoView-Portal')"
+
+
+def _dismiss_yuanbao_share_ui(page: Any) -> None:
+    """Leave the resident Yuanbao tab with the poster preview overlay closed."""
+
+    try:
+        page.evaluate(_YUANBAO_CLOSE_PHOTO_VIEW_JS)
+    except Exception:
+        pass
+    try:
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
+    except Exception:
+        pass
+
+
+def _wait_yuanbao_poster(page: Any, *, timeout_ms: int = 60_000) -> dict[str, Any] | None:
+    """Poll the PhotoView overlay until the platform-rendered poster has loaded.
+
+    The poster renders client-side in roughly 10s; ``naturalHeight > 500`` gates
+    out the transitional thumbnail so only the full 1224xN poster is taken.
+    20260903 采集现场实证：刚答完的新鲜会话页商品图仍在加载/平台偶发
+    「分享失败请稍后重试」，30s 窗口不够——60s + 上层一轮重开重试。
+    """
+
+    deadline = time.monotonic() + timeout_ms / 1_000
+    while time.monotonic() < deadline:
+        try:
+            info = page.evaluate(_YUANBAO_POSTER_IMG_JS)
+        except Exception:
+            info = None
+        if isinstance(info, dict):
+            return info
+        page.wait_for_timeout(1_000)
+    return None
+
+
+def _photo_view_opened(page: Any, *, timeout_ms: int = 8_000) -> bool:
+    """Watch for the PhotoView overlay itself, independent of poster readiness."""
+
+    deadline = time.monotonic() + timeout_ms / 1_000
+    while time.monotonic() < deadline:
+        try:
+            if page.evaluate(_YUANBAO_PHOTO_VIEW_OPEN_JS):
+                return True
+        except Exception:
+            pass
+        page.wait_for_timeout(300)
+    return False
+
+
+def _open_yuanbao_poster_preview(
+    page: Any,
+    click_control: Callable[[Any], None],
+    *,
+    attempts: int = 2,
+) -> None:
+    """Click 生成图片 until the PhotoView preview overlay is actually observed open.
+
+    The share-bar item is a TDesign component reached by a real mouse click; a
+    click that lands during a re-render is silently swallowed and the overlay
+    never appears (20260903 production failure: the poster poll then burned its
+    whole 30s window on an overlay that did not exist).  The open state is the
+    only observable proof the click took effect — verify it and re-click once,
+    then fail closed.
+    """
+
+    for _ in range(attempts):
+        poster = _first_visible(
+            page,
+            ('.agent-chat__share-bar__item:has-text("生成图片")',),
+            timeout_ms=10_000,
+        )
+        click_control(poster)
+        if _photo_view_opened(page):
+            return
+        page.wait_for_timeout(1_500)  # 弹层/toast 落定后再试
+    raise OfficialShareExportError("Yuanbao share poster preview did not open")
+
+
+_YUANBAO_SHARE_FAILED_TOAST_JS = (
+    "() => document.body.innerText.includes('分享失败')"
+)
+
+_YUANBAO_ANSWER_IMAGES_SETTLED_JS = r"""() => {
+  const scope = document.querySelector('.agent-chat__list__content') || document.body;
+  const imgs = Array.from(scope.querySelectorAll('img'));
+  return imgs.every((img) => img.complete);
+}"""
+
+
+def _wait_yuanbao_answer_images(page: Any, *, timeout_ms: int = 15_000) -> None:
+    """等答案区图片加载完（海报生成是客户端栅格化，商品图未载完会拖死/失败）。
+
+    最多等 15s——图片缺失不是阻断理由（海报可以没有图），只是给栅格化一个
+    稳定输入。
+    """
+
+    deadline = time.monotonic() + timeout_ms / 1_000
+    while time.monotonic() < deadline:
+        try:
+            if page.evaluate(_YUANBAO_ANSWER_IMAGES_SETTLED_JS):
+                return
+        except Exception:
+            return
+        page.wait_for_timeout(500)
+
+
+def _open_and_capture_yuanbao_poster(
+    page: Any,
+    click_control: Callable[[Any], None],
+) -> dict[str, Any]:
+    """打开海报预览并等到海报渲染完成；失败一轮后关弹层重试一次。
+
+    20260903 采集现场失败实证：新鲜会话页上海报渲染会超时或平台弹
+    「分享失败，请检查网络设置或稍后重试」toast——单轮 60s 轮询不足，
+    关弹层重开一轮可恢复（与历史会话补导的多轮重试经验一致）。
+    """
+
+    for round_index in range(2):
+        _open_yuanbao_poster_preview(page, click_control)
+        img_info = _wait_yuanbao_poster(page)
+        if img_info is not None:
+            return img_info
+        share_failed = False
+        try:
+            share_failed = bool(page.evaluate(_YUANBAO_SHARE_FAILED_TOAST_JS))
+        except Exception:
+            pass
+        if round_index == 0:
+            # 关弹层（无论是否 toast）重试一轮；Escape 可能连带关掉分享条，
+            # 重开前先把分享条找回来。
+            _dismiss_yuanbao_share_ui(page)
+            page.wait_for_timeout(2_000)
+            try:
+                bar_open = bool(
+                    page.evaluate("() => !!document.querySelector('.agent-chat__share-bar')")
+                )
+                if not bar_open:
+                    page.evaluate(_YUANBAO_OPEN_SHARE_BAR_JS)
+            except Exception:
+                pass
+            continue
+        raise OfficialShareExportError(
+            "Yuanbao share poster did not render"
+            + (" (platform toast: 分享失败)" if share_failed else "")
+        )
+    raise OfficialShareExportError("Yuanbao share poster did not render")
+
+
+def capture_yuanbao_official_share(
+    page: Any,
+    out_path: Path,
+    *,
+    click: Callable[[Any], None] | None = None,
+) -> OfficialShareArtifacts:
+    """Export Yuanbao's official share link (clipboard) and share poster (JPEG).
+
+    The share flow stays on the current conversation page — no navigation.  The
+    toolbar share icon is triggered via JS ``el.click()`` (a covering overlay
+    blocks native clicks while the React handler still fires); share-bar items
+    are TDesign components that ignore synthetic JS clicks and must receive a
+    real Playwright click.  The poster is decoded from the platform's own
+    rendered ``PhotoView`` data URL — never re-rendered locally (INV-32).
+    Fail-closed: a missing link or poster raises ``OfficialShareExportError``.
+    """
+
+    click_control = click or (lambda locator: locator.click(timeout=8_000))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    _grant_clipboard(page)
+    audit: dict[str, Any] = {"platform": "yuanbao", "image_source": "share_poster_preview"}
+    try:
+        opened = page.evaluate(_YUANBAO_OPEN_SHARE_BAR_JS)
+        if not isinstance(opened, int) or isinstance(opened, bool) or opened < 1:
+            raise OfficialShareExportError("Yuanbao answer toolbar share icon was not found")
+        _first_visible(page, ("div.agent-chat__share-bar",), timeout_ms=10_000)
+        # 消息复选框默认全选——核验；未全选则点一次「全选」label 后复核。选不
+        # 全的分享链接/海报不是完整会话证据，绝不放行。
+        checks: object = page.evaluate(_YUANBAO_SHARE_CHECKS_JS)
+        if not isinstance(checks, list) or not all(checks):
+            click_control(
+                _first_visible(
+                    page,
+                    (".agent-chat__share-bar__content__left label",),
+                    timeout_ms=5_000,
+                )
+            )
+            page.wait_for_timeout(600)
+            checks = page.evaluate(_YUANBAO_SHARE_CHECKS_JS)
+        if not isinstance(checks, list) or not checks or not all(checks):
+            raise OfficialShareExportError(
+                "Yuanbao share message selection was not fully checked"
+            )
+
+        copy_link = _first_visible(
+            page,
+            ('.agent-chat__share-bar__item:has-text("复制链接")',),
+            timeout_ms=10_000,
+        )
+        click_control(copy_link)
+        page.wait_for_timeout(1_000)
+        share_url = _wait_clipboard_url(page, validated_yuanbao_share_url)
+        if share_url is None:
+            raise OfficialShareExportError("Yuanbao official share link was not copied")
+
+        _wait_yuanbao_answer_images(page)
+        img_info = _open_and_capture_yuanbao_poster(page, click_control)
+        header, _, payload = str(img_info.get("src") or "").partition(",")
+        if not header.lower().startswith("data:image/jpeg") or ";base64" not in header.lower():
+            raise OfficialShareExportError("Yuanbao share poster was not a JPEG data URL")
+        try:
+            data = base64.b64decode(payload, validate=True)
+        except ValueError as exc:
+            raise OfficialShareExportError("Yuanbao share poster data URL was invalid") from exc
+        if len(data) > _MAX_SHARE_IMAGE_BYTES:
+            raise OfficialShareExportError("Yuanbao share poster exceeded size limit")
+        out_path.write_bytes(data)
+        if not valid_jpeg(out_path):
+            raise OfficialShareExportError("Yuanbao share poster payload is not a valid JPEG")
+        audit["share_url"] = share_url
+        audit.update(
+            {
+                "poster_width": img_info.get("w"),
+                "poster_height": img_info.get("h"),
+                "image_bytes": len(data),
+            }
+        )
+        return OfficialShareArtifacts(out_path, share_url, audit)
+    finally:
+        # PhotoView 弹层是常驻标签页上的覆盖层——必须关上，下一题（batch 复用
+        # 同一页面）才从干净现场开始。
+        _dismiss_yuanbao_share_ui(page)
+

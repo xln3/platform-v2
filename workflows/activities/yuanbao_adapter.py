@@ -45,6 +45,12 @@ v2 边界（与豆包适配器对齐）：
   响应体组装非空正文；协议解析失败时才读取 DOM 备用正文。两条路径都必须通过墙
   检查——缺一都不得返回成功。流未出现/截断/空答案 →
   ``answer_capture_incomplete``（可重试的诚实失败）。
+- 官方分享导出（20260903 起，对齐文心/通义/DeepSeek）：答案定稿后在同一答案页
+  打开分享条——「复制链接」剪贴板取 ``https://yb.tencent.com/s/<id>``，「生成图片」
+  从 PhotoView 弹层取平台自渲染海报（``data:image/jpeg;base64`` 解码原样落盘，
+  INV-32 零合成）。分享链接与海报是采集期一次性证据（20260831 定案：sse_raw/HAR
+  离线补不出）；任一缺失 → ``answer_capture_incomplete``（可重试诚实失败），
+  运行时截图绝不冒充分享图。
 
 拟人化口径（2026-08-06 起，与豆包同标准——自动化交互序列本身即指纹）：
 
@@ -131,6 +137,13 @@ from workflows.activities.human_like import (
     human_pause,
     human_read_pause,
     human_type,
+)
+from workflows.activities.official_share import (
+    YUANBAO_OFFICIAL_SHARE_HOSTS,
+    OfficialShareExportError,
+    capture_yuanbao_official_share,
+    probe_official_share_url,
+    write_share_link_manifest,
 )
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser, resident_cdp_url
@@ -660,6 +673,10 @@ class CollectedAnswer:
     # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
     # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
     raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
+    # 官方分享证据（20260903 起，对齐文心/通义/DeepSeek）：share_image（平台
+    # 自渲染海报 JPEG）+ share_link（official-share-link-v2 manifest）。导出
+    # 失败即题级 incomplete，ok 答案恒携带两条。
+    share_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
     # Clean answer-only image plus verified DOM/OCR rectangles for report evidence cards.
     answer_evidence: CollectionEvidenceRef | None = None
 
@@ -1084,6 +1101,8 @@ def _task_result_from_collected(
         )
     # 原始流量证据（2026-08-10 起）：sse_raw/har，_collect_one 题末导出。
     evidence.extend(collected.raw_evidence)
+    # 官方分享证据（20260903 起）：share_image（海报 JPEG）+ share_link manifest。
+    evidence.extend(collected.share_evidence)
     if collected.answer_evidence is not None:
         evidence.append(collected.answer_evidence)
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
@@ -1944,6 +1963,64 @@ class _PlaywrightYuanbaoSession:
                 if answer_capture is not None and answer_capture.anchors
                 else None
             )
+            # 官方分享导出（20260903 起，对齐文心/通义/DeepSeek）：采集当下在
+            # 同一答案页打开分享条——复制链接（剪贴板取 https://yb.tencent.com/s/
+            # <id>）+ 生成图片（PhotoView 弹层平台自渲染海报 JPEG）。分享链接与
+            # 海报是采集期一次性证据（20260831 定案：sse_raw/HAR 离线补不出），
+            # 任一导不出 → 题级 incomplete 诚实失败，绝不落 completed。
+            on_stage("share_export")
+            share_image_path = self._evidence_dir / f"{spec.file_stem}-share.jpg"
+
+            def _share_click(locator: Any) -> None:
+                clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
+                if clicked_at is not None:
+                    self._mouse_pos = clicked_at
+
+            try:
+                share = capture_yuanbao_official_share(
+                    page,
+                    share_image_path,
+                    click=_share_click,
+                )
+                share_link_path = self._evidence_dir / f"{spec.file_stem}-share-link.json"
+                write_share_link_manifest(
+                    share_link_path,
+                    share_url=share.share_url,
+                    platform="yuanbao",
+                    channel="clipboard",
+                    verification=probe_official_share_url(
+                        share.share_url,
+                        allowed_hosts=YUANBAO_OFFICIAL_SHARE_HOSTS,
+                    ),
+                )
+            except (OfficialShareExportError, OSError) as exc:
+                raise _IncompleteCapture(
+                    "official-share-export-incomplete: Yuanbao must provide both its "
+                    f"share poster JPEG and public share URL ({type(exc).__name__}: {exc})",
+                    _shot("share_export"),
+                ) from exc
+            except Exception as exc:
+                raise _IncompleteCapture(
+                    "official-share-export-incomplete: unexpected Yuanbao share UI failure "
+                    f"({type(exc).__name__}: {exc})",
+                    _shot("share_export"),
+                ) from exc
+            share_evidence = [
+                CollectionEvidenceRef(
+                    kind="share_image",
+                    path=str(share.image_path),
+                    relation_type="official_share_image",
+                    mime_type="image/jpeg",
+                    source_url=share.share_url,
+                ),
+                CollectionEvidenceRef(
+                    kind="share_link",
+                    path=str(share_link_path),
+                    relation_type="official_share_link",
+                    mime_type="application/json",
+                    source_url=share.share_url,
+                ),
+            ]
             answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
@@ -1955,6 +2032,7 @@ class _PlaywrightYuanbaoSession:
                 },
                 trace_path=trace_path,
                 raw_evidence=raw_evidence,
+                share_evidence=share_evidence,
                 answer_evidence=answer_evidence,
             )
         except (_WallError, _IncompleteCapture, _ModeToggleFailed, _ModeUnconfirmed) as exc:

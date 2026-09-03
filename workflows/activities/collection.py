@@ -72,6 +72,7 @@ from workflows.activities.browser_router import account_governance_enabled
 from workflows.activities.official_share import (
     TONGYI_OFFICIAL_SHARE_HOSTS,
     YIYAN_OFFICIAL_SHARE_HOSTS,
+    YUANBAO_OFFICIAL_SHARE_HOSTS,
 )
 
 log = structlog.get_logger()
@@ -962,8 +963,10 @@ _OFFICIAL_SHARE_HOSTS: dict[str, frozenset[str]] = {
     "doubao": frozenset({"doubao.com", "www.doubao.com"}),
     "tongyi": TONGYI_OFFICIAL_SHARE_HOSTS,
     "yiyan": YIYAN_OFFICIAL_SHARE_HOSTS,
+    "yuanbao": YUANBAO_OFFICIAL_SHARE_HOSTS,
 }
-_OFFICIAL_SHARE_UNSUPPORTED = frozenset({"yuanbao"})
+# 五平台官方分享导出全部内建（20260903 元宝接入收官）；无不支持平台。
+_OFFICIAL_SHARE_UNSUPPORTED: frozenset[str] = frozenset()
 _SHARE_AVAILABILITY = frozenset({"reachable", "redirected", "blocked", "unreachable", "unchecked"})
 _SHARE_EMBED_STATUSES = frozenset({"allowed", "blocked", "unknown"})
 
@@ -984,6 +987,8 @@ def _official_share_url(value: object, platform: str) -> str | None:
     if platform == "doubao" and not parsed.path.startswith("/thread/"):
         return None
     if platform == "tongyi" and re.fullmatch(r"/share/chat/[A-Fa-f0-9]{32}", parsed.path) is None:
+        return None
+    if platform == "yuanbao" and not parsed.path.startswith("/s/"):
         return None
     return url
 
