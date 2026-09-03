@@ -46,6 +46,12 @@ v1 边界（2026-08-05 W1 起 deep_think 解锁）：
   等结构化产物（不存全量 SSE 原文）序列化为 JSON 落证据目录，随截图同款流程产出
   ``CollectionEvidenceRef(kind="sse", relation_type="answer_sse_trace")`` 进 CAS；
   解析失败保持诚实——不出证据、不编造。
+- 引用恢复（2026-09-03 起，``/im/chain/single``）：2026-08-17 平台下线 completion
+  SSE 的 text_card.summary/sitename 后，消息链接口是引用卡的权威持久化来源
+  （results 带完整 url/title/doc_id/search_id/original_doc_rank 原始排名与展示
+  序号 index）。答案定稿后自动拦截优先、页面上下文 fetch 只读重放兜底，
+  恢复/增强 references（citations 随之带 platform_ordinal/ordinal_base）；
+  接口失败/形状漂移一律 fail-open 维持 SSE 现状，绝不让引用恢复拖垮采集。
 - 执行模型：sync 浏览器驱动包在 ``asyncio.to_thread`` 里跑（activity 是 async；sync PW
   绝不能进事件循环——旧系统 greenlet 坑）。每次执行全新 context、结束即关。activity
   协程侧每 10s 泵一次 heartbeat（workflow heartbeat_timeout=30s）。注意：activity 被取消时
@@ -150,6 +156,7 @@ import os
 import random
 import re
 import time
+import uuid
 from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
@@ -1451,8 +1458,8 @@ def _external_http_url(value: object) -> str | None:
     return value
 
 
-def _citation_payloads(references: list[dict[str, Any]]) -> list[dict[str, str | None]]:
-    citations: list[dict[str, str | None]] = []
+def _citation_payloads(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    citations: list[dict[str, Any]] = []
     seen: set[str] = set()
     for reference in references:
         url = _external_http_url(reference.get("url"))
@@ -1461,13 +1468,24 @@ def _citation_payloads(references: list[dict[str, Any]]) -> list[dict[str, str |
         seen.add(url)
         title = str(reference.get("title") or reference.get("sitename") or "").strip()
         cited_text = str(reference.get("summary") or "").strip()
-        citations.append(
-            {
-                "url": url,
-                "title": title[:300] or None,
-                "cited_text": cited_text[:2_000] or None,
-            }
-        )
+        citation: dict[str, Any] = {
+            "url": url,
+            "title": title[:300] or None,
+            "cited_text": cited_text[:2_000] or None,
+        }
+        # chain/single 恢复的展示序号（2026-09-03 起）：平台「参考 N 篇资料」卡片
+        # 编号原样透传（同 deepseek 口径）；无序号依据的引用维持原状不编造。
+        platform_ordinal = reference.get("platform_ordinal")
+        if (
+            isinstance(platform_ordinal, int)
+            and not isinstance(platform_ordinal, bool)
+            and platform_ordinal >= 1
+        ):
+            citation["platform_ordinal"] = platform_ordinal
+            citation["ordinal_base"] = (
+                reference.get("ordinal_base") if reference.get("ordinal_base") in (0, 1) else 1
+            )
+        citations.append(citation)
     return citations
 
 
@@ -1847,6 +1865,19 @@ class _PlaywrightDoubaoSession:
         """单题主体：await_input → fresh_chat → [deep_think toggle] → 拟人输入/
         发送 → SSE 捕获/组装/证据落盘。per-task 单题与 batch 每题共用。"""
         capture = _CompletionCapture(context, page)
+        # 引用恢复（2026-09-03 起）：/im/chain/single 的 CDP 拦截与 /im/ 查询串
+        # 模板记录，与 completion 捕获并行挂载、互不干扰。attach 失败 fail-open
+        # （None → 拦截路径关闭，重放路径仍可从页面 performance 条目取模板）。
+        chain_capture: _ChainSingleCapture | None
+        try:
+            chain_capture = _ChainSingleCapture(context, page)
+        except Exception as exc:
+            log.warning(
+                "doubao_chain_capture_attach_failed",
+                business_key=spec.business_key,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            chain_capture = None
         # 原始流量留痕（2026-08-10 起，用户拍板默认开）：独立 CDP session 自组
         # HAR + 落 completion 原始响应体，与既有 capture 互不干扰。
         # GEO_RAW_CAPTURE=0 → None（全关回退现状）。
@@ -2019,6 +2050,7 @@ class _PlaywrightDoubaoSession:
             search_queries: list[dict[str, Any]] = []
             retrieval_events: list[dict[str, Any]] = []
             sse_trace: dict[str, Any] | None = None
+            rich: dict[str, Any] | None = None
             sse_body = capture.latest_body()
             if sse_body:
                 rich = _rich_record_from_sse(sse_body)
@@ -2420,6 +2452,42 @@ class _PlaywrightDoubaoSession:
                     _shot("share_export"),
                 )
 
+            # 引用恢复（2026-09-03 起，/im/chain/single）：08-17 后 SSE 引用卡
+            # 瘸腿（summary/sitename 空、个别 results 缺失），消息链接口是平台
+            # 持久化的权威引用卡。fail-open——拿不到/形状不符只记 audit 与日志，
+            # references/search_queries 维持 SSE 现状，绝不拖垮采集主链。
+            # 位置在分享导出之后：live 实证生成中页面自动拉的 chain 只含用户
+            # 消息，分享面板动作会把完整消息链（含 10025 引用块）再拉一遍——
+            # 此时拦截命中即零新增请求；都没拉到才走页面上下文只读重放。
+            chain_references, chain_queries, chain_audit = _resolve_chain_single(
+                page,
+                chain_capture,
+                conversation_id=(
+                    (sse_trace or {}).get("conversation_id")
+                    or (rich or {}).get("conversation_id")
+                    or _conversation_id_from_url(getattr(page, "url", ""))
+                ),
+                message_id=((sse_trace or {}).get("message_id") or (rich or {}).get("message_id")),
+                business_key=spec.business_key,
+            )
+            if chain_audit.get("status") == "ok":
+                references = _merge_references_with_chain(references, chain_references)
+                search_queries = _merge_search_queries_with_chain(search_queries, chain_queries)
+                log.info(
+                    "doubao_chain_single_recovered",
+                    business_key=spec.business_key,
+                    source=chain_audit.get("source"),
+                    results=chain_audit.get("results"),
+                    queries=chain_audit.get("queries"),
+                )
+            else:
+                log.info(
+                    "doubao_chain_single_unavailable",
+                    business_key=spec.business_key,
+                    status=chain_audit.get("status"),
+                    source=chain_audit.get("source"),
+                )
+
             on_stage("source_screenshots")
             source_evidence, source_audit = _capture_source_screenshots(
                 context,
@@ -2443,6 +2511,7 @@ class _PlaywrightDoubaoSession:
                     "source_screenshots": source_audit,
                     "sse_trace_persisted": sse_trace is not None,
                     "mode": mode_evidence,
+                    "chain_single": chain_audit,
                 },
                 search_queries=search_queries,
                 retrieval_events=retrieval_events,
@@ -2481,6 +2550,8 @@ class _PlaywrightDoubaoSession:
             # session 挂着监听累积（下一题新建 capture，绝不串题读到旧流）。
             if raw is not None:
                 raw.detach()
+            if chain_capture is not None:
+                chain_capture.detach()
             capture.detach()
 
     def _shot(self, page: Any, suffix: str, *, stem: str | None = None) -> Path | None:
@@ -3168,6 +3239,458 @@ class _CompletionCapture:
             "recovered": False,
             "elapsed_ms": int((time.monotonic() - t0) * 1000),
         }
+
+
+# ---------------------------------------------------------------------------
+# 引用恢复：/im/chain/single 消息链（2026-09-03 起）
+#
+# 背景：2026-08-17 豆包下线 completion SSE 内 text_card 的 summary/sitename
+# 字段（322+ 份 sse_raw 逐日统计实证）。全流量探针（
+# developlog/research/full-traffic-probe-20260903/REPORT.md §1.2）找到现行
+# 数据源：POST /im/chain/single 的
+# messages[].content_block[block_type=10025].search_query_result_block 内含
+# queries[] 与 results[] 全量 text_card（url/title/doc_id/search_id/
+# original_doc_rank 原始搜索排名/展示序号 index），content-type 显式
+# charset=utf-8（无 cp1252 乱码面）。
+#
+# 自动触发时序（2026-09-03 live 冒烟实证，captures/doubao-chain-smoke-*）：
+# completion 开始后 ~2s 页面即自动拉链（但只含用户消息，助手消息未落链）；
+# 分享导出等生成后动作会再拉完整消息链（含 10025 引用块）。解析点因此在分享
+# 导出之后、拦截体从最新往最早试。侧栏翻历史是 SPA 内存不触发请求，整页
+# 加载会话才走 chain/single（探针）。
+#
+# 获取双路径（_resolve_chain_single）：(a) 页面自动请求时 CDP 拦截直接吃
+# 响应（零新增请求）；(b) 拦截体全部不含助手消息/未自动请求时，页面上下文
+# fetch 只读重放（请求体形状照抄探针抓包，只换 conversation_id/sequence_id；
+# URL 查询串模板取自本会话已观测的 /im/ 请求——device_id 等参数随账号/设备
+# 漂移，绝不硬编码）。全程 fail-open：任何失败/形状漂移只记 warning，
+# references 与 search_queries 维持 SSE 现状，绝不让引用恢复拖垮采集。
+# ---------------------------------------------------------------------------
+
+_CHAIN_SINGLE_PATH = "/im/chain/single"
+_CHAIN_SINGLE_WAIT_POLLS = 4  # 生成后等页面自动拉链的轮询次数（等不到则只读重放）
+_CHAIN_SINGLE_POLL_MS = 250  # 每拍间隔（4×250ms=1s 窗口）
+
+# 页面上下文只读重放（fetch 即浏览器正常 XHR，头形状照抄探针抓包）。
+_CHAIN_SINGLE_FETCH_JS = """async ({url, body}) => {
+  try {
+    const resp = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json; encoding=utf-8",
+        "Agw-Js-Conv": "str",
+      },
+      body: JSON.stringify(body),
+    });
+    return {ok: true, status: resp.status, body: await resp.text()};
+  } catch (e) {
+    return {ok: false, error: String(e)};
+  }
+}
+"""
+
+_IM_QUERY_FROM_PERF_JS = """() => {
+  for (const e of performance.getEntriesByType("resource")) {
+    try {
+      const u = new URL(e.name);
+      if (u.pathname.includes("/im/") && u.search.length > 1) return u.search.slice(1);
+    } catch (err) { /* 忽略畸形条目 */ }
+  }
+  return null;
+}
+"""
+
+_CHAT_CONVERSATION_RE = re.compile(r"/chat/(\d+)")
+
+
+def _conversation_id_from_url(url: Any) -> str | None:
+    """SPA 路由 /chat/<id> 兜底取会话 id（SSE 缺 conversation_id 时的次优来源）。"""
+    match = _CHAT_CONVERSATION_RE.search(url if isinstance(url, str) else "")
+    return match.group(1) if match else None
+
+
+def _chain_conversation_from_post(post_data: Any) -> str | None:
+    """从 chain/single 请求体里取 conversation_id（形状漂移/缺字段 → None）。"""
+    if not isinstance(post_data, str) or not post_data:
+        return None
+    try:
+        body = json.loads(post_data)
+        conv = body["uplink_body"]["pull_singe_chain_uplink_body"]["conversation_id"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return str(conv) if conv else None
+
+
+def _chain_single_request_body(conversation_id: str) -> dict[str, Any]:
+    """chain/single 上行体（探针抓包原形状，只换会话与序列 id；纯只读拉链）。"""
+    return {
+        "cmd": 3100,
+        "uplink_body": {
+            "pull_singe_chain_uplink_body": {
+                "conversation_id": conversation_id,
+                "anchor_index": 9007199254740991,
+                "conversation_type": 3,
+                "direction": 1,
+                "limit": 20,
+                "ext": {},
+                "filter": {"index_list": []},
+                "evaluate_ab_params": "",
+                "evaluate_common_params": "",
+            }
+        },
+        "sequence_id": str(uuid.uuid4()),
+        "channel": 2,
+        "version": "1",
+    }
+
+
+class _ChainSingleCapture:
+    """CDP Network 层捕获 /im/chain/single 响应（与 _CompletionCapture 同纪律：
+    豆包 IM 请求经 SharedWorker 发出，page.on("response") 看不到，必须 CDP；
+    loadingFinished 同步拉 getResponseBody——Chromium 只短暂保留缓冲）。
+    附带记录首个 /im/ 请求的查询串当重放 URL 模板（device_id 等随账号/设备的
+    参数绝不硬编码）。"""
+
+    def __init__(self, context: Any, page: Any) -> None:
+        self._cdp = context.new_cdp_session(page)
+        self._cdp.send("Network.enable")
+        self._chain_conv_by_id: dict[str, str] = {}
+        self._finished_order: list[str] = []
+        self._bodies: dict[str, str] = {}
+        self._im_query_template: str | None = None
+        for name in ("Network.requestWillBeSent", "Network.loadingFinished"):
+            self._cdp.on(name, lambda payload, n=name: self._handle(n, payload))
+
+    def detach(self) -> None:
+        """best-effort 断开（题末随 capture 同款纪律 detach）。失败静默。"""
+        try:
+            self._cdp.detach()
+        except Exception:
+            pass
+
+    def _handle(self, name: str, payload: dict[str, Any]) -> None:
+        try:
+            req_id = payload.get("requestId") or ""
+            if not req_id:
+                return
+            if name == "Network.requestWillBeSent":
+                request = payload.get("request") or {}
+                url = str(request.get("url") or "")
+                path = urlsplit(url).path
+                if self._im_query_template is None and "/im/" in path:
+                    self._im_query_template = urlsplit(url).query or None
+                if _CHAIN_SINGLE_PATH in path:
+                    conv_id = _chain_conversation_from_post(request.get("postData"))
+                    if conv_id:
+                        self._chain_conv_by_id[req_id] = conv_id
+            elif name == "Network.loadingFinished":
+                self._finished_order.append(req_id)
+                if req_id in self._chain_conv_by_id:
+                    self._fetch_body(req_id)
+        except Exception:
+            pass
+
+    def _fetch_body(self, req_id: str) -> None:
+        if req_id in self._bodies:
+            return
+        try:
+            result = self._cdp.send("Network.getResponseBody", {"requestId": req_id})
+        except Exception:
+            return
+        body = result.get("body", "") or ""
+        if result.get("base64Encoded"):
+            try:
+                body = base64.b64decode(body).decode("utf-8", "replace")
+            except Exception:
+                return
+        # chain/single 带显式 charset=utf-8（探针实证无乱码）；修复函数对干净
+        # 文本幂等（无哨兵字符原样返回），统一走一道防御未来形状漂移。
+        self._bodies[req_id] = _recover_mojibake(body)
+
+    def bodies_for(self, conversation_id: str) -> list[str]:
+        """本会话所有已完成 chain/single 的响应体，按完成先后排列。
+
+        生成进行中页面也会拉链（live 实证：completion 后 ~2s 的那一趟只含用户
+        消息，助手消息未落链）；分享导出等生成后动作会再拉完整的——调用方应从
+        尾部（最新）往前取，第一趟可能根本不包含助手消息。"""
+        out: list[str] = []
+        for req_id in self._finished_order:
+            if self._chain_conv_by_id.get(req_id) != conversation_id:
+                continue
+            body = self._bodies.get(req_id)
+            if body:
+                out.append(body)
+        return out
+
+    def query_template(self) -> str | None:
+        return self._im_query_template
+
+
+def _chain_record_from_payload(
+    payload: Any,
+    *,
+    conversation_id: str,
+    message_id: str | None = None,
+) -> dict[str, Any] | None:
+    """chain/single 下行体 → {queries, results, message_id}（纯函数）。
+
+    只认 status_code==0 且能唯一定位到本题的助手消息（message_id 精确匹配；
+    缺失时要求会话里只有一条助手消息——fresh-chat 纪律下的常态）。定位不了
+    或形状漂移 → None（诚实降级，绝不把别条消息的引用安到本题头上）。
+    """
+    if not isinstance(payload, dict) or payload.get("status_code") != 0:
+        return None
+    downlink = payload.get("downlink_body")
+    chain = downlink.get("pull_singe_chain_downlink_body") if isinstance(downlink, dict) else None
+    if not isinstance(chain, dict):
+        return None
+    messages = chain.get("messages")
+    if not isinstance(messages, list):
+        return None
+    assistants = [
+        m
+        for m in messages
+        if isinstance(m, dict)
+        and m.get("user_type") == 2
+        and (not m.get("conversation_id") or str(m.get("conversation_id")) == conversation_id)
+    ]
+    chosen: dict[str, Any] | None
+    if message_id:
+        chosen = next((m for m in assistants if str(m.get("message_id") or "") == message_id), None)
+        if chosen is None:
+            # SSE 的 message_id 与消息链持久化 id 同源（同为 IM 消息 id）但允许
+            # 漂移：fresh-chat 纪律下会话只有一条助手消息时，单候选即本题，
+            # 不算歧义；多候选又对不上才诚实 None（绝不错安引用）。
+            if len(assistants) == 1:
+                chosen = assistants[0]
+            else:
+                return None
+    elif len(assistants) == 1:
+        chosen = assistants[0]
+    else:
+        return None
+    queries: list[str] = []
+    seen_queries: set[str] = set()
+    results: list[dict[str, Any]] = []
+    for block in chosen.get("content_block") or []:
+        if not isinstance(block, dict) or block.get("block_type") != 10025:
+            continue
+        content = block.get("content")
+        search = content.get("search_query_result_block") if isinstance(content, dict) else None
+        if not isinstance(search, dict):
+            continue
+        for raw_query in search.get("queries") or []:
+            if not isinstance(raw_query, str):
+                continue
+            query = " ".join(raw_query.split())
+            query_key = query.casefold()
+            if not query or query_key in seen_queries:
+                continue
+            seen_queries.add(query_key)
+            queries.append(query)
+        for result in search.get("results") or []:
+            if isinstance(result, dict):
+                results.append(result)
+    return {
+        "queries": queries,
+        "results": results,
+        "message_id": chosen.get("message_id"),
+    }
+
+
+def _chain_display_ordinal(value: Any) -> int | None:
+    """text_card.index 是字符串形式的 1 起展示序号（"1".."29"）；非整数/越界 → None。"""
+    try:
+        ordinal = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return ordinal if ordinal >= 1 else None
+
+
+def _chain_references_from_record(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """chain results → references（同 _build_rich_record 口径：真实 http(s) URL、
+    按去查询串 URL 去重）。平台展示序号 index（1 起，即「参考 N 篇资料」卡片上
+    用户可见的编号）如实转 platform_ordinal + ordinal_base=1；index 缺失/非整数
+    的条目保留但不带 ordinal（诚实，不瞎编位次）。"""
+    references: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    for result in record.get("results") or []:
+        text_card = result.get("text_card")
+        if not isinstance(text_card, dict):
+            continue
+        url = text_card.get("url")
+        if not _is_real_url(url):
+            continue
+        key = str(url).split("?")[0]
+        if key in seen_urls:
+            continue
+        seen_urls.add(key)
+        reference: dict[str, Any] = {
+            "url": url,
+            "title": text_card.get("title"),
+            "summary": text_card.get("summary"),
+            "sitename": text_card.get("sitename"),
+            "index": text_card.get("index", result.get("index")),
+            "doc_id": text_card.get("doc_id"),
+            "search_id": text_card.get("search_id"),
+            "original_doc_rank": text_card.get("original_doc_rank"),
+        }
+        ordinal = _chain_display_ordinal(reference["index"])
+        if ordinal is not None:
+            reference["platform_ordinal"] = ordinal
+            reference["ordinal_base"] = 1
+        references.append(reference)
+    return references
+
+
+def _merge_references_with_chain(
+    sse_references: list[dict[str, Any]], chain_references: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """chain 引用卡是平台持久化的权威展示集（带序号/原始排名）：以其顺序为主，
+    SSE 侧同 URL 条目的非空字段（title/summary/sitename）回填——chain 在 08-17
+    后这些字段同样为空，回填只对历史/未来形状有用。SSE 独有的条目（chain 未含）
+    原样排在 chain 之后（无 ordinal，位次语义不编造）。"""
+    if not chain_references:
+        return list(sse_references)
+    sse_by_key: dict[str, dict[str, Any]] = {}
+    for reference in sse_references:
+        url = reference.get("url")
+        if _is_real_url(url):
+            sse_by_key.setdefault(str(url).split("?")[0], reference)
+    merged: list[dict[str, Any]] = []
+    for chain_ref in chain_references:
+        combined = dict(chain_ref)
+        prior = sse_by_key.pop(str(chain_ref["url"]).split("?")[0], None)
+        if prior is not None:
+            for field_name in ("title", "summary", "sitename"):
+                if not combined.get(field_name) and prior.get(field_name):
+                    combined[field_name] = prior[field_name]
+        merged.append(combined)
+    merged.extend(sse_by_key.values())
+    return merged
+
+
+def _merge_search_queries_with_chain(
+    search_queries: list[dict[str, Any]], chain_queries: list[str]
+) -> list[dict[str, Any]]:
+    """检索词以 SSE（生成期实况）为先；chain 独有的补在后（ordinal 顺延）。"""
+    merged = list(search_queries)
+    seen = {str(entry.get("query") or "").casefold() for entry in merged if isinstance(entry, dict)}
+    for query in chain_queries:
+        query_key = query.casefold()
+        if query_key and query_key not in seen:
+            seen.add(query_key)
+            merged.append({"query": query, "ordinal": len(merged) + 1})
+    return merged
+
+
+def _replay_chain_single(
+    page: Any, conversation_id: str, query_template: str | None
+) -> dict[str, Any] | None:
+    """页面上下文 fetch 只读重放 chain/single（模板缺失→None 诚实降级）。
+    模板优先取 CDP 观测到的本会话 /im/ 请求查询串，缺失时兜底页面
+    performance 资源条目（device_id 等随账号/设备的参数绝不硬编码）。"""
+    if not query_template:
+        try:
+            candidate = page.evaluate(_IM_QUERY_FROM_PERF_JS)
+        except Exception:
+            candidate = None
+        query_template = candidate if isinstance(candidate, str) and candidate else None
+    if not query_template:
+        return None
+    url = f"https://www.doubao.com{_CHAIN_SINGLE_PATH}?{query_template}"
+    try:
+        response = page.evaluate(
+            _CHAIN_SINGLE_FETCH_JS,
+            {"url": url, "body": _chain_single_request_body(conversation_id)},
+        )
+    except Exception:
+        return None
+    if not isinstance(response, dict) or not response.get("ok"):
+        return None
+    if response.get("status") != 200:
+        return None
+    try:
+        parsed = json.loads(response.get("body") or "")
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _resolve_chain_single(
+    page: Any,
+    chain_capture: _ChainSingleCapture | None,
+    *,
+    conversation_id: str | None,
+    message_id: str | None,
+    business_key: str,
+) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
+    """chain/single 引用恢复主入口（fail-open）：CDP 拦截优先、只读重放兜底。
+    返回 (chain_references, chain_queries, audit)；拿不到可用数据时前两者为空、
+    audit.status 如实标注（no_conversation_id/no_chain_record/failed），调用方
+    维持 SSE 现状。
+
+    拦截体从最新往最早试：live 实证（2026-09-03 冒烟）生成进行中页面即自动
+    拉链但只含用户消息，完整的助手消息（含 10025 引用块）要等生成后页面动作
+    （如分享导出）再拉——早趟 body 解析不出记录属正常，不是失败。"""
+    audit: dict[str, Any] = {"status": "skipped"}
+    if not conversation_id:
+        audit["status"] = "no_conversation_id"
+        return [], [], audit
+    try:
+        bodies = chain_capture.bodies_for(conversation_id) if chain_capture is not None else []
+        if not bodies and chain_capture is not None:
+            # 等不到自动拉链就走只读重放。计数轮询而非真实时钟：fake page 的
+            # wait_for_timeout 即时返回，测试零真实等待。
+            for _ in range(_CHAIN_SINGLE_WAIT_POLLS):
+                if bodies:
+                    break
+                page.wait_for_timeout(_CHAIN_SINGLE_POLL_MS)
+                bodies = chain_capture.bodies_for(conversation_id)
+        for body in reversed(bodies):
+            try:
+                payload: Any = json.loads(body)
+            except ValueError:
+                continue
+            record = _chain_record_from_payload(
+                payload, conversation_id=conversation_id, message_id=message_id
+            )
+            if record is not None:
+                audit["source"] = "intercepted"
+                audit["captured_bodies"] = len(bodies)
+                break
+        else:
+            record = None
+        if record is None:
+            audit["source"] = "replay"
+            payload = _replay_chain_single(
+                page,
+                conversation_id,
+                chain_capture.query_template() if chain_capture is not None else None,
+            )
+            record = _chain_record_from_payload(
+                payload, conversation_id=conversation_id, message_id=message_id
+            )
+        if record is None:
+            audit["status"] = "no_chain_record"
+            return [], [], audit
+        references = _chain_references_from_record(record)
+        audit.update(
+            status="ok",
+            results=len(references),
+            queries=len(record["queries"]),
+        )
+        return references, list(record["queries"]), audit
+    except Exception as exc:
+        log.warning(
+            "doubao_chain_single_failed",
+            business_key=business_key,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        audit["status"] = "failed"
+        return [], [], audit
 
 
 # ---------------------------------------------------------------------------

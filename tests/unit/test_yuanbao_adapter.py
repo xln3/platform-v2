@@ -683,3 +683,170 @@ def test_trim_response_removes_only_standalone_trailing_ui_line() -> None:
     text = "正文提到深度思考和联网搜索能力。\n联网搜索\n继续追问"
 
     assert yuanbao_module._trim_response(text) == "正文提到深度思考和联网搜索能力。"
+
+
+# ---------------------------------------------------------------------------
+# 引用 URL 补全（20260903 起）：DOM doc 列表（url 不进 DOM）+ 页面上下文 fetch
+# conversation detail 接口（探针实证 docs 带全量 url/quote/web_site_name/index）
+# 合并；fail-open——detail 任何失败都保持 url=None 诚实缺省，绝不影响采集主路径。
+# ---------------------------------------------------------------------------
+
+# 探针真实响应裁剪版（captures/yuanbao-conv1-bodies/0006_…_conversation_v1_detail.txt
+# 22 条 docs 取代表 3 条；url/title/web_site_name/quote 为原文，quote 截断）。
+_DETAIL_DOCS_FIXTURE: list[dict[str, Any]] = [
+    {
+        "index": 1,
+        "title": "费列罗巧克力盒排行榜",
+        "url": "https://www.jd.com/phb/key_1320bc9aac8ecee564b1.html",
+        "sitename": "京东",
+        "quote": "首页 >糖果/巧克力 费列罗巧克力盒排行榜 排名 热卖商品…",
+    },
+    {
+        "index": 3,
+        "title": "情人节送费列罗“翻车”,包装像拳头,打开是空气……60元买个空壳?",
+        "url": "https://www.huxiu.com/article/4835213.html",
+        "sitename": "虎嗅网",
+        "quote": "一则则关于费列罗的消费者投诉却在社交平台上迅速发酵｡",
+    },
+    {
+        "index": 5,
+        "title": "费雷罗巧克力排行榜",
+        "url": "https://www.jd.com/phb/key_132072d0d43b57e2e1cf.html",
+        "sitename": "京东",
+        "quote": "首页 >糖果/巧克力 费雷罗巧克力排行榜 排名 热卖商品…",
+    },
+]
+_CHAT_PAGE_URL = "https://yuanbao.tencent.com/chat/naQivTmsDa/0Q719ET7dJo"
+_HUXIU_ROW_TEXT = "情人节送费列罗“翻车”,包装像拳头,打开是空气……60元买个空壳? - 虎嗅网"
+_HUXIU_QUOTE = "一则则关于费列罗的消费者投诉却在社交平台上迅速发酵｡"
+
+
+class _DetailPage:
+    """URL 补全测试 page 替身：evaluate 按 JS 分流返回 DOM 行 / detail docs，
+    记录全部 evaluate 调用（断言 normal 口径不发 detail 请求）。"""
+
+    def __init__(
+        self,
+        *,
+        url: str = _CHAT_PAGE_URL,
+        rows: list[dict[str, str]],
+        detail_result: Any = None,
+        detail_exc: Exception | None = None,
+    ) -> None:
+        self.url = url
+        self._rows = rows
+        self._detail_result = detail_result
+        self._detail_exc = detail_exc
+        self.evaluated: list[str] = []
+
+    def evaluate(self, script: str, *_args: Any) -> Any:
+        self.evaluated.append(script)
+        if script == yuanbao_module._REFS_FROM_DOCS_JS:
+            return self._rows
+        if script == yuanbao_module._DETAIL_DOCS_FETCH_JS:
+            if self._detail_exc is not None:
+                raise self._detail_exc
+            return self._detail_result
+        raise AssertionError(f"unexpected evaluate script: {script[:60]}")
+
+    def locator(self, sel: str) -> Any:
+        raise AssertionError("docs 有产出时绝不走 a[href] 兜底组")
+
+
+def test_detail_backfill_fills_urls_by_index(tmp_path: Path) -> None:
+    """序号/index 主匹配：url+summary 补全（DOM 已有 sitename 不被覆盖），
+    补全后的引用经 _task_result_from_collected 进入 citations。"""
+    page = _DetailPage(
+        rows=[
+            {"num": "1", "text": "费列罗巧克力盒排行榜 - 京东"},
+            {"num": "3", "text": _HUXIU_ROW_TEXT},
+        ],
+        detail_result={"ok": True, "docs": _DETAIL_DOCS_FIXTURE},
+    )
+
+    refs = yuanbao_module._references_from_dom(page)
+
+    assert [r["url"] for r in refs] == [
+        "https://www.jd.com/phb/key_1320bc9aac8ecee564b1.html",
+        "https://www.huxiu.com/article/4835213.html",
+    ]
+    assert refs[0]["summary"] == "首页 >糖果/巧克力 费列罗巧克力盒排行榜 排名 热卖商品…"
+    assert refs[0]["sitename"] == "京东"  # DOM 拆出的站点后缀不被覆盖
+    result = _task_result_from_collected(
+        _item(),
+        CollectedAnswer(
+            answer_text="这是元宝的真实回答。",
+            references=refs,
+            screenshot_path=tmp_path / "shot.png",
+        ),
+    )
+    assert [c["url"] for c in result.citations] == [
+        "https://www.jd.com/phb/key_1320bc9aac8ecee564b1.html",
+        "https://www.huxiu.com/article/4835213.html",
+    ]
+    assert result.citations[1]["cited_text"] == _HUXIU_QUOTE
+
+
+def test_detail_backfill_fail_open_keeps_url_none() -> None:
+    """fail-open 矩阵：evaluate 抛错 / http 非 200 / docs 畸形 / 页面 URL 无会话
+    id —— 一律保持 url=None 诚实缺省，绝不抛错影响采集。"""
+    rows = [{"num": "1", "text": "费列罗巧克力盒排行榜 - 京东"}]
+    cases: list[_DetailPage] = [
+        _DetailPage(rows=rows, detail_exc=RuntimeError("evaluate boom")),
+        _DetailPage(rows=rows, detail_result={"ok": False, "status": 500}),
+        _DetailPage(rows=rows, detail_result={"ok": True, "docs": "not-a-list"}),
+        _DetailPage(rows=rows, detail_result=None),
+        # 无会话 id 的 URL（fresh-chat 导航兜底页）：detail JS 绝不被调用
+        _DetailPage(url="https://yuanbao.tencent.com/chat", rows=rows, detail_result=None),
+    ]
+    for page in cases:
+        refs = yuanbao_module._references_from_dom(page)
+        assert len(refs) == 1
+        assert refs[0]["url"] is None
+    assert cases[-1].evaluated == [yuanbao_module._REFS_FROM_DOCS_JS]
+
+
+def test_detail_backfill_title_fallback_when_index_mismatch() -> None:
+    """序号对不上（doc 列表序号口径漂移）→ 退化规范化标题匹配；序号命中但标题
+    冲突时不信任序号（错挂 URL 比缺 URL 更糟）；两键都不中保持 url=None。"""
+    page = _DetailPage(
+        rows=[
+            # num 9 无 index 9 的 doc，但标题与 index 5 规范化相等 → 标题兜底
+            {"num": "9", "text": "费雷罗巧克力排行榜 - 京东"},
+            # num 1 命中 index 1 但标题冲突 → 序号作废，标题兜底也不中 → None
+            {"num": "1", "text": "另一个完全不同的标题 - 别站"},
+        ],
+        detail_result={"ok": True, "docs": _DETAIL_DOCS_FIXTURE},
+    )
+
+    refs = yuanbao_module._references_from_dom(page)
+
+    assert refs[0]["url"] == "https://www.jd.com/phb/key_132072d0d43b57e2e1cf.html"
+    assert refs[0]["summary"] == "首页 >糖果/巧克力 费雷罗巧克力排行榜 排名 热卖商品…"
+    assert refs[1]["url"] is None
+
+
+def test_detail_backfill_never_adds_extra_docs() -> None:
+    """detail 多出的 docs 绝不新增引用（以 DOM 为准，URL 只是补全）。"""
+    page = _DetailPage(
+        rows=[{"num": "3", "text": _HUXIU_ROW_TEXT}],
+        detail_result={"ok": True, "docs": _DETAIL_DOCS_FIXTURE},
+    )
+
+    refs = yuanbao_module._references_from_dom(page)
+
+    assert len(refs) == 1
+    assert refs[0]["url"] == "https://www.huxiu.com/article/4835213.html"
+
+
+def test_detail_backfill_skipped_when_docs_empty() -> None:
+    """detail 返回空 docs（平台未检索）→ refs 原样，url=None。"""
+    page = _DetailPage(
+        rows=[{"num": "1", "text": "费列罗巧克力盒排行榜 - 京东"}],
+        detail_result={"ok": True, "docs": []},
+    )
+
+    refs = yuanbao_module._references_from_dom(page)
+
+    assert len(refs) == 1
+    assert refs[0]["url"] is None

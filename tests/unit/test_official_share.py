@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import time
 from hashlib import sha256
@@ -10,21 +11,35 @@ from typing import Any
 
 import httpx
 import pytest
+from PIL import Image
 
 from workflows.activities import collection, official_share
 from workflows.activities.official_share import (
     TONGYI_OFFICIAL_SHARE_HOSTS,
     YIYAN_OFFICIAL_SHARE_HOSTS,
+    YUANBAO_OFFICIAL_SHARE_HOSTS,
     OfficialShareExportError,
     probe_official_share_url,
     recover_png_from_export_audit,
+    valid_jpeg,
     valid_png,
     validated_deepseek_share_url,
     validated_tongyi_share_url,
     validated_yiyan_share_url,
+    validated_yuanbao_share_url,
 )
 
 _ONE_PIXEL_PNG_HEADER = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+
+
+def _tiny_jpeg_bytes() -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (1224, 800), (255, 255, 255)).save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+_TINY_JPEG = _tiny_jpeg_bytes()
+_TINY_JPEG_B64 = base64.b64encode(_TINY_JPEG).decode("ascii")
 
 
 def test_share_probe_records_redirect_hash_and_blocking_frame_policy() -> None:
@@ -460,6 +475,21 @@ def test_share_url_validators_are_platform_scoped() -> None:
         is None
     )
     assert TONGYI_OFFICIAL_SHARE_HOSTS == frozenset({"qianwen.my.cn"})
+    yuanbao_url = "https://yb.tencent.com/s/AbC123xYz"
+    assert validated_yuanbao_share_url(yuanbao_url) == yuanbao_url
+    assert validated_yuanbao_share_url("https://yb.tencent.com/chat/naQivTmsDa/abc") is None
+    assert validated_yuanbao_share_url("https://evil.example/s/AbC123xYz") is None
+    assert validated_yuanbao_share_url("http://yb.tencent.com/s/AbC123xYz") is None
+    assert YUANBAO_OFFICIAL_SHARE_HOSTS == frozenset({"yb.tencent.com"})
+
+
+def test_collection_treats_valid_yuanbao_share_as_supported() -> None:
+    share_url = "https://yb.tencent.com/s/AbC123xYz"
+
+    assert collection._official_share_url(share_url, "yuanbao") == share_url
+    assert "yuanbao" not in collection._OFFICIAL_SHARE_UNSUPPORTED
+    assert collection._official_share_url("https://yb.tencent.com/chat/abc", "yuanbao") is None
+    assert collection._official_share_url("https://evil.example/s/abc", "yuanbao") is None
 
 
 def test_collection_treats_valid_tongyi_share_as_supported() -> None:
@@ -737,3 +767,282 @@ def test_yiyan_share_download_rejects_non_png_payload(tmp_path: Path) -> None:
             page, tmp_path / "share.png", timeout_ms=2_000, settle_ms=20
         )
     assert (tmp_path / "share.png").read_bytes() == b"definitely-not-a-png"  # 证据保留
+
+
+# ---------------------------------------------------------------------------
+# 元宝官方分享导出（20260903 live 校准口径）：分享图标 JS click 开分享条 →
+# 全选核验 →「复制链接」剪贴板取 https://yb.tencent.com/s/<id> →「生成图片」
+# PhotoView 弹层取平台自渲染 JPEG 海报（INV-32：data URL 原样解码，绝不重渲染）
+# ---------------------------------------------------------------------------
+
+
+class _FastClock:
+    """确定性假时钟：只随 page.wait_for_timeout 前进（失败轮询即时到期）。"""
+
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def advance_ms(self, ms: float) -> None:
+        self.now += ms / 1000.0
+
+
+class _YuanbaoShareLocator:
+    """TDesign 分享条条目：JS click 无效，只有真实 locator.click 产生副作用。"""
+
+    def __init__(self, page: _YuanbaoSharePage, selector: str) -> None:
+        self._page = page
+        self.selector = selector
+
+    def count(self) -> int:
+        return 1
+
+    def nth(self, index: int) -> _YuanbaoShareLocator:
+        assert index == 0
+        return self
+
+    def is_visible(self, *, timeout: int | None = None) -> bool:
+        del timeout
+        return self._page.share_bar_open
+
+    def click(self, *, timeout: int | None = None) -> None:
+        del timeout
+        self._page.click_item(self.selector)
+
+
+class _YuanbaoShareContext:
+    def __init__(self) -> None:
+        self.granted: list[tuple[str, ...]] = []
+
+    def grant_permissions(self, permissions: list[str], origin: str | None = None) -> None:
+        del origin
+        self.granted.append(tuple(permissions))
+
+
+class _YuanbaoSharePage:
+    """元宝当前会话页的分享流程 DOM 模型（不导航，分享的就是当前页）。"""
+
+    def __init__(
+        self,
+        *,
+        share_icons: int = 2,
+        checks: list[bool] | None = None,
+        poster_src: str | None = "data:image/jpeg;base64," + _TINY_JPEG_B64,
+        clipboard_url: str | None = "https://yb.tencent.com/s/AbC123xYz",
+        open_after_clicks: int = 1,
+        poster_needs_reopen: bool = False,
+    ) -> None:
+        self.clock = _FastClock()
+        self.share_icons = share_icons
+        self.share_bar_open = False
+        self.checks = list(checks) if checks is not None else [True, True]
+        self.poster_src = poster_src
+        self.poster_ready = False
+        self.clipboard = ""
+        self.clipboard_url = clipboard_url
+        self.photo_view_closed = False
+        self.clicked: list[str] = []
+        # 生成图片点击→PhotoView 弹层打开的建模：第 open_after_clicks 次点击才开
+        # （>2 = 永远不开，驱动「点击被吞」路径）
+        self.open_after_clicks = open_after_clicks
+        self.poster_clicks = 0
+        # 海报首轮不渲染、弹层关闭重开后才渲染（20260903 采集现场失败形态）
+        self.poster_needs_reopen = poster_needs_reopen
+        self.context = _YuanbaoShareContext()
+        self.keyboard = SimpleNamespace(press=lambda *_a, **_kw: None)
+        self.url = "https://yuanbao.tencent.com/chat/naQivTmsDa/0Q6Xbi4oBrE"
+
+    @property
+    def poster_preview_open(self) -> bool:
+        return self.poster_clicks >= self.open_after_clicks
+
+    def bring_to_front(self) -> None:
+        pass
+
+    def evaluate(self, script: str, *_args: Any) -> Any:
+        if "Toolbar_shareIcon" in script:
+            # aria-label='分享' 的最后一个图标被 JS click 触发后分享条出现
+            if self.share_icons:
+                self.share_bar_open = True
+            return self.share_icons
+        if "t-checkbox__former" in script:
+            return list(self.checks)
+        if "clipboard.readText" in script:
+            return self.clipboard
+        if "clipboard.writeText" in script:
+            return None
+        if "!!document.querySelector" in script:
+            return self.poster_preview_open
+        if "PhotoView__Photo" in script:
+            ready = self.poster_ready and (
+                not self.poster_needs_reopen or self.photo_view_closed
+            )
+            if not (ready and self.poster_src):
+                return None
+            return {"src": self.poster_src, "w": 1224, "h": 800}
+        if "hyc-photo-view__close" in script:
+            self.photo_view_closed = True
+            return None
+        raise AssertionError(f"unexpected script: {script[:80]}")
+
+    def click_item(self, selector: str) -> None:
+        self.clicked.append(selector)
+        if "复制链接" in selector:
+            if self.clipboard_url is not None:
+                self.clipboard = self.clipboard_url
+        elif "生成图片" in selector:
+            self.poster_clicks += 1
+            if self.poster_preview_open:
+                self.poster_ready = True
+        elif "content__left label" in selector:
+            self.checks = [True] * len(self.checks)
+        else:
+            raise AssertionError(f"unexpected share-bar item: {selector}")
+
+    def locator(self, selector: str) -> _YuanbaoShareLocator:
+        return _YuanbaoShareLocator(self, selector)
+
+    def wait_for_timeout(self, ms: float) -> None:
+        self.clock.advance_ms(ms)
+
+
+def _fast_time(monkeypatch: pytest.MonkeyPatch, page: _YuanbaoSharePage) -> None:
+    monkeypatch.setattr(
+        official_share, "time", SimpleNamespace(monotonic=page.clock.monotonic)
+    )
+
+
+def test_yuanbao_official_share_happy_path_exports_link_and_poster(tmp_path: Path) -> None:
+    page = _YuanbaoSharePage()
+    out = tmp_path / "share.jpg"
+
+    artifacts = official_share.capture_yuanbao_official_share(page, out)
+
+    assert artifacts.share_url == "https://yb.tencent.com/s/AbC123xYz"
+    assert artifacts.image_path == out
+    assert out.read_bytes() == _TINY_JPEG
+    assert valid_jpeg(out) is True
+    assert artifacts.audit["platform"] == "yuanbao"
+    assert artifacts.audit["image_source"] == "share_poster_preview"
+    assert artifacts.audit["poster_width"] == 1224
+    assert artifacts.audit["image_bytes"] == len(_TINY_JPEG)
+    # 分享条两条目都走了真实 click（JS click 对 TDesign 无效）；全选未被触碰
+    # （默认全选时幂等零点击）
+    assert any("复制链接" in selector for selector in page.clicked)
+    assert any("生成图片" in selector for selector in page.clicked)
+    assert not any("content__left label" in selector for selector in page.clicked)
+    # PhotoView 弹层关闭，常驻标签页现场留给下一题
+    assert page.photo_view_closed is True
+    # 剪贴板权限在导出前授予
+    assert ("clipboard-read", "clipboard-write") in page.context.granted
+
+
+def test_yuanbao_share_forces_select_all_when_unchecked(tmp_path: Path) -> None:
+    page = _YuanbaoSharePage(checks=[False, True])
+
+    artifacts = official_share.capture_yuanbao_official_share(page, tmp_path / "share.jpg")
+
+    assert artifacts.share_url == "https://yb.tencent.com/s/AbC123xYz"
+    assert any("content__left label" in selector for selector in page.clicked)
+
+
+def test_yuanbao_share_fails_closed_without_share_icon(tmp_path: Path) -> None:
+    page = _YuanbaoSharePage(share_icons=0)
+
+    with pytest.raises(OfficialShareExportError, match="share icon was not found"):
+        official_share.capture_yuanbao_official_share(page, tmp_path / "share.jpg")
+    assert not (tmp_path / "share.jpg").exists()
+
+
+def test_yuanbao_share_fails_closed_without_clipboard_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    page = _YuanbaoSharePage(clipboard_url=None)
+    _fast_time(monkeypatch, page)
+
+    with pytest.raises(OfficialShareExportError, match="share link was not copied"):
+        official_share.capture_yuanbao_official_share(page, tmp_path / "share.jpg")
+    assert not (tmp_path / "share.jpg").exists()
+    assert page.photo_view_closed is True  # finally 仍清理现场
+
+
+def test_yuanbao_share_fails_closed_when_poster_never_renders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    page = _YuanbaoSharePage(poster_src=None)
+    _fast_time(monkeypatch, page)
+
+    with pytest.raises(OfficialShareExportError, match="poster did not render"):
+        official_share.capture_yuanbao_official_share(page, tmp_path / "share.jpg")
+    assert not (tmp_path / "share.jpg").exists()
+
+
+def test_yuanbao_share_retries_poster_once_after_empty_preview(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 20260903 采集现场失败形态：首轮弹层开了但海报不渲染——关弹层重开一轮后成功。
+    page = _YuanbaoSharePage(poster_needs_reopen=True)
+    _fast_time(monkeypatch, page)
+
+    artifacts = official_share.capture_yuanbao_official_share(page, tmp_path / "share.jpg")
+
+    assert artifacts.share_url == "https://yb.tencent.com/s/AbC123xYz"
+    assert page.poster_clicks >= 2  # 重试轮又点了一次「生成图片」
+    assert page.photo_view_closed is True
+
+
+def test_yuanbao_share_reclicks_when_first_poster_click_is_swallowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """生成图片首次点击未开弹层（被重渲染/toast 吞掉）→ 观测不到 PhotoView 即
+    重试一次，第二次点击开弹层后正常导出海海报。"""
+    page = _YuanbaoSharePage(open_after_clicks=2)
+    _fast_time(monkeypatch, page)
+
+    artifacts = official_share.capture_yuanbao_official_share(page, tmp_path / "share.jpg")
+
+    assert artifacts.share_url == "https://yb.tencent.com/s/AbC123xYz"
+    assert valid_jpeg(tmp_path / "share.jpg") is True
+    assert page.poster_clicks == 2
+
+
+def test_yuanbao_share_fails_closed_when_preview_never_opens(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """弹层两次都打不开 → 有界重试后 fail-closed（绝不盲等 30s 渲染窗）。"""
+    page = _YuanbaoSharePage(open_after_clicks=99)
+    _fast_time(monkeypatch, page)
+
+    with pytest.raises(OfficialShareExportError, match="preview did not open"):
+        official_share.capture_yuanbao_official_share(page, tmp_path / "share.jpg")
+    assert page.poster_clicks == 2  # 有界：恰好两次尝试
+    assert not (tmp_path / "share.jpg").exists()
+    assert page.photo_view_closed is True  # finally 仍清理现场
+
+
+def test_yuanbao_share_rejects_non_jpeg_poster_payload(tmp_path: Path) -> None:
+    """INV-32：平台给的不是 JPEG（如 PNG data URL）→ 诚实失败，绝不换格式冒充。"""
+    png_data_url = "data:image/png;base64," + base64.b64encode(_ONE_PIXEL_PNG_HEADER).decode()
+    page = _YuanbaoSharePage(poster_src=png_data_url)
+
+    with pytest.raises(OfficialShareExportError, match="not a JPEG data URL"):
+        official_share.capture_yuanbao_official_share(page, tmp_path / "share.jpg")
+    assert not (tmp_path / "share.jpg").exists()
+
+
+def test_valid_jpeg_accepts_real_jpeg_and_rejects_impostors(tmp_path: Path) -> None:
+    jpg = tmp_path / "share.jpg"
+    jpg.write_bytes(_TINY_JPEG)
+    assert valid_jpeg(jpg) is True
+
+    assert valid_jpeg(tmp_path / "missing.jpg") is False
+
+    png = tmp_path / "share.png"
+    png.write_bytes(_ONE_PIXEL_PNG_HEADER + b"\x00" * 16)
+    assert valid_jpeg(png) is False  # PNG 不是 JPEG
+
+    truncated = tmp_path / "truncated.jpg"
+    truncated.write_bytes(b"\xff\xd8")  # 只有 SOI
+    assert valid_jpeg(truncated) is False

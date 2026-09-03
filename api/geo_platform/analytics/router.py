@@ -259,7 +259,7 @@ class AnswerShareArtifactView(StrictModel):
 class AnswerShareImageView(StrictModel):
     pub_id: str = Field(pattern=r"^evd_[A-Za-z0-9]{16,64}$")
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    mime_type: Literal["image/png"]
+    mime_type: Literal["image/png", "image/jpeg"]
     byte_size: int = Field(gt=0, le=30 * 1024 * 1024)
     image_width: int | None = Field(default=None, gt=0, le=100_000)
     image_height: int | None = Field(default=None, gt=0, le=100_000)
@@ -550,6 +550,7 @@ def _safe_official_share_url(value: object, platform: object) -> str | None:
         "deepseek": {"chat.deepseek.com"},
         "doubao": {"doubao.com", "www.doubao.com"},
         "yiyan": {"mr.baidu.com", "wenxin.baidu.com"},
+        "yuanbao": {"yb.tencent.com"},
     }.get(platform_key, set())
     try:
         parsed = urlsplit(value)
@@ -566,6 +567,8 @@ def _safe_official_share_url(value: object, platform: object) -> str | None:
     if platform_key == "deepseek" and not parsed.path.startswith("/share/"):
         return None
     if platform_key == "doubao" and not parsed.path.startswith("/thread/"):
+        return None
+    if platform_key == "yuanbao" and not parsed.path.startswith("/s/"):
         return None
     return urlunsplit(("https", parsed.hostname, parsed.path, parsed.query, ""))
 
@@ -1353,7 +1356,7 @@ def answer_relations(
                 AND asset.kind='share_image'
                 AND asset.customer_visible=true
                 AND asset.deleted_at IS NULL
-                AND asset.mime_type='image/png'
+                AND asset.mime_type IN ('image/png','image/jpeg')
                 AND asset.byte_size BETWEEN 1 AND 31457280
               LIMIT 1
             ) share_image ON true

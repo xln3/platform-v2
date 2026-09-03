@@ -2099,9 +2099,10 @@ def test_collect_batch_shares_one_browser_session(
         assert (evidence / f"{spec.file_stem}.png").is_file()
         assert (evidence / f"{spec.file_stem}-sse-trace.json").is_file()
 
-    # 6) 每题两个 CDP session（既有 completion capture + 2026-08-10 起的
-    #    RawTrafficCapture）题末各自 detach（3 题 = 6 次）
-    assert page.cdp.detached == 6
+    # 6) 每题三个 CDP session（既有 completion capture + 2026-08-10 起的
+    #    RawTrafficCapture + 2026-09-03 起的 chain/single 引用恢复捕获）题末
+    #    各自 detach（3 题 = 9 次）
+    assert page.cdp.detached == 9
 
 
 def test_collect_batch_wall_aborts_remaining_items(
@@ -2309,7 +2310,8 @@ def test_collect_batch_wall_item_carries_raw_har_ref(
 def test_collect_batch_raw_capture_disabled_restores_prior_behavior(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GEO_RAW_CAPTURE=0 全关：不建第二个 CDP session、不落新文件、不出新 ref。"""
+    """GEO_RAW_CAPTURE=0 全关：raw 不建 CDP session、不落新文件、不出新 ref
+    （completion capture 与 chain/single 引用恢复捕获不受影响，照常各建各的）。"""
     monkeypatch.setenv("GEO_RAW_CAPTURE", "0")
     page = _FakePage(messages=0)
     session = _make_session(tmp_path, monkeypatch, page)
@@ -2323,7 +2325,7 @@ def test_collect_batch_raw_capture_disabled_restores_prior_behavior(
     evidence = tmp_path / "evidence"
     assert not list(evidence.glob("*-sse-raw.txt"))
     assert not list(evidence.glob("*-har.json"))
-    assert page.cdp.detached == 1  # 只剩既有 completion capture
+    assert page.cdp.detached == 2  # 既有 completion capture + chain/single 捕获
 
 
 def test_batch_item_result_maps_raw_evidence_refs() -> None:
@@ -2834,3 +2836,636 @@ def test_completion_capture_fails_after_bounded_recovery_grace(
     assert meta["failed"] is True
     assert meta["recovered"] is False
     assert meta["request_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# /im/chain/single 引用恢复（2026-09-03 起）
+#
+# fixture 裁剪自探针真实响应（developlog/research/full-traffic-probe-20260903/
+# captures/doubao-conv1-reload-bodies/0239_..._im_chain_single.txt）：3 条
+# results（前两条同 search_id，第三条来自另一检索词、original_doc_rank 重置
+# 为 "0"）+ 2 个 queries，字段名与线上一字不差。
+# ---------------------------------------------------------------------------
+
+_CHAIN_TEXT_CARD_1 = {
+    "id": "10247033871901442",
+    "summary": "",
+    "title": "医学营养食品交易平台",
+    "sitename": "",
+    "url": "http://dl.cnca.net/Client/detail/id/2466.html",
+    "doc_id": "5745713e6a6be28f-42f67161d4a64eb9",
+    "original_doc_rank": "0",
+    "index": "1",
+    "search_id": "202609022316315787C22BAE58530B39D9",
+}
+_CHAIN_TEXT_CARD_2 = {
+    "id": "10247033871901698",
+    "summary": "",
+    "title": "广州阳光采购服务平台",
+    "sitename": "",
+    "url": "https://www.cnca.net/Client/detail/id/2150.html",
+    "doc_id": "6a7f8fed63ae20b0-3d4e0074f245c13c",
+    "original_doc_rank": "1",
+    "index": "2",
+    "search_id": "202609022316315787C22BAE58530B39D9",
+}
+_CHAIN_TEXT_CARD_3 = {
+    "id": "10247033871902978",
+    "summary": "",
+    "title": "互联网身份认证-神思电子技术股份有限公司",
+    "sitename": "",
+    "url": "https://www.sdses.com/lists/70.html",
+    "doc_id": "4f28a32ef8855086-719d3abd11ab5259",
+    "original_doc_rank": "0",
+    "index": "7",
+    "search_id": "202609022316319D99F9039E625345D858",
+}
+
+
+def _chain_payload(
+    *,
+    status_code: int = 0,
+    results: list[dict[str, Any]] | None = None,
+    queries: list[str] | None = None,
+    message_id: str = "54289993554104578",
+    conversation_id: str = "38439927879304194",
+    extra_assistant: bool = False,
+) -> dict[str, Any]:
+    """裁剪版 chain/single 下行体（探针真实形状）。"""
+    if results is None:
+        results = [_CHAIN_TEXT_CARD_1, _CHAIN_TEXT_CARD_2, _CHAIN_TEXT_CARD_3]
+    if queries is None:
+        queries = ["网证 安全厂商 协助对接", "网证接入 企业资质门槛"]
+    assistant = {
+        "conversation_id": conversation_id,
+        "message_id": message_id,
+        "user_type": 2,
+        "index_in_conv": "2",
+        "content_block": [
+            {
+                "block_type": 10025,
+                "block_id": "10247033872051714",
+                "parent_id": "",
+                "content": {
+                    "search_query_result_block": {
+                        "summary": "搜索 2 个关键词，参考 3 篇资料",
+                        "queries": queries,
+                        "results": [{"text_card": dict(tc)} for tc in results],
+                    }
+                },
+            },
+            {
+                "block_type": 10000,
+                "block_id": "10247033872051970",
+                "parent_id": "",
+                "content": {"text_block": {"text": "# 答案正文\n示例。"}},
+            },
+        ],
+    }
+    user = {
+        "conversation_id": conversation_id,
+        "message_id": "54289993554098178",
+        "user_type": 1,
+        "index_in_conv": "1",
+        "content_block": [],
+    }
+    messages: list[dict[str, Any]] = [assistant, user]
+    if extra_assistant:
+        messages.append({**assistant, "message_id": "99999999999999999", "index_in_conv": "4"})
+    return {
+        "cmd": 3100,
+        "status_code": status_code,
+        "status_desc": "OK" if status_code == 0 else "ERROR",
+        "downlink_body": {
+            "pull_singe_chain_downlink_body": {"messages": messages, "has_more": False}
+        },
+    }
+
+
+def test_chain_record_from_payload_extracts_queries_and_results() -> None:
+    record = doubao_adapter._chain_record_from_payload(
+        _chain_payload(), conversation_id="38439927879304194"
+    )
+
+    assert record is not None
+    assert record["message_id"] == "54289993554104578"
+    assert record["queries"] == ["网证 安全厂商 协助对接", "网证接入 企业资质门槛"]
+    assert len(record["results"]) == 3
+
+
+def test_chain_record_prefers_message_id_and_rejects_mismatch() -> None:
+    payload = _chain_payload(extra_assistant=True)
+
+    # 多条助手消息且无 message_id → 歧义，诚实 None（绝不错安引用）
+    assert (
+        doubao_adapter._chain_record_from_payload(payload, conversation_id="38439927879304194")
+        is None
+    )
+    # message_id 精确定位
+    record = doubao_adapter._chain_record_from_payload(
+        payload, conversation_id="38439927879304194", message_id="54289993554104578"
+    )
+    assert record is not None and record["message_id"] == "54289993554104578"
+    # 多候选且 message_id 对不上 → None
+    assert (
+        doubao_adapter._chain_record_from_payload(
+            payload, conversation_id="38439927879304194", message_id="no-such"
+        )
+        is None
+    )
+    # 单候选时 message_id 漂移（id 空间差异）可回退到唯一助手消息——fresh-chat
+    # 纪律下会话只有一条助手消息，单候选即本题，不算歧义
+    single = doubao_adapter._chain_record_from_payload(
+        _chain_payload(), conversation_id="38439927879304194", message_id="drifted-id"
+    )
+    assert single is not None and single["message_id"] == "54289993554104578"
+    # conversation_id 不符 → None
+    assert (
+        doubao_adapter._chain_record_from_payload(
+            _chain_payload(), conversation_id="0000", message_id="54289993554104578"
+        )
+        is None
+    )
+
+
+def test_chain_record_rejects_malformed_payloads() -> None:
+    conv = "38439927879304194"
+    assert doubao_adapter._chain_record_from_payload(None, conversation_id=conv) is None
+    assert doubao_adapter._chain_record_from_payload("x", conversation_id=conv) is None
+    # status_code 非 0
+    assert (
+        doubao_adapter._chain_record_from_payload(
+            _chain_payload(status_code=100), conversation_id=conv
+        )
+        is None
+    )
+    # 缺 downlink / messages 非列表
+    assert doubao_adapter._chain_record_from_payload({}, conversation_id=conv) is None
+    broken = _chain_payload()
+    broken["downlink_body"]["pull_singe_chain_downlink_body"]["messages"] = "oops"
+    assert doubao_adapter._chain_record_from_payload(broken, conversation_id=conv) is None
+    # 助手消息无 10025 块（本题未联网）→ 空 record 而非 None（诚实零引用）
+    no_search = _chain_payload()
+    no_search["downlink_body"]["pull_singe_chain_downlink_body"]["messages"][0]["content_block"] = [
+        b
+        for b in no_search["downlink_body"]["pull_singe_chain_downlink_body"]["messages"][0][
+            "content_block"
+        ]
+        if b.get("block_type") != 10025
+    ]
+    record = doubao_adapter._chain_record_from_payload(no_search, conversation_id=conv)
+    assert record == {"queries": [], "results": [], "message_id": "54289993554104578"}
+
+
+def test_chain_references_carry_ordinals_doc_ids_and_ranks() -> None:
+    record = doubao_adapter._chain_record_from_payload(
+        _chain_payload(), conversation_id="38439927879304194"
+    )
+    assert record is not None
+    references = doubao_adapter._chain_references_from_record(record)
+
+    assert [r["url"] for r in references] == [
+        "http://dl.cnca.net/Client/detail/id/2466.html",
+        "https://www.cnca.net/Client/detail/id/2150.html",
+        "https://www.sdses.com/lists/70.html",
+    ]
+    # 展示序号 index（1 起）→ platform_ordinal；original_doc_rank 原样保留
+    # （第三条来自另一检索词、原始排名重置为 0，而展示序号为 7——两者语义不同）。
+    assert [r["platform_ordinal"] for r in references] == [1, 2, 7]
+    assert all(r["ordinal_base"] == 1 for r in references)
+    assert [r["original_doc_rank"] for r in references] == ["0", "1", "0"]
+    assert references[0]["doc_id"] == "5745713e6a6be28f-42f67161d4a64eb9"
+    assert references[2]["search_id"] == "202609022316319D99F9039E625345D858"
+
+
+def test_chain_references_skip_bad_ordinals_honestly() -> None:
+    """index 缺失/非整数/越界的条目保留但绝不编造 platform_ordinal。"""
+    bad_cards = [
+        {**_CHAIN_TEXT_CARD_1, "index": "0", "url": "https://a.example.com/1"},
+        {**_CHAIN_TEXT_CARD_2, "index": "x", "url": "https://b.example.com/2"},
+        {k: v for k, v in _CHAIN_TEXT_CARD_3.items() if k != "index"},
+    ]
+    record = doubao_adapter._chain_record_from_payload(
+        _chain_payload(results=bad_cards), conversation_id="38439927879304194"
+    )
+    assert record is not None
+    references = doubao_adapter._chain_references_from_record(record)
+
+    assert len(references) == 3
+    assert all("platform_ordinal" not in r for r in references)
+    assert all("ordinal_base" not in r for r in references)
+
+
+def test_chain_references_drop_unreal_urls_and_dedup() -> None:
+    dup = dict(_CHAIN_TEXT_CARD_1)
+    dup["index"] = "2"
+    cards = [
+        _CHAIN_TEXT_CARD_1,
+        {"text_card": None},
+        {"text_card": {"title": "无URL"}},
+        {"text_card": {**_CHAIN_TEXT_CARD_2, "url": "javascript:alert(1)"}},
+        dup,  # 与第一条同 URL（去查询串口径）→ 去重
+    ]
+    record = doubao_adapter._chain_record_from_payload(
+        _chain_payload(results=cards), conversation_id="38439927879304194"
+    )
+    assert record is not None
+    references = doubao_adapter._chain_references_from_record(record)
+    assert [r["url"] for r in references] == ["http://dl.cnca.net/Client/detail/id/2466.html"]
+
+
+def test_merge_references_with_chain_empty_sse_restores_full_card() -> None:
+    """SSE 引用整块缺失（08-17 后顽疾）→ chain 引用卡整体恢复。"""
+    record = doubao_adapter._chain_record_from_payload(
+        _chain_payload(), conversation_id="38439927879304194"
+    )
+    assert record is not None
+    chain_refs = doubao_adapter._chain_references_from_record(record)
+
+    merged = doubao_adapter._merge_references_with_chain([], chain_refs)
+
+    assert len(merged) == 3
+    assert [r["platform_ordinal"] for r in merged] == [1, 2, 7]
+
+
+def test_merge_references_backfills_sse_fields_and_keeps_sse_only_tail() -> None:
+    """chain 为主（权威序号），SSE 同 URL 条目的非空字段回填；SSE 独有排尾。"""
+    record = doubao_adapter._chain_record_from_payload(
+        _chain_payload(), conversation_id="38439927879304194"
+    )
+    assert record is not None
+    chain_refs = doubao_adapter._chain_references_from_record(record)
+    sse_refs = [
+        {
+            "url": "http://dl.cnca.net/Client/detail/id/2466.html",
+            "title": None,
+            "summary": "SSE 侧才有的摘要",
+            "sitename": "cnca",
+            "index": "1",
+        },
+        {
+            "url": "https://sse-only.example.com/page",
+            "title": "SSE 独有",
+            "summary": "",
+            "sitename": "",
+            "index": "30",
+        },
+    ]
+
+    merged = doubao_adapter._merge_references_with_chain(sse_refs, chain_refs)
+
+    assert len(merged) == 4
+    assert merged[0]["summary"] == "SSE 侧才有的摘要"
+    assert merged[0]["sitename"] == "cnca"
+    assert merged[0]["platform_ordinal"] == 1
+    # SSE 独有条目原样排尾、不编造序号
+    assert merged[-1]["url"] == "https://sse-only.example.com/page"
+    assert "platform_ordinal" not in merged[-1]
+
+
+def test_merge_search_queries_with_chain_dedups_casefold() -> None:
+    merged = doubao_adapter._merge_search_queries_with_chain(
+        [{"query": "网证 安全厂商 协助对接", "ordinal": 1}],
+        ["网证 安全厂商 协助对接", "网证接入 企业资质门槛"],
+    )
+    assert merged == [
+        {"query": "网证 安全厂商 协助对接", "ordinal": 1},
+        {"query": "网证接入 企业资质门槛", "ordinal": 2},
+    ]
+
+
+def test_citation_payloads_pass_through_platform_ordinals() -> None:
+    citations = doubao_adapter._citation_payloads(
+        [
+            {
+                "url": "http://dl.cnca.net/Client/detail/id/2466.html",
+                "title": "医学营养食品交易平台",
+                "summary": "",
+                "platform_ordinal": 1,
+                "ordinal_base": 1,
+            },
+            {"url": "https://sse-only.example.com/page", "title": "无序号", "summary": None},
+        ]
+    )
+
+    assert citations[0] == {
+        "url": "http://dl.cnca.net/Client/detail/id/2466.html",
+        "title": "医学营养食品交易平台",
+        "cited_text": None,
+        "platform_ordinal": 1,
+        "ordinal_base": 1,
+    }
+    # 无序号依据的引用维持旧形状（不多不少三个键）
+    assert citations[1] == {
+        "url": "https://sse-only.example.com/page",
+        "title": "无序号",
+        "cited_text": None,
+    }
+
+
+def test_citation_payloads_reject_bool_and_zero_ordinals() -> None:
+    citations = doubao_adapter._citation_payloads(
+        [
+            {"url": "https://a.example.com/1", "platform_ordinal": True},
+            {"url": "https://a.example.com/2", "platform_ordinal": 0},
+        ]
+    )
+    assert all("platform_ordinal" not in c for c in citations)
+
+
+async def test_chain_enriched_references_flow_into_task_result(adapter_env: Path) -> None:
+    """端到端映射：chain 恢复的 references 经 _task_result_from_collected 出
+    带 platform_ordinal 的 citations（CollectedAnswer 注入 fake session）。"""
+    shot = adapter_env / "run-7-task-3-a1.png"
+    shot.write_bytes(b"\x89PNG-fake")
+    session = _FakeSession(
+        result=CollectedAnswer(
+            answer_text="网证接入需要企业资质。",
+            references=[
+                {
+                    "url": "http://dl.cnca.net/Client/detail/id/2466.html",
+                    "title": "医学营养食品交易平台",
+                    "summary": "",
+                    "sitename": "",
+                    "index": "1",
+                    "doc_id": "5745713e6a6be28f-42f67161d4a64eb9",
+                    "original_doc_rank": "0",
+                    "platform_ordinal": 1,
+                    "ordinal_base": 1,
+                }
+            ],
+            screenshot_path=shot,
+            search_queries=[{"query": "网证 安全厂商 协助对接", "ordinal": 1}],
+        )
+    )
+
+    result = await run_doubao_collection(
+        _item(), session_factory=_factory(session), heartbeat=lambda p: None
+    )
+
+    assert result.citations == [
+        {
+            "url": "http://dl.cnca.net/Client/detail/id/2466.html",
+            "title": "医学营养食品交易平台",
+            "cited_text": None,
+            "platform_ordinal": 1,
+            "ordinal_base": 1,
+        }
+    ]
+    assert result.search_queries == [{"query": "网证 安全厂商 协助对接", "ordinal": 1}]
+
+
+# -- _ChainSingleCapture / _resolve_chain_single（fake CDP/page）--------------
+
+
+def _chain_request_events(cdp: _RecoveryCDP, request_id: str, conversation_id: str) -> None:
+    body = doubao_adapter._chain_single_request_body(conversation_id)
+    cdp.emit(
+        "Network.requestWillBeSent",
+        {
+            "requestId": request_id,
+            "request": {
+                "url": "https://www.doubao.com/im/chain/single?aid=497858&device_id=dev-1",
+                "postData": json.dumps(body, ensure_ascii=False),
+            },
+        },
+    )
+    cdp.emit("Network.loadingFinished", {"requestId": request_id, "encodedDataLength": 1})
+
+
+def test_chain_single_capture_matches_body_by_conversation() -> None:
+    payload = _chain_payload()
+    cdp = _RecoveryCDP({"req-chain": json.dumps(payload, ensure_ascii=False)})
+    capture = doubao_adapter._ChainSingleCapture(_RecoveryContext(cdp), None)
+    # 无关 /im/ 请求提供模板；别的会话的 chain 不串题
+    cdp.emit(
+        "Network.requestWillBeSent",
+        {
+            "requestId": "req-im",
+            "request": {
+                "url": "https://www.doubao.com/im/message/send_rate_limit?aid=497858&device_id=dev-1"
+            },
+        },
+    )
+    _chain_request_events(cdp, "req-chain", "38439927879304194")
+
+    assert capture.query_template() == "aid=497858&device_id=dev-1"
+    assert capture.bodies_for("38439927879304194") == [json.dumps(payload, ensure_ascii=False)]
+    assert capture.bodies_for("别的会话") == []
+    capture.detach()
+
+
+def test_chain_single_capture_ignores_unrelated_requests() -> None:
+    cdp = _RecoveryCDP({})
+    capture = doubao_adapter._ChainSingleCapture(_RecoveryContext(cdp), None)
+    cdp.emit(
+        "Network.requestWillBeSent",
+        {"requestId": "req-1", "request": {"url": "https://www.doubao.com/chat/completion?aid=1"}},
+    )
+    cdp.emit("Network.loadingFinished", {"requestId": "req-1", "encodedDataLength": 1})
+
+    assert capture.bodies_for("38439927879304194") == []
+    assert capture.query_template() is None
+    capture.detach()
+
+
+def _user_only_chain_payload(conversation_id: str) -> dict[str, Any]:
+    """生成进行中页面自动拉链的真实形状（2026-09-03 live 冒烟实证）：
+    链上只有用户消息，助手消息尚未落链。"""
+    return {
+        "cmd": 3100,
+        "status_code": 0,
+        "status_desc": "OK",
+        "downlink_body": {
+            "pull_singe_chain_downlink_body": {
+                "messages": [
+                    {
+                        "conversation_id": conversation_id,
+                        "message_id": "54368605962430210",
+                        "user_type": 1,
+                        "index_in_conv": "1",
+                        "content_block": [],
+                    }
+                ],
+                "has_more": False,
+            }
+        },
+    }
+
+
+class _ChainReplayPage:
+    """resolve/replay 用 page 替身：wait_for_timeout 即时返回，evaluate 按脚本分派。"""
+
+    def __init__(
+        self,
+        *,
+        fetch_response: dict[str, Any] | None = None,
+        perf_template: str | None = None,
+        raise_on_evaluate: bool = False,
+        url: str = "https://www.doubao.com/chat/38439927879304194",
+    ) -> None:
+        self.fetch_response = fetch_response
+        self.perf_template = perf_template
+        self.raise_on_evaluate = raise_on_evaluate
+        self.url = url
+        self.waits: list[float] = []
+        self.fetch_calls: list[dict[str, Any]] = []
+
+    def wait_for_timeout(self, timeout: float) -> None:
+        self.waits.append(timeout)
+
+    def evaluate(self, script: str, argument: Any = None) -> Any:
+        if self.raise_on_evaluate:
+            raise RuntimeError("fake evaluate boom")
+        if script == doubao_adapter._IM_QUERY_FROM_PERF_JS:
+            return self.perf_template
+        if script == doubao_adapter._CHAIN_SINGLE_FETCH_JS:
+            self.fetch_calls.append(argument)
+            return self.fetch_response
+        raise AssertionError(f"unexpected script: {script[:60]}")
+
+
+def test_resolve_chain_single_intercepted_path_skips_replay() -> None:
+    payload = _chain_payload()
+    body = json.dumps(payload, ensure_ascii=False)
+    cdp = _RecoveryCDP({"req-chain": body})
+    capture = doubao_adapter._ChainSingleCapture(_RecoveryContext(cdp), None)
+    _chain_request_events(cdp, "req-chain", "38439927879304194")
+    page = _ChainReplayPage(fetch_response=None)
+
+    references, queries, audit = doubao_adapter._resolve_chain_single(
+        page, capture, conversation_id="38439927879304194", message_id=None, business_key="bk"
+    )
+
+    assert audit["status"] == "ok" and audit["source"] == "intercepted"
+    assert audit["results"] == 3 and audit["queries"] == 2
+    assert [r["platform_ordinal"] for r in references] == [1, 2, 7]
+    assert queries == ["网证 安全厂商 协助对接", "网证接入 企业资质门槛"]
+    assert page.fetch_calls == []  # 拦截命中即不重放
+    assert page.waits == []  # 命中即返回，零等待
+    capture.detach()
+
+
+def test_resolve_chain_single_replay_path_uses_template() -> None:
+    payload = _chain_payload()
+    page = _ChainReplayPage(
+        fetch_response={"ok": True, "status": 200, "body": json.dumps(payload, ensure_ascii=False)},
+        perf_template="aid=497858&device_id=dev-perf",
+    )
+    # chain_capture=None：CDP attach 失败场景下重放仍可走（perf 模板兜底）
+    references, queries, audit = doubao_adapter._resolve_chain_single(
+        page, None, conversation_id="38439927879304194", message_id=None, business_key="bk"
+    )
+
+    assert audit["status"] == "ok" and audit["source"] == "replay"
+    assert len(references) == 3 and len(queries) == 2
+    assert page.waits == []  # 无 capture 不空等
+    assert len(page.fetch_calls) == 1
+    call = page.fetch_calls[0]
+    assert call["url"].startswith(
+        "https://www.doubao.com/im/chain/single?aid=497858&device_id=dev-perf"
+    )
+    uplink = call["body"]["uplink_body"]["pull_singe_chain_uplink_body"]
+    assert uplink["conversation_id"] == "38439927879304194"
+
+
+def test_resolve_chain_single_fail_open_on_fetch_error() -> None:
+    """重放 fetch 炸了 → 空结果 + no_chain_record，绝不抛出拖垮采集主链。"""
+    page = _ChainReplayPage(raise_on_evaluate=True)
+
+    references, queries, audit = doubao_adapter._resolve_chain_single(
+        page, None, conversation_id="38439927879304194", message_id=None, business_key="bk"
+    )
+
+    assert references == [] and queries == []
+    assert audit["status"] == "no_chain_record"
+
+
+def test_resolve_chain_single_fail_open_on_capture_error() -> None:
+    """capture 自身异常 → failed 审计标注，仍零抛出。"""
+
+    class _BrokenCapture:
+        def bodies_for(self, _conversation_id: str) -> list[str]:
+            raise RuntimeError("fake capture boom")
+
+    page = _ChainReplayPage()
+    references, queries, audit = doubao_adapter._resolve_chain_single(
+        page, _BrokenCapture(), conversation_id="c1", message_id=None, business_key="bk"
+    )
+    assert references == [] and queries == []
+    assert audit["status"] == "failed"
+
+
+def test_resolve_chain_single_prefers_latest_complete_body() -> None:
+    """回归（2026-09-03 live 冒烟实证）：生成中页面自动拉链只含用户消息，
+    完整的助手消息（含 10025 引用块）在生成后动作里再拉——从最新往最早试。"""
+    conv = "38439927879304194"
+    early = json.dumps(_user_only_chain_payload(conv), ensure_ascii=False)
+    late = json.dumps(_chain_payload(), ensure_ascii=False)
+    cdp = _RecoveryCDP({"req-early": early, "req-late": late})
+    capture = doubao_adapter._ChainSingleCapture(_RecoveryContext(cdp), None)
+    _chain_request_events(cdp, "req-early", conv)
+    _chain_request_events(cdp, "req-late", conv)
+    page = _ChainReplayPage(fetch_response=None)
+
+    references, queries, audit = doubao_adapter._resolve_chain_single(
+        page, capture, conversation_id=conv, message_id=None, business_key="bk"
+    )
+
+    assert audit["status"] == "ok" and audit["source"] == "intercepted"
+    assert audit["captured_bodies"] == 2
+    assert [r["platform_ordinal"] for r in references] == [1, 2, 7]
+    assert len(queries) == 2
+    assert page.fetch_calls == []  # 完整 body 已拦截，不重放
+    capture.detach()
+
+
+def test_resolve_chain_single_replays_when_all_captured_bodies_incomplete() -> None:
+    """所有拦截体都不含助手消息（只拉到生成中的早趟）→ 回退只读重放。"""
+    conv = "38439927879304194"
+    early = json.dumps(_user_only_chain_payload(conv), ensure_ascii=False)
+    cdp = _RecoveryCDP({"req-early": early})
+    capture = doubao_adapter._ChainSingleCapture(_RecoveryContext(cdp), None)
+    _chain_request_events(cdp, "req-early", conv)
+    payload = _chain_payload()
+    page = _ChainReplayPage(
+        fetch_response={"ok": True, "status": 200, "body": json.dumps(payload, ensure_ascii=False)}
+    )
+
+    references, queries, audit = doubao_adapter._resolve_chain_single(
+        page, capture, conversation_id=conv, message_id=None, business_key="bk"
+    )
+
+    assert audit["status"] == "ok" and audit["source"] == "replay"
+    assert len(references) == 3 and len(queries) == 2
+    assert len(page.fetch_calls) == 1
+    capture.detach()
+
+
+def test_resolve_chain_single_degrades_on_bad_payload() -> None:
+    page = _ChainReplayPage(
+        fetch_response={"ok": True, "status": 200, "body": '{"status_code": 100}'},
+        perf_template="aid=497858",
+    )
+    references, queries, audit = doubao_adapter._resolve_chain_single(
+        page, None, conversation_id="38439927879304194", message_id=None, business_key="bk"
+    )
+    assert references == [] and queries == []
+    assert audit["status"] == "no_chain_record"
+
+
+def test_resolve_chain_single_without_conversation_id_skips() -> None:
+    page = _ChainReplayPage()
+    references, queries, audit = doubao_adapter._resolve_chain_single(
+        page, None, conversation_id=None, message_id=None, business_key="bk"
+    )
+    assert references == [] and queries == []
+    assert audit["status"] == "no_conversation_id"
+    assert page.fetch_calls == []
+
+
+def test_conversation_id_from_url() -> None:
+    url = "https://www.doubao.com/chat/38439927879304194"
+    assert doubao_adapter._conversation_id_from_url(url) == "38439927879304194"
+    assert doubao_adapter._conversation_id_from_url("https://www.doubao.com/chat/") is None
+    assert doubao_adapter._conversation_id_from_url(None) is None

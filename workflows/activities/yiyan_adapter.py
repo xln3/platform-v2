@@ -15,14 +15,21 @@
   （流式期间可见、结束即消失）；百度 pass 登录弹层 = ``#TANGRAM__PSP_11__*`` 短信
   表单 + ``span.switch-item`` tab。校准脚本与截图证据在 ``platform-v2/runtime/``
   （gitignored）。
-- 流传输实况：页面装 Service Worker（``wenxin.baidu.com/sw.js``），completion
-  请求被 SW 中转，CDP Network 层抓不到事件流（probe_transport 实证）——流信号
-  用 DOM 观测：答案容器出现=流开始；瞬态指示器消失且正文连续 2.5s 不变=流结束。
-  零合成：正文即 DOM 实渲染文本，绝不解析/猜测未公开协议。
+- 流传输实况：页面装 Service Worker（``wenxin.baidu.com/sw.js``），早期
+  probe_transport（20260727）判 completion 请求被 SW 中转、CDP 抓不到——20260903
+  全流量探针推翻：completion（``POST chat.baidu.com/aichat/api/conversation``，
+  标准 text/event-stream 带 charset）page 级 CDP 可见，raw capture 正常落
+  sse_raw。答案流观测仍走 DOM（口径不改）：答案容器出现=流开始；瞬态指示器
+  消失且正文连续 2.5s 不变=流结束。零合成：正文即 DOM 实渲染文本，绝不解析/
+  猜测未公开协议。
 - yiyan.baidu.com 落地跳转到 wenxin.baidu.com（实测）；未登录可答首问（实测），
   登录墙在后续交互/刷新时出现。
-- 参考来源：DOM best-effort 抽取（`参考`/`来源` 容器内锚点），抽不到即空列表——
-  不合成。
+- 参考来源（20260903 起）：主数据源=生成 SSE ``data.message.content.generator``
+  快照里的 ``referenceList`` 全量召回（url/abstract/text/source/nid 等，UI
+  抽屉只是它的渲染裁剪；历史回看载荷不含该字段=生成期一次性数据，只能采集期
+  当场解析）；DOM best-effort 抽取降为兜底（SSE 无该组件时维持旧行为）。两条
+  路径抽不到即空列表——不合成。正文锚点与 referenceList 条目无显式对应关系
+  （20260903 探针答案正文零角标），platform_ordinal 诚实缺省不臆造。
 
 v1 边界（20260810 deep_think 解锁）：
 
@@ -1000,8 +1007,9 @@ def _build_yiyan_trace(
 ) -> dict[str, Any]:
     """思考链 → trace record（kind="sse" 证据内容，词表对齐豆包/DeepSeek）。
 
-    transport="dom" 如实标注：文心 SW 中转抓不到 completion SSE（20260727
-    probe_transport 实证），思考链来自 DOM 实渲染，与 SSE 来源差异不掩盖。
+    transport="dom" 如实标注：思考链来自 DOM 实渲染，与豆包/DeepSeek 的 SSE
+    来源差异不掩盖；references 主数据源 20260903 起=生成 SSE referenceList
+    （证据=同题 sse_raw），trace 结构不变。
     """
     thinking_chain: list[dict[str, Any]] = []
     if thinking_text:
@@ -1429,13 +1437,14 @@ def _task_result_from_collected(
     run_yiyan_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     # 结构化信源（W2 source_fetch 的唯一输入）：references 判形时已保证真实
-    # http(s) URL；cited_text 无逐句引述可填 → None，transcript 口径诚实落
-    # unverifiable。
+    # http(s) URL；SSE referenceList 路径 cited_text=平台返回的 abstract 摘要
+    # （平台返回数据非逐句引述——下游核验逐字匹配不上即诚实无 chunk，绝不
+    # 提升为 verified），DOM 兜底路径无摘要可填 → None。
     citations = [
         {
             "url": str(ref["url"]),
             "title": str(ref["title"]).strip() if ref.get("title") else None,
-            "cited_text": None,
+            "cited_text": ((str(ref["summary"]).strip() or None) if ref.get("summary") else None),
         }
         for ref in collected.references
         if isinstance(ref, dict)
@@ -1761,21 +1770,22 @@ class _PlaywrightYiyanSession:
         """单题入口：原始流量 capture 生命周期（2026-08-10 起）+ 委托
         ``_collect_one_dom`` 跑 DOM 观测主体。per-task 单题与 batch 每题共用。
 
-        文心流观测走 DOM（SW 中转）；raw capture 挂 page 级独立 CDP session——
-        completion 流量可能经 ServiceWorker 中转而不可见：看不到时 sse_raw
-        诚实缺省（None 不出证据）、HAR 有什么算什么；capture 全程零请求时
-        log warning（live 复核用）。``pw_timeout`` 仍未被使用（与豆包同构
-        签名保留，未来传输层校准升级不改调用形态）。
+        文心答案流观测走 DOM；raw capture 挂 page 级独立 CDP session——20260903
+        全流量探针实证 completion（chat.baidu.com/aichat/api/conversation，
+        text/event-stream 带 charset）page 级可见，sse_raw 正常落盘；平台改版
+        再不可见时 sse_raw 诚实缺省（None 不出证据）、HAR 有什么算什么；capture
+        全程零请求时 log warning（live 复核用）。``pw_timeout`` 仍未被使用（与
+        豆包同构签名保留，未来传输层校准升级不改调用形态）。
         """
         del pw_timeout
         raw = maybe_raw_capture(
             context,
             page,
-            body_url_hints=("yiyan.baidu.com",),
+            body_url_hints=("chat.baidu.com/aichat/api/conversation",),
             creator="geo-yiyan-adapter",
         )
         try:
-            answer = self._collect_one_dom(page, spec, on_stage, driver=driver)
+            answer = self._collect_one_dom(page, spec, on_stage, driver=driver, raw=raw)
         except (_WallError, _IncompleteCapture, _ModeToggleFailed, _ModeUnconfirmed) as exc:
             # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
             # _failure_outcome → 失败 result.evidence → persist 层进 CAS。
@@ -1807,10 +1817,13 @@ class _PlaywrightYiyanSession:
         on_stage: Callable[[str], None],
         *,
         driver: str,
+        raw: Any | None = None,
     ) -> CollectedAnswer:
         """单题主体：await_input → fresh_chat → 拟人输入/发送 → DOM 流观测/
         证据落盘（文心流观测走 DOM，无既有 CDP capture）。raw/HAR 留痕由
-        ``_collect_one`` 包装层负责。"""
+        ``_collect_one`` 包装层负责；``raw`` 是该层挂好的 RawTrafficCapture
+        （可为 None）——引用主数据源 referenceList 就从它落盘的 sse_raw 解析
+        （证据同源：解析对象就是持久化的那份证据文件）。"""
 
         def _pace(lo: float, hi: float) -> float:
             # 节奏等待走 page.wait_for_timeout：停顿全部留在页面事件序列里
@@ -1944,6 +1957,20 @@ class _PlaywrightYiyanSession:
         if meta.get("found"):
             answer_text = _extract_response_text(page, spec.query)
             references = _extract_references(page)
+            # 引用主数据源（20260903 起）：生成 SSE 的 referenceList 全量召回
+            # （生成期一次性数据，历史回看不可得）；SSE 无该组件（未联网的题=
+            # 正常情形）→ 维持 DOM 兜底结果，零告警噪音。
+            sse_references, search_refer_nums = _sse_references_from_capture(
+                raw, self._evidence_dir, spec.file_stem
+            )
+            if sse_references:
+                log.info(
+                    "yiyan_references_from_sse",
+                    business_key=spec.business_key,
+                    references=len(sse_references),
+                    search_refer_nums=search_refer_nums,
+                )
+                references = sse_references
             if spec.mode == "deep_think":
                 thinking_text = _extract_thinking_text(page)
         on_stage("answer_extracted")
@@ -2560,8 +2587,117 @@ def _extract_response_text(page: Any, query: str = "") -> str:
     return str(body).strip()
 
 
+def _references_from_sse_raw(sse_text: str) -> tuple[list[dict[str, Any]], int | None]:
+    """生成 SSE 原文 → referenceList 全量召回（引用主数据源，20260903 起）。
+
+    文心 completion 是快照累进帧：``data.message.content.generator`` 的
+    thinkingSteps 组件携带 ``data.steps=[{component:"referenceList",
+    step_name:"searchingOnline", searchReferNums:N}]`` 与 ``data.referenceList``
+    全量召回（url/abstract/text/source/nid 等；UI 抽屉只是渲染裁剪）。多帧
+    携带时取最后一帧（快照累进，最后一帧最全）。generator 实测为 dict，
+    兼容 list 形态（探针报告口径 ``generator[]``）。
+
+    返回 (references, search_refer_nums)。fail-open：无 referenceList（未联网
+    的题=正常情形）/ 帧畸形 → ([], None)，调用方维持 DOM 兜底，零告警噪音。
+    零合成：条目非 dict 或 url 非 http(s) 即跳过，绝不从正文猜链接。
+    正文锚点与条目无显式对应（20260903 探针答案正文零角标），不出
+    platform_ordinal——顺序即平台下发顺序，不冒充锚点映射。
+    """
+    references: list[dict[str, Any]] = []
+    search_refer_nums: int | None = None
+    data_lines: list[str] = []
+
+    def _flush() -> None:
+        nonlocal references, search_refer_nums
+        if not data_lines:
+            return
+        payload = "\n".join(data_lines)
+        data_lines.clear()
+        try:
+            frame = json.loads(payload)
+        except ValueError:
+            return
+        try:
+            content = frame["data"]["message"]["content"]
+        except (KeyError, TypeError):
+            return
+        if not isinstance(content, dict):
+            return
+        generator = content.get("generator")
+        generators = generator if isinstance(generator, list) else [generator]
+        for gen in generators:
+            if not isinstance(gen, dict):
+                continue
+            gdata = gen.get("data")
+            if not isinstance(gdata, dict):
+                continue
+            steps = gdata.get("steps")
+            if isinstance(steps, list):
+                for step in steps:
+                    if isinstance(step, dict) and step.get("searchReferNums") is not None:
+                        try:
+                            search_refer_nums = int(str(step["searchReferNums"]))
+                        except (TypeError, ValueError):
+                            pass
+            raw_list = gdata.get("referenceList")
+            if not isinstance(raw_list, list) or not raw_list:
+                continue
+            rows: list[dict[str, Any]] = []
+            for entry in raw_list:
+                if not isinstance(entry, dict):
+                    continue
+                url = str(entry.get("url") or "").strip()
+                if not url.startswith(("http://", "https://")):
+                    continue
+                rows.append(
+                    {
+                        "url": url,
+                        "title": str(entry.get("text") or "").strip() or None,
+                        "sitename": str(entry.get("source") or "").strip() or None,
+                        "summary": str(entry.get("abstract") or "").strip() or None,
+                    }
+                )
+            if rows:
+                references = rows
+
+    for line in sse_text.splitlines():
+        if line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+        elif not line.strip():
+            _flush()
+    _flush()
+    return references, search_refer_nums
+
+
+def _sse_references_from_capture(
+    raw: Any, evidence_dir: Path, file_stem: str
+) -> tuple[list[dict[str, Any]], int | None]:
+    """从本题 raw capture 抓取到的 sse_raw 原文解析 referenceList。
+
+    题末 ``dump_raw_evidence_refs`` 还会再导出一遍证据 ref——dump 幂等（同
+    dir+stem 走缓存），此处提前落盘不重复写。raw=None（GEO_RAW_CAPTURE=0）/
+    completion 未命中/写盘读盘失败 → ([], None) 诚实缺省（写盘失败的告警由
+    dump_raw_evidence_refs 统一负责，这里不重复）。"""
+    if raw is None:
+        return [], None
+    try:
+        sse_path = raw.dump_sse_raw(evidence_dir, file_stem)
+    except OSError:
+        return [], None
+    if sse_path is None:
+        return [], None
+    try:
+        text = sse_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return [], None
+    return _references_from_sse_raw(text)
+
+
 def _extract_references(page: Any) -> list[dict[str, Any]]:
-    """参考来源 DOM best-effort 抽取：含「参考/来源」字样容器内的 http 锚点。
+    """参考来源 DOM best-effort 兜底抽取：含「参考/来源」字样容器内的 http 锚点。
+
+    20260903 起引用主数据源=生成 SSE referenceList（``_references_from_sse_raw``），
+    本函数在 SSE 无该组件时兜底（未联网的题=正常情形）。
 
     20260831 新版 normal 页面把来源渲染为 ``li[data-long-press-ext-info]``，
     真实 URL/title 位于该属性的 JSON ``link``/``linkTitle`` 字段而非 ``a``；

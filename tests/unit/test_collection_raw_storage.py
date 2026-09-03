@@ -42,3 +42,13 @@ def test_structural_validation_still_enforced() -> None:
         _normalize_citations([{"url": "not-a-url", "title": "x"}])
     with pytest.raises(ValueError):
         _normalize_search_queries([{"query": "q", "ordinal": 0}])
+
+
+def test_long_tracking_redirect_url_passes_raw() -> None:
+    # 文心参考答案页真实出现 2718 字符的 baidu.com/baidu.php?url=... 追踪
+    # 重定向 URL（2026-09-02 费列罗基线 run 实测）——测量原料原文保留，
+    # 不得超过 2_048 旧上限判死。
+    long_url = "https://www.baidu.com/baidu.php?url=" + "K0" * 1340
+    assert len(long_url) > 2_048
+    rows = _normalize_citations([{"url": long_url, "title": "广告引用"}])
+    assert rows[0]["url"] == long_url

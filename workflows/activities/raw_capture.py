@@ -142,6 +142,63 @@ def _truncate_text(text: str, max_bytes: int) -> tuple[str, bool]:
     return payload[:max_bytes].decode("utf-8", "ignore"), True
 
 
+# Chromium getResponseBody 非 base64 通道按响应 charset 解码；缺省 charset 时
+# 走 WHATWG windows-1252 legacy 默认（5 个 cp1252 未定义字节 0x81/8D/8F/90/9D
+# 按 WHATWG 语义映射到对应 C1 控制符）。逆映射把已被误解码的 str 还原回原始
+# 网络字节；逆映射不覆盖的字符说明 Chromium 用的不是该解码（理论外情形），
+# 此时保留原 str 诚实落盘，绝不硬转。
+_WHATWG_WIN1252_C1_BYTES = frozenset({0x81, 0x8D, 0x8F, 0x90, 0x9D})
+_WIN1252_INVERSE: dict[str, int] = {}
+for _byte in range(256):
+    _WIN1252_INVERSE[
+        chr(_byte) if _byte in _WHATWG_WIN1252_C1_BYTES else bytes([_byte]).decode("cp1252")
+    ] = _byte
+
+
+def _restore_chromium_decoded_body(body: str, charset: str | None) -> str:
+    """还原 Chromium 已按缺省 windows-1252 解码的响应体字节，再按 UTF-8 落 str。
+
+    charset 非空时 Chromium 已按声明 charset 正确解码，原样返回。
+    严格解码：逆还原字节不是合法 UTF-8 时**保留被误读的原 str 诚实落盘**
+    +warning（fail-closed，绝不用 "replace" 静默烙 U+FFFD 进证据——离线存量
+    修复（tools/repair_win1252_mojibake_20260903.py）同样严格，两处口径一致）。
+    """
+    if charset:
+        return body
+    try:
+        raw = bytes(_WIN1252_INVERSE[char] for char in body)
+    except KeyError:
+        return body
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        log.warning(
+            "raw_capture_restore_non_utf8",
+            body_chars=len(body),
+        )
+        return body
+
+
+# 落盘乱码哨兵：最终 body 出现 C1 控制符或典型 mojibake 序列 = 解码链出了
+# 新变体（错误显式 charset、平台改版、Chromium 行为变化……）。20260810→0903
+# 潜伏 24 天才被肉眼发现的教训：fail-loud 告警让复发当天可见，而非静默吸收。
+# 合法 SSE/JSON 文本几乎不会误报（JSON 控制字符以 \uXXXX 转义形式传输）。
+# 典型序列设密度门：单发命中可能是合法拼音排版（如「Shí·测评」í+·，20260903
+# 元宝存量修复实证误报），连续 mojibake 必然高频命中，阈值 3 足够区分。
+_MOJIBAKE_C1_RE = re.compile(r"[\u0080-\u009f]")
+_MOJIBAKE_TYPICAL_RE = re.compile(
+    r"[\u00c0-\u00ff\u0152\u0153\u0160\u0161\u017d\u017e\u0178]"
+    r"[\u0080-\u00bf]"
+)
+_MOJIBAKE_TYPICAL_MIN_HITS = 3
+
+
+def _has_mojibake_signature(text: str) -> bool:
+    if _MOJIBAKE_C1_RE.search(text):
+        return True
+    return len(_MOJIBAKE_TYPICAL_RE.findall(text)) >= _MOJIBAKE_TYPICAL_MIN_HITS
+
+
 def _iso_from_wall_time(wall_time: float | None) -> str:
     # CDP 必带 wallTime（epoch 秒）；缺失属防御分支（如实落采集当下时间）。
     stamp = wall_time if isinstance(wall_time, int | float) else None
@@ -394,7 +451,11 @@ class RawTrafficCapture:
 
     def _fetch_body(self, req_id: str) -> None:
         """loadingFinished 同步拉原始响应体（Chromium 只短暂保留缓冲——既有
-        capture 同款纪律）。原文存储：不做 mojibake 修复（raw 证据的价值即原文）。"""
+        capture 同款纪律）。原文存储=忠实还原网络字节：base64 通道直接解码；
+        非 base64 通道 Chromium 已按响应 charset 把字节解码成 str——缺省
+        charset 时按 WHATWG windows-1252（元宝/豆包的 text/event-stream 不
+        带 charset，2026-09-02 实证落盘即 mojibake），此处逆向回原始字节再按
+        UTF-8 还原，不改写内容本身。"""
         if req_id in self._bodies:
             return
         try:
@@ -407,7 +468,28 @@ class RawTrafficCapture:
                 body = base64.b64decode(body).decode("utf-8", "replace")
             except Exception:
                 return
+        else:
+            body = _restore_chromium_decoded_body(body, self._response_charset(req_id))
+        if _has_mojibake_signature(body):
+            # 最终落盘文本仍带乱码特征 = 解码链新变体（错误显式 charset 等）；
+            # 告警不拦截，诚实落盘原样内容。
+            log.warning(
+                "raw_capture_mojibake_suspected",
+                url=_mask_url(str((self._records.get(req_id) or {}).get("url") or "")),
+                charset=self._response_charset(req_id),
+                base64_encoded=bool(result.get("base64Encoded")),
+                body_chars=len(body),
+            )
         self._bodies[req_id] = body
+
+    def _response_charset(self, req_id: str) -> str | None:
+        record = self._records.get(req_id) or {}
+        headers = record.get("response_headers") or {}
+        for name, value in headers.items():
+            if name.lower() == "content-type":
+                match = re.search(r"charset=([\w.-]+)", str(value), re.I)
+                return match.group(1).lower() if match else None
+        return None
 
     # ------------------------------------------------------------------
     # 落盘

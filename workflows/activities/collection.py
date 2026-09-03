@@ -72,6 +72,7 @@ from workflows.activities.browser_router import account_governance_enabled
 from workflows.activities.official_share import (
     TONGYI_OFFICIAL_SHARE_HOSTS,
     YIYAN_OFFICIAL_SHARE_HOSTS,
+    YUANBAO_OFFICIAL_SHARE_HOSTS,
 )
 
 log = structlog.get_logger()
@@ -393,10 +394,14 @@ def _normalize_search_queries(items: list[dict[str, Any]]) -> list[dict[str, Any
 def _safe_http_url(value: str | None) -> str | None:
     """结构校验（scheme/host/无内嵌凭据/长度）。URL 是公开平台输出（引用/信源
     页面地址），按 2026-08-06 拍板原文存储零 DLP——公开 URL 里的长数字串
-    （文章 id 等）会误命中 phone 模式，绝不允许因此拒绝测量原料。"""
+    （文章 id 等）会误命中 phone 模式，绝不允许因此拒绝测量原料。
+
+    长度上限 8_192（2026-09-02 由 2_048 上调）：文心参考答案页真实出现
+    2718 字符的 baidu.com/baidu.php?url=... 追踪重定向 URL，2_048 会把真实
+    测量原料判死成 collection_result_invalid 并炸掉整 run。"""
     if value is None:
         return None
-    if not isinstance(value, str) or not value or len(value) > 2_048:
+    if not isinstance(value, str) or not value or len(value) > 8_192:
         raise ValueError("evidence source URL is invalid")
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -958,8 +963,10 @@ _OFFICIAL_SHARE_HOSTS: dict[str, frozenset[str]] = {
     "doubao": frozenset({"doubao.com", "www.doubao.com"}),
     "tongyi": TONGYI_OFFICIAL_SHARE_HOSTS,
     "yiyan": YIYAN_OFFICIAL_SHARE_HOSTS,
+    "yuanbao": YUANBAO_OFFICIAL_SHARE_HOSTS,
 }
-_OFFICIAL_SHARE_UNSUPPORTED = frozenset({"yuanbao"})
+# 五平台官方分享导出全部内建（20260903 元宝接入收官）；无不支持平台。
+_OFFICIAL_SHARE_UNSUPPORTED: frozenset[str] = frozenset()
 _SHARE_AVAILABILITY = frozenset({"reachable", "redirected", "blocked", "unreachable", "unchecked"})
 _SHARE_EMBED_STATUSES = frozenset({"allowed", "blocked", "unknown"})
 
@@ -980,6 +987,8 @@ def _official_share_url(value: object, platform: str) -> str | None:
     if platform == "doubao" and not parsed.path.startswith("/thread/"):
         return None
     if platform == "tongyi" and re.fullmatch(r"/share/chat/[A-Fa-f0-9]{32}", parsed.path) is None:
+        return None
+    if platform == "yuanbao" and not parsed.path.startswith("/s/"):
         return None
     return url
 
@@ -1925,7 +1934,7 @@ def _persist_uvw_facts(
                     VALUES
                       (:id,:pub_id,:tenant_id,:site_id,:canonical_url,:canonical_hash,
                        :normalization_version,:raw_url,:captured_at,:captured_at)
-                    ON CONFLICT (tenant_id,canonical_url_hash,canonical_url)
+                    ON CONFLICT (tenant_id,canonical_url_hash)
                     DO UPDATE SET updated_at=GREATEST(
                       platform.source_url.updated_at,EXCLUDED.updated_at)
                     RETURNING id

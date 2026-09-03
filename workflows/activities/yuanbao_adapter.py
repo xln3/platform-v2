@@ -45,6 +45,12 @@ v2 边界（与豆包适配器对齐）：
   响应体组装非空正文；协议解析失败时才读取 DOM 备用正文。两条路径都必须通过墙
   检查——缺一都不得返回成功。流未出现/截断/空答案 →
   ``answer_capture_incomplete``（可重试的诚实失败）。
+- 官方分享导出（20260903 起，对齐文心/通义/DeepSeek）：答案定稿后在同一答案页
+  打开分享条——「复制链接」剪贴板取 ``https://yb.tencent.com/s/<id>``，「生成图片」
+  从 PhotoView 弹层取平台自渲染海报（``data:image/jpeg;base64`` 解码原样落盘，
+  INV-32 零合成）。分享链接与海报是采集期一次性证据（20260831 定案：sse_raw/HAR
+  离线补不出）；任一缺失 → ``answer_capture_incomplete``（可重试诚实失败），
+  运行时截图绝不冒充分享图。
 
 拟人化口径（2026-08-06 起，与豆包同标准——自动化交互序列本身即指纹）：
 
@@ -131,6 +137,13 @@ from workflows.activities.human_like import (
     human_pause,
     human_read_pause,
     human_type,
+)
+from workflows.activities.official_share import (
+    YUANBAO_OFFICIAL_SHARE_HOSTS,
+    OfficialShareExportError,
+    capture_yuanbao_official_share,
+    probe_official_share_url,
+    write_share_link_manifest,
 )
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser, resident_cdp_url
@@ -438,9 +451,15 @@ _THINKING_TEXT_LIMIT = 5_000
 # 思考折叠块内 ``__item-search`` 的 doc 列表（``__doc__num`` 序号 +
 # ``__doc__title__text``「标题 - 站点」纯文本；折叠态也在 DOM，textContent
 # 可读，零交互零点击）。**平台不在 DOM 暴露 URL**（条目跳转走 JS 状态，无
-# href/data-*），url 一律 None 诚实缺省；模板副本（__template）与重复行去重。
+# href/data-*）；模板副本（__template）与重复行去重。
 # normal 模式实测**无任何资料列表组件**（来源只以纯文本写在答案正文里）→
 # 该模式 references=[] 是诚实结果，不是选择器缺口。
+# URL 补全（20260903 全流量探针实证，captures/yuanbao-conv1-bodies）：DOM 之外的
+# 权威载体 = ``POST /api/user/agent/conversation/v1/detail`` 响应
+# ``convs[].speechesV2[].content[type=searchGuid].docs[]``（每条带完整
+# url/title/web_site_name/quote/index，22 条全量在案）——DOM 抽取后在页面上下文
+# 同源 fetch（credentials:'include'，只读）补全 url（及 quote/web_site_name 可用
+# 则补 summary/sitename），匹配不上的引用保持 url=None 诚实缺省。
 _REFS_FROM_DOCS_JS = r"""() => {
   const bubbles = document.querySelectorAll("div[class*='agent-chat__bubble--ai']");
   if (!bubbles.length) return [];
@@ -464,6 +483,57 @@ _REFS_FROM_DOCS_JS = r"""() => {
   }
   return out;
 }"""
+
+# 会话 detail 接口引用 URL 补全（20260903 探针实证，仅 deep_think 有 doc 列表时
+# 才由 _references_from_dom 触发；normal 模式 references=[] 不发本请求）。
+# 答案页 URL 实测形状 /chat/<agentId>/<convId>（探针 meta postData 在案）；
+# 页面内原生 fetch 同源带会话 cookie，AbortController 限时，只取最后一个带
+# searchGuid docs 的 speech（与 DOM「最后一个 AI 气泡」口径一致；fresh-chat
+# 纪律下每会话一题，正常只有一条）。任何失败由调用方 fail-open。
+_DETAIL_DOCS_FETCH_JS = r"""async ({agentId, conversationId, timeoutMs}) => {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch("/api/user/agent/conversation/v1/detail", {
+      method: "POST",
+      credentials: "include",
+      headers: {"Content-Type": "application/json", "Accept": "application/json"},
+      body: JSON.stringify({conversationId, offset: 0, limit: 14, agentId}),
+      signal: ctrl.signal,
+    });
+    if (!resp.ok) return {ok: false, status: resp.status};
+    const data = await resp.json();
+    const convs = data && Array.isArray(data.convs) ? data.convs : [];
+    let docs = null;
+    for (const conv of convs) {
+      const speeches = conv && Array.isArray(conv.speechesV2) ? conv.speechesV2 : [];
+      for (const sp of speeches) {
+        const contents = sp && Array.isArray(sp.content) ? sp.content : [];
+        for (const ct of contents) {
+          if (ct && ct.type === "searchGuid" && Array.isArray(ct.docs)) {
+            docs = ct.docs.map((d) => ({
+              index: typeof d.index === "number" ? d.index : null,
+              title: typeof d.title === "string" ? d.title : null,
+              url: typeof d.url === "string" ? d.url : null,
+              sitename: typeof d.web_site_name === "string" ? d.web_site_name : null,
+              quote: typeof d.quote === "string" ? d.quote : null,
+            }));
+          }
+        }
+      }
+    }
+    return {ok: true, docs: docs || []};
+  } catch (e) {
+    return {ok: false, error: String((e && e.name) || e)};
+  } finally {
+    clearTimeout(timer);
+  }
+}"""
+
+_DETAIL_FETCH_TIMEOUT_MS = 6_000  # 页面内 detail fetch 预算（AbortController）
+
+# 答案页 URL → (agentId, conversationId)（/chat/<agentId>/<convId>，两段缺一不可）
+_CHAT_IDS_RE = re.compile(r"/chat/([^/?#]+)/([^/?#]+)")
 
 # 引用卡片 a[href] 旧 GUESS 组（当前 UI 实测零命中；留作未来链接卡片形态兜底，
 # 只收真实 http(s) href，绝不臆造，按 URL 去重）
@@ -660,6 +730,10 @@ class CollectedAnswer:
     # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
     # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
     raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
+    # 官方分享证据（20260903 起，对齐文心/通义/DeepSeek）：share_image（平台
+    # 自渲染海报 JPEG）+ share_link（official-share-link-v2 manifest）。导出
+    # 失败即题级 incomplete，ok 答案恒携带两条。
+    share_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
     # Clean answer-only image plus verified DOM/OCR rectangles for report evidence cards.
     answer_evidence: CollectionEvidenceRef | None = None
 
@@ -1084,6 +1158,8 @@ def _task_result_from_collected(
         )
     # 原始流量证据（2026-08-10 起）：sse_raw/har，_collect_one 题末导出。
     evidence.extend(collected.raw_evidence)
+    # 官方分享证据（20260903 起）：share_image（海报 JPEG）+ share_link manifest。
+    evidence.extend(collected.share_evidence)
     if collected.answer_evidence is not None:
         evidence.append(collected.answer_evidence)
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
@@ -1944,6 +2020,64 @@ class _PlaywrightYuanbaoSession:
                 if answer_capture is not None and answer_capture.anchors
                 else None
             )
+            # 官方分享导出（20260903 起，对齐文心/通义/DeepSeek）：采集当下在
+            # 同一答案页打开分享条——复制链接（剪贴板取 https://yb.tencent.com/s/
+            # <id>）+ 生成图片（PhotoView 弹层平台自渲染海报 JPEG）。分享链接与
+            # 海报是采集期一次性证据（20260831 定案：sse_raw/HAR 离线补不出），
+            # 任一导不出 → 题级 incomplete 诚实失败，绝不落 completed。
+            on_stage("share_export")
+            share_image_path = self._evidence_dir / f"{spec.file_stem}-share.jpg"
+
+            def _share_click(locator: Any) -> None:
+                clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
+                if clicked_at is not None:
+                    self._mouse_pos = clicked_at
+
+            try:
+                share = capture_yuanbao_official_share(
+                    page,
+                    share_image_path,
+                    click=_share_click,
+                )
+                share_link_path = self._evidence_dir / f"{spec.file_stem}-share-link.json"
+                write_share_link_manifest(
+                    share_link_path,
+                    share_url=share.share_url,
+                    platform="yuanbao",
+                    channel="clipboard",
+                    verification=probe_official_share_url(
+                        share.share_url,
+                        allowed_hosts=YUANBAO_OFFICIAL_SHARE_HOSTS,
+                    ),
+                )
+            except (OfficialShareExportError, OSError) as exc:
+                raise _IncompleteCapture(
+                    "official-share-export-incomplete: Yuanbao must provide both its "
+                    f"share poster JPEG and public share URL ({type(exc).__name__}: {exc})",
+                    _shot("share_export"),
+                ) from exc
+            except Exception as exc:
+                raise _IncompleteCapture(
+                    "official-share-export-incomplete: unexpected Yuanbao share UI failure "
+                    f"({type(exc).__name__}: {exc})",
+                    _shot("share_export"),
+                ) from exc
+            share_evidence = [
+                CollectionEvidenceRef(
+                    kind="share_image",
+                    path=str(share.image_path),
+                    relation_type="official_share_image",
+                    mime_type="image/jpeg",
+                    source_url=share.share_url,
+                ),
+                CollectionEvidenceRef(
+                    kind="share_link",
+                    path=str(share_link_path),
+                    relation_type="official_share_link",
+                    mime_type="application/json",
+                    source_url=share.share_url,
+                ),
+            ]
             answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
@@ -1955,6 +2089,7 @@ class _PlaywrightYuanbaoSession:
                 },
                 trace_path=trace_path,
                 raw_evidence=raw_evidence,
+                share_evidence=share_evidence,
                 answer_evidence=answer_evidence,
             )
         except (_WallError, _IncompleteCapture, _ModeToggleFailed, _ModeUnconfirmed) as exc:
@@ -2852,16 +2987,130 @@ def _trim_response(text: str) -> str:
     return text.strip()
 
 
+def _chat_ids_from_url(page_url: str) -> tuple[str, str] | None:
+    """从答案页 URL 解析 (agentId, conversationId)（实测形状 /chat/<agentId>/<convId>，
+    20260903 探针 Referer/postData 在案）。两段不齐 → None（fail-open，绝不瞎猜 id）。"""
+    match = _CHAT_IDS_RE.search(page_url or "")
+    if match is None:
+        return None
+    return match.group(1), match.group(2)
+
+
+def _fetch_conversation_detail_docs(page: Any) -> list[dict[str, Any]]:
+    """页面上下文 fetch 当前会话 detail 接口的 searchGuid docs（同源带会话 cookie，
+    只读）。fail-open：id 解析失败/请求失败/超时/形状不符 → warning + []，绝不影响
+    采集主路径（引用保持 url=None 诚实缺省）。"""
+    page_url = str(getattr(page, "url", "") or "")
+    ids = _chat_ids_from_url(page_url)
+    if ids is None:
+        log.warning("yuanbao_detail_backfill_skipped", reason="chat_ids_unparsed")
+        return []
+    agent_id, conversation_id = ids
+    try:
+        result = page.evaluate(
+            _DETAIL_DOCS_FETCH_JS,
+            {
+                "agentId": agent_id,
+                "conversationId": conversation_id,
+                "timeoutMs": _DETAIL_FETCH_TIMEOUT_MS,
+            },
+        )
+    except Exception as exc:
+        log.warning("yuanbao_detail_fetch_failed", reason=type(exc).__name__)
+        return []
+    if not isinstance(result, dict) or not result.get("ok"):
+        reason = "unexpected_result_shape"
+        if isinstance(result, dict):
+            reason = str(result.get("error") or f"http_{result.get('status')}")
+        log.warning("yuanbao_detail_fetch_failed", reason=reason)
+        return []
+    docs = result.get("docs")
+    if not isinstance(docs, list):
+        log.warning("yuanbao_detail_fetch_failed", reason="docs_not_list")
+        return []
+    return [doc for doc in docs if isinstance(doc, dict)]
+
+
+def _normalize_ref_title(value: Any) -> str:
+    """标题规范化（去全部空白字符）供 DOM「标题 - 站点」与 detail docs 标题互配。"""
+    if not isinstance(value, str):
+        return ""
+    return re.sub(r"\s+", "", value)
+
+
+def _parse_ref_num(value: Any) -> int | None:
+    """DOM ``__doc__num`` 序号（"12"/"12." → 12）；解析不了 → None（只剩标题兜底）。"""
+    try:
+        num = int(str(value or "").strip().rstrip("."))
+    except ValueError:
+        return None
+    return num if num >= 1 else None
+
+
+def _merge_detail_doc_urls(
+    refs: list[dict[str, Any]],
+    nums: list[int | None],
+    docs: list[dict[str, Any]],
+) -> int:
+    """把 detail docs 的 url（及 quote/web_site_name 可用则补 summary/sitename）合并进
+    DOM refs，返回补全条数。
+
+    匹配键：优先 DOM ``__doc__num`` 序号 ↔ doc ``index``——但序号对上而规范化标题
+    冲突时不信任序号（序号口径漂移错挂 URL 比缺 URL 更糟），退化规范化标题精确匹配；
+    匹配不上的 ref 保持 url=None（进 citations 的丢弃行为不变）；detail 多出的 docs
+    绝不新增引用（以 DOM 为准，URL 只是补全）。
+    """
+    by_index: dict[int, dict[str, Any]] = {}
+    by_title: dict[str, dict[str, Any]] = {}
+    for doc in docs:
+        url = doc.get("url")
+        if not (isinstance(url, str) and url.startswith(("http://", "https://"))):
+            continue  # 无有效 URL 的 doc 没有补全价值
+        index = doc.get("index")
+        if isinstance(index, int) and not isinstance(index, bool) and index >= 1:
+            by_index.setdefault(index, doc)
+        title_key = _normalize_ref_title(doc.get("title"))
+        if title_key:
+            by_title.setdefault(title_key, doc)
+    filled = 0
+    for ref, num in zip(refs, nums, strict=True):
+        matched: dict[str, Any] | None = None
+        if num is not None:
+            candidate = by_index.get(num)
+            if candidate is not None:
+                ref_title = _normalize_ref_title(ref.get("title"))
+                doc_title = _normalize_ref_title(candidate.get("title"))
+                # 序号命中但标题冲突 = 序号口径漂移证据，不信任；退化标题匹配。
+                if not ref_title or not doc_title or ref_title == doc_title:
+                    matched = candidate
+        if matched is None:
+            matched = by_title.get(_normalize_ref_title(ref.get("title")))
+        if matched is None:
+            continue
+        ref["url"] = matched["url"]
+        quote = matched.get("quote")
+        if not ref.get("summary") and isinstance(quote, str) and quote.strip():
+            ref["summary"] = quote.strip()
+        sitename = matched.get("sitename")
+        if not ref.get("sitename") and isinstance(sitename, str) and sitename.strip():
+            ref["sitename"] = sitename.strip()
+        filled += 1
+    return filled
+
+
 def _references_from_dom(page: Any) -> list[dict[str, Any]]:
     """抽取检索资料列表。优先校准路径（思考折叠块 doc 列表，零交互 textContent
-    读取；标题按最后一个「 - 」拆站点后缀，url 平台不暴露 → None 诚实缺省）；
-    空则走旧 a[href] GUESS 兜底组（当前 UI 零命中）。绝不编造条目/URL。"""
+    读取；标题按最后一个「 - 」拆站点后缀）；url 平台不在 DOM 暴露，由
+    conversation detail 接口在页面上下文补全（20260903 探针实证），补不上保持
+    None 诚实缺省。空则走旧 a[href] GUESS 兜底组（当前 UI 零命中）。
+    绝不编造条目/URL。"""
     try:
         rows = page.evaluate(_REFS_FROM_DOCS_JS)
     except Exception:
         rows = None
     if isinstance(rows, list):
         refs: list[dict[str, Any]] = []
+        nums: list[int | None] = []  # 与 refs 同序的 __doc__num 序号（detail index 匹配主键）
         for row in rows:
             if not isinstance(row, dict):
                 continue
@@ -2880,7 +3129,18 @@ def _references_from_dom(page: Any) -> list[dict[str, Any]]:
                     "index": len(refs),
                 }
             )
+            nums.append(_parse_ref_num(row.get("num")))
         if refs:
+            # deep_think 才有 doc 列表（normal refs 恒空 → 不会触发 detail 请求）。
+            docs = _fetch_conversation_detail_docs(page)
+            if docs:
+                filled = _merge_detail_doc_urls(refs, nums, docs)
+                log.info(
+                    "yuanbao_reference_urls_backfilled",
+                    references=len(refs),
+                    detail_docs=len(docs),
+                    filled=filled,
+                )
             return refs
     # 旧 GUESS a[href] 兜底组（当前 UI 零命中；有真实链接卡片形态时收 href）
     refs = []

@@ -29,7 +29,7 @@ from typing import Any
 import pytest
 from temporalio.exceptions import ApplicationError
 
-from workflows.activities import yuanbao_adapter
+from workflows.activities import official_share, yuanbao_adapter
 from workflows.activities.collection import CollectionBatchInput, CollectionTaskInput
 from workflows.activities.human_like import human_pause
 from workflows.activities.yuanbao_adapter import (
@@ -459,6 +459,27 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
 
     monkeypatch.setattr(yuanbao_adapter, "_clean_profile_crash_state", _clean_spy)
 
+    # 官方分享导出（20260903）：fake 浏览器不出真分享 UI——capture/probe 替换为
+    # 确定性 fake（写占位 JPEG + 固定 URL），失败语义测试各自再覆盖。
+    def _fake_official_share(_page: Any, out_path: Path, **_kwargs: Any) -> SimpleNamespace:
+        out_path.write_bytes(b"\xff\xd8\xff\xe0fake-yuanbao-share-poster\xff\xd9")
+        return SimpleNamespace(
+            image_path=out_path,
+            share_url="https://yb.tencent.com/s/fakeOfficialShare",
+            audit={"fake": True},
+        )
+
+    monkeypatch.setattr(
+        yuanbao_adapter,
+        "capture_yuanbao_official_share",
+        _fake_official_share,
+    )
+    monkeypatch.setattr(
+        yuanbao_adapter,
+        "probe_official_share_url",
+        lambda share_url, **_kwargs: official_share.unchecked_share_verification(share_url),
+    )
+
 
 def _yuanbao_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     evidence = tmp_path / "evidence"
@@ -837,6 +858,24 @@ def test_collect_batch_resident_attach_skips_launch_and_cleanup(
         return False
 
     monkeypatch.setattr(yuanbao_adapter, "_clean_profile_crash_state", _clean_spy)
+
+    # 官方分享导出 fake（本测试自带 attach 接线、不经 _install_fake_browser）
+    def _fake_official_share(_page: Any, out_path: Path, **_kwargs: Any) -> SimpleNamespace:
+        out_path.write_bytes(b"\xff\xd8\xff\xe0fake-yuanbao-share-poster\xff\xd9")
+        return SimpleNamespace(
+            image_path=out_path,
+            share_url="https://yb.tencent.com/s/fakeOfficialShare",
+            audit={"fake": True},
+        )
+
+    monkeypatch.setattr(
+        yuanbao_adapter, "capture_yuanbao_official_share", _fake_official_share
+    )
+    monkeypatch.setattr(
+        yuanbao_adapter,
+        "probe_official_share_url",
+        lambda share_url, **_kwargs: official_share.unchecked_share_verification(share_url),
+    )
 
     config = YuanbaoAdapterConfig.from_env()
     session = yuanbao_adapter._PlaywrightYuanbaoSession(config, evidence, "batch-stem")
@@ -1528,12 +1567,22 @@ async def test_collect_one_deep_think_persists_trace_evidence(
     assert record["deep_think_active"] is True
     assert record["thinking_chain"] == [{"kind": "reasoning", "text": "先拆解问题。\n再作答。"}]
     assert record["search_blocks"] == []  # fake 页无引用卡片
-    # 2026-08-10 起 ok 题另有原始流量证据（sse_raw/har，RawTrafficCapture 题末导出）
-    assert [ref.kind for ref in result.evidence] == ["sse", "sse_raw", "har"]
+    # 2026-08-10 起 ok 题另有原始流量证据（sse_raw/har，RawTrafficCapture 题末导出）；
+    # 20260903 起另有官方分享证据（share_image 海报 + share_link manifest）
+    assert [ref.kind for ref in result.evidence] == [
+        "sse",
+        "sse_raw",
+        "har",
+        "share_image",
+        "share_link",
+    ]
     assert result.evidence[0].relation_type == "answer_sse_trace"
     assert result.evidence[0].path == str(trace_file)
     assert result.evidence[1].relation_type == "answer_sse_raw"
     assert result.evidence[2].relation_type == "answer_har"
+    assert result.evidence[3].relation_type == "official_share_image"
+    assert result.evidence[3].mime_type == "image/jpeg"
+    assert result.evidence[4].relation_type == "official_share_link"
 
 
 async def test_collect_one_deep_think_without_block_marks_inactive(
@@ -1581,8 +1630,14 @@ async def test_collect_one_normal_writes_no_trace(
     )
 
     assert result.quality_state == "live_valid"
-    # 无 trace（无引用/无思考不出空证据）；2026-08-10 起另有原始流量证据 sse_raw/har
-    assert [ref.kind for ref in result.evidence] == ["sse_raw", "har"]
+    # 无 trace（无引用/无思考不出空证据）；2026-08-10 起另有原始流量证据
+    # sse_raw/har；20260903 起另有官方分享证据（share_image/share_link）
+    assert [ref.kind for ref in result.evidence] == [
+        "sse_raw",
+        "har",
+        "share_image",
+        "share_link",
+    ]
     assert not (evidence / "run-9-task-5-a1-sse-trace.json").exists()
     assert not [
         e
@@ -1682,6 +1737,103 @@ def test_batch_item_result_maps_raw_evidence_refs() -> None:
     wall_result = yuanbao_adapter._batch_item_result(_item(), wall_outcome)
     assert wall_result.status == "wall"
     assert [r.kind for r in wall_result.evidence] == ["har"]
+
+
+# ---------------------------------------------------------------------------
+# 官方分享导出（20260903 起，对齐文心/通义/DeepSeek）：ok 题携带 share_image
+# （平台自渲染海报 JPEG）+ share_link（official-share-link-v2 manifest）；
+# 导不出即题级 incomplete 诚实失败（采集期一次性证据，离线补不出）
+# ---------------------------------------------------------------------------
+
+
+def test_collect_batch_ok_item_carries_share_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ok 题出 share_image+share_link 两条 ref，文件逐题落盘；manifest 带
+    platform=yuanbao 与剪贴板 URL；result 级 evidence 同样并入。"""
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(1)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert outcomes[0].status == "ok"
+    answer = outcomes[0].answer
+    assert answer is not None
+    by_kind = {ref.kind: ref for ref in answer.share_evidence}
+    assert by_kind["share_image"].relation_type == "official_share_image"
+    assert by_kind["share_image"].mime_type == "image/jpeg"
+    assert by_kind["share_image"].source_url == "https://yb.tencent.com/s/fakeOfficialShare"
+    assert by_kind["share_link"].relation_type == "official_share_link"
+    assert by_kind["share_link"].mime_type == "application/json"
+    image_path = tmp_path / "evidence" / f"{specs[0].file_stem}-share.jpg"
+    link_path = tmp_path / "evidence" / f"{specs[0].file_stem}-share-link.json"
+    assert by_kind["share_image"].path == str(image_path) and image_path.is_file()
+    assert by_kind["share_link"].path == str(link_path) and link_path.is_file()
+    manifest = json.loads(link_path.read_text(encoding="utf-8"))
+    assert manifest["platform"] == "yuanbao"
+    assert manifest["url"] == "https://yb.tencent.com/s/fakeOfficialShare"
+    assert manifest["schema_version"] == "official-share-link-v2"
+    assert manifest["verification"]["availability_status"] == "unchecked"
+
+    item = CollectionTaskInput(
+        business_key=specs[0].business_key,
+        query=specs[0].query,
+        model="yuanbao",
+        region="CN-TJ",
+        mode=specs[0].mode,
+        adapter="yuanbao",
+    )
+    result = yuanbao_adapter._batch_item_result(item, outcomes[0])
+    kinds = [ref.kind for ref in result.evidence]
+    assert "share_image" in kinds and "share_link" in kinds
+
+
+def test_collect_batch_share_export_failure_is_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """分享导不出（平台瞬时「分享失败」/海报不渲染）→ 题级 incomplete
+    （answer_capture_incomplete，可重试）+ 余题 aborted，绝不落 completed。"""
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+
+    def _missing_share(*_args: Any, **_kwargs: Any) -> Any:
+        raise yuanbao_adapter.OfficialShareExportError("share poster did not render")
+
+    monkeypatch.setattr(yuanbao_adapter, "capture_yuanbao_official_share", _missing_share)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["incomplete", "aborted"]
+    assert outcomes[0].error_type == "answer_capture_incomplete"
+    assert outcomes[0].error_message and "official-share-export-incomplete" in (
+        outcomes[0].error_message
+    )
+
+
+async def test_run_yuanbao_collection_share_failure_maps_to_capture_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """per-task 路径同一语义：分享导出失败 → ApplicationError
+    (type=answer_capture_incomplete，可重试)。"""
+    _yuanbao_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+
+    def _missing_share(*_args: Any, **_kwargs: Any) -> Any:
+        raise yuanbao_adapter.OfficialShareExportError("share link was not copied")
+
+    monkeypatch.setattr(yuanbao_adapter, "capture_yuanbao_official_share", _missing_share)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await run_yuanbao_collection(
+            _item(),
+            session_factory=_PlaywrightYuanbaoSession,
+            heartbeat=lambda p: None,
+        )
+    assert exc_info.value.type == "answer_capture_incomplete"
+    assert "official-share-export-incomplete" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
