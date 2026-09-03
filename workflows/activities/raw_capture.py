@@ -159,6 +159,9 @@ def _restore_chromium_decoded_body(body: str, charset: str | None) -> str:
     """还原 Chromium 已按缺省 windows-1252 解码的响应体字节，再按 UTF-8 落 str。
 
     charset 非空时 Chromium 已按声明 charset 正确解码，原样返回。
+    严格解码：逆还原字节不是合法 UTF-8 时**保留被误读的原 str 诚实落盘**
+    +warning（fail-closed，绝不用 "replace" 静默烙 U+FFFD 进证据——离线存量
+    修复（tools/repair_win1252_mojibake_20260903.py）同样严格，两处口径一致）。
     """
     if charset:
         return body
@@ -166,7 +169,34 @@ def _restore_chromium_decoded_body(body: str, charset: str | None) -> str:
         raw = bytes(_WIN1252_INVERSE[char] for char in body)
     except KeyError:
         return body
-    return raw.decode("utf-8", "replace")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        log.warning(
+            "raw_capture_restore_non_utf8",
+            body_chars=len(body),
+        )
+        return body
+
+
+# 落盘乱码哨兵：最终 body 出现 C1 控制符或典型 mojibake 序列 = 解码链出了
+# 新变体（错误显式 charset、平台改版、Chromium 行为变化……）。20260810→0903
+# 潜伏 24 天才被肉眼发现的教训：fail-loud 告警让复发当天可见，而非静默吸收。
+# 合法 SSE/JSON 文本几乎不会误报（JSON 控制字符以 \uXXXX 转义形式传输）。
+# 典型序列设密度门：单发命中可能是合法拼音排版（如「Shí·测评」í+·，20260903
+# 元宝存量修复实证误报），连续 mojibake 必然高频命中，阈值 3 足够区分。
+_MOJIBAKE_C1_RE = re.compile(r"[\u0080-\u009f]")
+_MOJIBAKE_TYPICAL_RE = re.compile(
+    r"[\u00c0-\u00ff\u0152\u0153\u0160\u0161\u017d\u017e\u0178]"
+    r"[\u0080-\u00bf]"
+)
+_MOJIBAKE_TYPICAL_MIN_HITS = 3
+
+
+def _has_mojibake_signature(text: str) -> bool:
+    if _MOJIBAKE_C1_RE.search(text):
+        return True
+    return len(_MOJIBAKE_TYPICAL_RE.findall(text)) >= _MOJIBAKE_TYPICAL_MIN_HITS
 
 
 def _iso_from_wall_time(wall_time: float | None) -> str:
@@ -440,6 +470,16 @@ class RawTrafficCapture:
                 return
         else:
             body = _restore_chromium_decoded_body(body, self._response_charset(req_id))
+        if _has_mojibake_signature(body):
+            # 最终落盘文本仍带乱码特征 = 解码链新变体（错误显式 charset 等）；
+            # 告警不拦截，诚实落盘原样内容。
+            log.warning(
+                "raw_capture_mojibake_suspected",
+                url=_mask_url(str((self._records.get(req_id) or {}).get("url") or "")),
+                charset=self._response_charset(req_id),
+                base64_encoded=bool(result.get("base64Encoded")),
+                body_chars=len(body),
+            )
         self._bodies[req_id] = body
 
     def _response_charset(self, req_id: str) -> str | None:

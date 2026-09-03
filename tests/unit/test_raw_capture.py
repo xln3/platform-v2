@@ -373,6 +373,46 @@ def test_charset_declared_body_passes_through_untouched(tmp_path: Path) -> None:
     assert capture.dump_sse_raw(tmp_path, "k-a1").read_text(encoding="utf-8") == original
 
 
+def test_restore_strict_falls_back_on_non_utf8_bytes() -> None:
+    # 逆还原字节不是合法 UTF-8（理论外情形：Chromium 用的不是 win1252 或内容
+    # 本非 UTF-8）→ 保留原 str 诚实落盘 + warning，绝不用 replace 烙 U+FFFD。
+    from workflows.activities.raw_capture import _restore_chromium_decoded_body
+
+    body = "ÿþ"  # 逆还原为 b"\xff\xfe"，非法 UTF-8
+    with capture_logs() as logs:
+        assert _restore_chromium_decoded_body(body, None) == body
+    assert any(entry.get("event") == "raw_capture_restore_non_utf8" for entry in logs)
+
+
+def test_mojibake_signature_detection() -> None:
+    from workflows.activities.raw_capture import _has_mojibake_signature
+
+    assert _has_mojibake_signature(_win1252_mangle("正在搜索商品")) is True
+    assert _has_mojibake_signature("正常中文回答。") is False
+    assert _has_mojibake_signature('data: {"k":"v"}\n') is False
+    # 合法拼音排版（í+·）不得误报——20260903 元宝存量修复实证的假阳性
+    assert _has_mojibake_signature("【Shí·测评】网红全口味果汁测评") is False
+
+
+def test_unfixable_mojibake_stored_honestly_and_warned(tmp_path: Path) -> None:
+    # 含真实 CJK 的混合内容无法整体逆还原（KeyError）→ 原文诚实落盘 + 哨兵告警。
+    mangled = _win1252_mangle("正在搜索商品") + "好"
+    cdp = _FakeCDP()
+    cdp.bodies["req-1"] = (mangled, False)
+    capture = _make_capture(cdp, hints=("/api/chat",))
+    with capture_logs() as logs:
+        _emit_request(cdp, "req-1", "https://yuanbao.tencent.com/api/chat/x", method="POST")
+        _emit_response(
+            cdp,
+            "req-1",
+            "https://yuanbao.tencent.com/api/chat/x",
+            headers={"Content-Type": "text/event-stream"},
+        )
+        _emit_finish(cdp, "req-1")
+    assert capture.dump_sse_raw(tmp_path, "k-a1").read_text(encoding="utf-8") == mangled
+    assert any(entry.get("event") == "raw_capture_mojibake_suspected" for entry in logs)
+
+
 def _win1252_mangle(text: str) -> str:
     """模拟 Chromium 对无 charset 文本的 WHATWG windows-1252 解码。"""
     raw = text.encode("utf-8")
