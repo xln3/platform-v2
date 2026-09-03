@@ -27,7 +27,7 @@ TOKEN_FILE = Path("/tmp/s04-acceptance-token")
 
 # 费列罗项目（client-fll 主线）；中性单题不污染品牌测量
 PROJECT = "prj_fll_placeholder"  # 运行时由 --project 覆盖或常量替换
-QUESTION = "请介绍一下什么是搜索引擎优化"
+QUESTION = "2026年国庆节和中秋节的放假安排是什么"
 PLATFORMS = ["doubao", "yuanbao", "yiyan", "tongyi"]
 
 
