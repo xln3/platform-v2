@@ -1197,7 +1197,7 @@ class _EvidenceServiceSink:
                       (id,pub_id,tenant_id,site_id,canonical_url,canonical_url_hash,
                        normalization_version,first_raw_url,created_at,updated_at)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (tenant_id,canonical_url_hash,canonical_url)
+                    ON CONFLICT (tenant_id,canonical_url_hash)
                     DO UPDATE SET updated_at=GREATEST(
                       platform.source_url.updated_at,EXCLUDED.updated_at)
                     RETURNING id
