@@ -1,6 +1,6 @@
 """合并点：s18_0004（source_url 长 URL 修复，生产线）与 s20_0001（manual 通道线）。
 
-Revision ID: s21_0001_merge_url_identity_manual_channel
+Revision ID: s21_0001_merge_heads
 Revises: s18_0004_source_url_hash_identity, s20_0001_manual_channel
 
 s18_0004_url_hash_identity 是生产应急修复（费列罗基线采集被 2718
@@ -11,7 +11,7 @@ s18_0004_url_hash_identity 是生产应急修复（费列罗基线采集被 2718
 
 from collections.abc import Sequence
 
-revision: str = "s21_0001_merge_url_identity_manual_channel"
+revision: str = "s21_0001_merge_heads"
 down_revision: str | Sequence[str] | None = (
     "s18_0004_url_hash_identity",
     "s20_0001_manual_channel",

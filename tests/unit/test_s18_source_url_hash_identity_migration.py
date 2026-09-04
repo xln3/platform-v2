@@ -50,7 +50,7 @@ def test_merge_revision_restores_single_head() -> None:
     config.set_main_option("script_location", str(ROOT / "migrations"))
     scripts = ScriptDirectory.from_config(config)
     heads = scripts.get_heads()
-    assert list(heads) == ["s21_0001_merge_url_identity_manual_channel"]
+    assert list(heads) == ["s21_0001_merge_heads"]
 
 
 def test_constraint_swap_sql_targets_hash_identity() -> None:
