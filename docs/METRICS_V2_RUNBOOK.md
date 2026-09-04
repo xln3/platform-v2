@@ -67,7 +67,7 @@ sudo systemctl status geo-platform-v2-backup.service --no-pager
 .venv/bin/python tools/seed_metrics_v2_definitions.py
 ```
 
-预期输出为 66 个 artifact：28 个 DecisionTask、4 个 judge policy、34 个 MetricDefinition，且 `mode=dry_run`、`target_status=experimental`、`official_activation=false`。其中已发布的 `2.0.0` 定义保持不可变，新增 `2.1.0` 仅以 experimental 状态加载。
+预期输出为 100 个 artifact：28 个 DecisionTask、4 个 judge policy、68 个 MetricDefinition，且 `mode=dry_run`、`target_status=experimental`、`official_activation=false`。其中已发布的 `2.0.0` 定义保持不可变；仓库中的 `2.1.0` task、primary policy 和 metric artifact 是正式版本，但 seed 命令仍只以 experimental 状态加载，正式激活必须走下面的独立 CAS。
 
 在已迁移的目标库显式加载：
 
@@ -76,6 +76,23 @@ sudo systemctl status geo-platform-v2-backup.service --no-pager
 ```
 
 该命令使用事务 advisory lock；同 hash 重跑会复用，已有同名版本但 hash 不同会失败。它永远不会发布定义或移动 official 指针。
+
+先对数据库中完整的 50 项 V2.1 集合（14 task、2 policy、34 metric）做只读计划：
+
+```bash
+.venv/bin/python tools/activate_metrics_v2_definitions.py
+```
+
+只有 count、identity、hash 和 lifecycle 全部与仓库一致时才会输出 `bundle_hash` 和 `confirm_token`。从同一次 fresh dry-run 复制两者再应用：
+
+```bash
+.venv/bin/python tools/activate_metrics_v2_definitions.py \
+  --bundle-hash SHA256_FROM_PLAN \
+  --confirm-token TOKEN_FROM_PLAN \
+  --apply
+```
+
+激活事务要求完整 50 项集合的 identity 与 hash 全部一致。尚为 `experimental` 的行逐项 CAS 到 `published`；同 hash 且已有非空发布时间的 `published` 行原样复用，因此中断后的部分激活可以安全收敛。缺失、额外行、hash 漂移、非法生命周期或并发变化都会整体回滚。该命令不创建 snapshot，也不移动 official publication pointer。
 
 加载后用 owner 只读检查：
 

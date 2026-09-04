@@ -1,0 +1,774 @@
+[
+  {
+    "name": "prompted_recommendation_conditional_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "all": [
+        {
+          "query_has_operation": "recommend"
+        },
+        {
+          "exposure_is": "focal_named_only"
+        }
+      ]
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "recommendation_relation",
+        "task_ref": "recommendation-relation@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "recommendation_relation"
+    ],
+    "outcome": {
+      "binary_outcome": {
+        "event_value_equals": {
+          "type": "recommendation_relation",
+          "subject": "$focal_entity",
+          "field": "polarity",
+          "value": "conditional_positive"
+        }
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "recommendation_conditional_positive",
+      "miss": "recommendation_neutral_or_absent"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "prompted_recommendation_distribution"
+    }
+  },
+  {
+    "name": "prompted_recommendation_positive_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "all": [
+        {
+          "query_has_operation": "recommend"
+        },
+        {
+          "exposure_is": "focal_named_only"
+        }
+      ]
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "recommendation_relation",
+        "task_ref": "recommendation-relation@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "recommendation_relation"
+    ],
+    "outcome": {
+      "binary_outcome": {
+        "event_value_equals": {
+          "type": "recommendation_relation",
+          "subject": "$focal_entity",
+          "field": "polarity",
+          "value": "positive"
+        }
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "recommendation_positive",
+      "miss": "recommendation_neutral_or_absent"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "prompted_recommendation_distribution"
+    }
+  },
+  {
+    "name": "prompted_recommendation_negative_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "all": [
+        {
+          "query_has_operation": "recommend"
+        },
+        {
+          "exposure_is": "focal_named_only"
+        }
+      ]
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "recommendation_relation",
+        "task_ref": "recommendation-relation@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "recommendation_relation"
+    ],
+    "outcome": {
+      "binary_outcome": {
+        "event_value_equals": {
+          "type": "recommendation_relation",
+          "subject": "$focal_entity",
+          "field": "polarity",
+          "value": "negative"
+        }
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "recommendation_negative",
+      "miss": "recommendation_neutral_or_absent"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "prompted_recommendation_distribution"
+    }
+  },
+  {
+    "name": "prompted_recommendation_neutral_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "all": [
+        {
+          "query_has_operation": "recommend"
+        },
+        {
+          "exposure_is": "focal_named_only"
+        }
+      ]
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "recommendation_relation",
+        "task_ref": "recommendation-relation@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "recommendation_relation"
+    ],
+    "outcome": {
+      "binary_outcome": {
+        "event_value_equals": {
+          "type": "recommendation_relation",
+          "subject": "$focal_entity",
+          "field": "polarity",
+          "value": "neutral"
+        }
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "recommendation_neutral_or_absent",
+      "miss": "included_miss"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "prompted_recommendation_distribution"
+    }
+  },
+  {
+    "name": "competitor_anchored_target_bring_in_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "hybrid",
+    "query_predicate": {
+      "exposure_is": "other_brand_named"
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "substantive_entity_mention",
+        "task_ref": "substantive-entity-mention@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "entity_mention"
+    ],
+    "outcome": {
+      "binary_outcome": {
+        "event_exists": {
+          "type": "entity_mention",
+          "subject": "$focal_entity",
+          "where": {
+            "substantive": true,
+            "mention_role": "asserted_body"
+          }
+        }
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "included_hit",
+      "miss": "entity_absent"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "competitor_anchored"
+    }
+  },
+  {
+    "name": "competitor_anchored_target_alternative_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "exposure_is": "other_brand_named"
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "recommendation_relation",
+        "task_ref": "recommendation-relation@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "recommendation_relation"
+    ],
+    "outcome": {
+      "binary_outcome": {
+        "any": [
+          {
+            "event_exists": {
+              "type": "recommendation_relation",
+              "subject": "$focal_entity",
+              "where": {
+                "polarity": "positive"
+              }
+            }
+          },
+          {
+            "event_exists": {
+              "type": "recommendation_relation",
+              "subject": "$focal_entity",
+              "where": {
+                "polarity": "conditional_positive"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "recommendation_positive",
+      "miss": "recommendation_neutral_or_absent"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "competitor_anchored"
+    }
+  },
+  {
+    "name": "ai_impression_effective_response_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "hybrid",
+    "query_predicate": {
+      "query_has_lens": "ai_impression"
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "substantive_entity_mention",
+        "task_ref": "substantive-entity-mention@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "entity_mention"
+    ],
+    "outcome": {
+      "binary_outcome": {
+        "event_exists": {
+          "type": "entity_mention",
+          "subject": "$focal_entity",
+          "where": {
+            "substantive": true,
+            "mention_role": "asserted_body"
+          }
+        }
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "included_hit",
+      "miss": "no_substantive_entity_event"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "impression_response"
+    }
+  },
+  {
+    "name": "ai_impression_neutral_spontaneous_association_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "hybrid",
+    "query_predicate": {
+      "all": [
+        {
+          "query_has_lens": "ai_impression"
+        },
+        {
+          "exposure_is": "brand_neutral"
+        }
+      ]
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "substantive_entity_mention",
+        "task_ref": "substantive-entity-mention@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "entity_mention"
+    ],
+    "outcome": {
+      "binary_outcome": {
+        "event_exists": {
+          "type": "entity_mention",
+          "subject": "$focal_entity",
+          "where": {
+            "substantive": true,
+            "mention_role": "asserted_body"
+          }
+        }
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "included_hit",
+      "miss": "entity_absent"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "mention"
+    }
+  },
+  {
+    "name": "claim_accuracy_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "claim",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "query_has_lens": "ai_impression"
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "claim_evidence_verdict",
+        "task_ref": "claim-evidence-verdict@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "factual_claim",
+      "claim_evidence_verdict"
+    ],
+    "applicability": {
+      "event_applicable_only": {
+        "type": "claim_evidence_verdict"
+      }
+    },
+    "outcome": {
+      "count_outcome": {
+        "from_events": "claim_evidence_verdict",
+        "numerator_where": {
+          "verdict": "supported"
+        },
+        "denominator_where": {
+          "verdict": [
+            "supported",
+            "contradicted",
+            "unsupported"
+          ]
+        }
+      }
+    },
+    "missing_policy": "unknown_if_evidence_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "claim_supported",
+      "miss": "claim_unsupported",
+      "not_applicable": "no_applicable_claim",
+      "unknown": "evidence_retrieval_failed"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "claim_verification"
+    }
+  },
+  {
+    "name": "unsupported_claim_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "claim",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "query_has_lens": "ai_impression"
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "claim_evidence_verdict",
+        "task_ref": "claim-evidence-verdict@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "factual_claim",
+      "claim_evidence_verdict"
+    ],
+    "applicability": {
+      "event_applicable_only": {
+        "type": "claim_evidence_verdict"
+      }
+    },
+    "outcome": {
+      "count_outcome": {
+        "from_events": "claim_evidence_verdict",
+        "numerator_where": {
+          "verdict": [
+            "unsupported",
+            "contradicted"
+          ]
+        },
+        "denominator_where": {
+          "verdict": [
+            "supported",
+            "contradicted",
+            "unsupported"
+          ]
+        }
+      }
+    },
+    "missing_policy": "unknown_if_evidence_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "claim_unsupported",
+      "miss": "claim_supported",
+      "not_applicable": "no_applicable_claim",
+      "unknown": "evidence_retrieval_failed"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "claim_verification"
+    }
+  },
+  {
+    "name": "target_stance_positive_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "query_has_lens": "ai_impression"
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "stance_and_pairwise",
+        "task_ref": "stance-and-pairwise@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "sentiment_or_stance"
+    ],
+    "applicability": {
+      "event_applicable_only": {
+        "type": "sentiment_or_stance",
+        "subject": "$focal_entity"
+      }
+    },
+    "outcome": {
+      "binary_outcome": {
+        "event_value_equals": {
+          "type": "sentiment_or_stance",
+          "subject": "$focal_entity",
+          "field": "polarity",
+          "value": "positive"
+        }
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "included_hit",
+      "miss": "included_miss",
+      "not_applicable": "no_substantive_entity_event"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "stance"
+    }
+  },
+  {
+    "name": "target_stance_neutral_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "query_has_lens": "ai_impression"
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "stance_and_pairwise",
+        "task_ref": "stance-and-pairwise@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "sentiment_or_stance"
+    ],
+    "applicability": {
+      "event_applicable_only": {
+        "type": "sentiment_or_stance",
+        "subject": "$focal_entity"
+      }
+    },
+    "outcome": {
+      "binary_outcome": {
+        "event_value_equals": {
+          "type": "sentiment_or_stance",
+          "subject": "$focal_entity",
+          "field": "polarity",
+          "value": "neutral"
+        }
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "included_hit",
+      "miss": "included_miss",
+      "not_applicable": "no_substantive_entity_event"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "stance"
+    }
+  },
+  {
+    "name": "target_stance_negative_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "query_has_lens": "ai_impression"
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "stance_and_pairwise",
+        "task_ref": "stance-and-pairwise@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "sentiment_or_stance"
+    ],
+    "applicability": {
+      "event_applicable_only": {
+        "type": "sentiment_or_stance",
+        "subject": "$focal_entity"
+      }
+    },
+    "outcome": {
+      "binary_outcome": {
+        "event_value_equals": {
+          "type": "sentiment_or_stance",
+          "subject": "$focal_entity",
+          "field": "polarity",
+          "value": "negative"
+        }
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "included_hit",
+      "miss": "included_miss",
+      "not_applicable": "no_substantive_entity_event"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "stance"
+    }
+  },
+  {
+    "name": "ai_impression_unsolicited_recommendation_rate_v2",
+    "version": "2.1.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {
+      "all": [
+        {
+          "query_has_lens": "ai_impression"
+        },
+        {
+          "not": {
+            "query_has_operation": "recommend"
+          }
+        }
+      ]
+    },
+    "required_semantic_capabilities": [
+      {
+        "name": "recommendation_relation",
+        "task_ref": "recommendation-relation@2.1.0",
+        "accepted_status": "ready"
+      }
+    ],
+    "required_event_types": [
+      "recommendation_relation"
+    ],
+    "outcome": {
+      "binary_outcome": {
+        "any": [
+          {
+            "event_exists": {
+              "type": "recommendation_relation",
+              "subject": "$focal_entity",
+              "where": {
+                "polarity": "positive"
+              }
+            }
+          },
+          {
+            "event_exists": {
+              "type": "recommendation_relation",
+              "subject": "$focal_entity",
+              "where": {
+                "polarity": "conditional_positive"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": [
+      "query_macro",
+      "answer_weighted"
+    ],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {
+      "hit": "recommendation_positive",
+      "miss": "recommendation_neutral_or_absent"
+    },
+    "metadata": {
+      "release_role": "official",
+      "metric_family": "unsolicited_recommendation"
+    }
+  }
+]

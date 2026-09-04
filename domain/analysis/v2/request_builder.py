@@ -13,7 +13,7 @@ from domain.analysis.v2.decision_task_loader import (
 )
 
 _QUERY_SUBJECT_TYPES = frozenset({"query", "query_dimension"})
-_ACTIVE_TASK_VERSION = "2.0.0"
+_ACTIVE_TASK_VERSION = "2.1.0"
 
 
 def instantiate_decision_task_request(
@@ -189,6 +189,7 @@ def build_answer_semantic_workflow_request(
             "judge_policy_ref": policy.policy_ref,
             "dependency_task_refs": list(task.dependency_task_refs),
             "official_use": False,
+            "max_auto_rejudge_generations": 0,
         }
 
     templates = {task_ref: decision_template(task_ref) for task_ref in active_task_refs}
@@ -201,13 +202,13 @@ def build_answer_semantic_workflow_request(
 
     query_subject = {"query_pub_id": query_key}
     query_tasks = [
-        decision_request("query-intent@2.0.0", query_subject),
-        decision_request("query-brand-entity-resolution@2.0.0", query_subject),
+        decision_request("query-intent@2.1.0", query_subject),
+        decision_request("query-brand-entity-resolution@2.1.0", query_subject),
     ]
     for dimension in dimensions:
         query_tasks.append(
             decision_request(
-                "requested-dimension-applicability@2.0.0",
+                "requested-dimension-applicability@2.1.0",
                 {
                     "query_pub_id": query_key,
                     "focal_entity_id": dimension["focal_entity_id"],
@@ -223,7 +224,7 @@ def build_answer_semantic_workflow_request(
         answer_tasks.extend(
             (
                 decision_request(
-                    "answer-entity-resolution@2.0.0",
+                    "answer-entity-resolution@2.1.0",
                     {
                         "answer_pub_id": answer_pub_id,
                         "query_pub_id": query_key,
@@ -231,11 +232,11 @@ def build_answer_semantic_workflow_request(
                     },
                 ),
                 decision_request(
-                    "substantive-entity-mention@2.0.0",
+                    "substantive-entity-mention@2.1.0",
                     {"answer_pub_id": answer_pub_id, "entity_id": entity_id},
                 ),
                 decision_request(
-                    "recommendation-relation@2.0.0",
+                    "recommendation-relation@2.1.0",
                     {
                         "answer_pub_id": answer_pub_id,
                         "query_pub_id": query_key,
@@ -243,7 +244,7 @@ def build_answer_semantic_workflow_request(
                     },
                 ),
                 decision_request(
-                    "stance-and-pairwise@2.0.0",
+                    "stance-and-pairwise@2.1.0",
                     {
                         "answer_pub_id": answer_pub_id,
                         "subject_entity_id": entity_id,
@@ -262,7 +263,7 @@ def build_answer_semantic_workflow_request(
         for competitor_entity_id in competitor_ids:
             answer_tasks.append(
                 decision_request(
-                    "stance-and-pairwise@2.0.0",
+                    "stance-and-pairwise@2.1.0",
                     {
                         "answer_pub_id": answer_pub_id,
                         "subject_entity_id": focal_entity_id,
@@ -273,7 +274,7 @@ def build_answer_semantic_workflow_request(
     for dimension in dimensions:
         answer_tasks.append(
             decision_request(
-                "answer-dimension-coverage@2.0.0",
+                "answer-dimension-coverage@2.1.0",
                 {
                     "answer_pub_id": answer_pub_id,
                     "query_pub_id": query_key,
@@ -286,12 +287,12 @@ def build_answer_semantic_workflow_request(
     answer_tasks.extend(
         (
             decision_request(
-                "rank-semantics@2.0.0",
+                "rank-semantics@2.1.0",
                 {"answer_pub_id": answer_pub_id, "query_pub_id": query_key},
             ),
-            decision_request("claim-extraction@2.0.0", {"answer_pub_id": answer_pub_id}),
+            decision_request("claim-extraction@2.1.0", {"answer_pub_id": answer_pub_id}),
             decision_request(
-                "risk-adjudication@2.0.0",
+                "risk-adjudication@2.1.0",
                 {
                     "answer_pub_id": answer_pub_id,
                     "risk_subject_key": canonical_hash(
@@ -347,9 +348,9 @@ def build_answer_semantic_workflow_request(
         "dynamic_task_templates": {
             task_ref: templates[task_ref]
             for task_ref in (
-                "claim-verifiability@2.0.0",
-                "claim-evidence-verdict@2.0.0",
-                "citation-claim-support@2.0.0",
+                "claim-verifiability@2.1.0",
+                "claim-evidence-verdict@2.1.0",
+                "citation-claim-support@2.1.0",
             )
         },
         "dynamic_inputs": {

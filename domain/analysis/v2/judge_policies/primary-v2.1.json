@@ -63,7 +63,8 @@
     "fallback_policy": {
       "action": "abstain"
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-28T00:00:00Z"
   },
   {
@@ -130,7 +131,8 @@
     "fallback_policy": {
       "action": "abstain"
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-28T00:00:00Z"
   }
 ]

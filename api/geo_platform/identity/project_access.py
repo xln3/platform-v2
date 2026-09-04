@@ -123,6 +123,24 @@ def customer_allowed_project_ids(
     return bindings.get((tenant_pub_id, user_pub_id), frozenset())
 
 
+def enforce_customer_project_access(
+    project_pub_id: str,
+    *,
+    role: str,
+    tenant_pub_id: str,
+    user_pub_id: str | None,
+) -> None:
+    """Hide a project that is outside a customer's configured allow-list."""
+
+    allowed = customer_allowed_project_ids(
+        role=role,
+        tenant_pub_id=tenant_pub_id,
+        user_pub_id=user_pub_id,
+    )
+    if allowed is not None and project_pub_id not in allowed:
+        raise HTTPException(status_code=404, detail={"code": "project_not_found"})
+
+
 def _project_values(raw_value: Any) -> set[str]:
     if isinstance(raw_value, str):
         return {value.strip() for value in raw_value.split(",") if value.strip()}

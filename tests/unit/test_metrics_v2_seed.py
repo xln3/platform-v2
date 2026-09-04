@@ -12,14 +12,14 @@ from tools.seed_metrics_v2_definitions import build_seed_bundle
 def test_seed_bundle_is_complete_unique_and_never_official() -> None:
     artifacts = build_seed_bundle()
 
-    assert len(artifacts) == 66
+    assert len(artifacts) == 100
     assert {item.kind for item in artifacts} == {
         "decision_task",
         "judge_policy",
         "metric_definition",
     }
-    assert len({(item.kind, item.name, item.version) for item in artifacts}) == 66
-    assert len({item.content_hash for item in artifacts}) == 66
+    assert len({(item.kind, item.name, item.version) for item in artifacts}) == 100
+    assert len({item.content_hash for item in artifacts}) == 100
     assert all(item.document["status"] == "experimental" for item in artifacts)
     assert all(item.document.get("published_at") is None for item in artifacts)
 
@@ -52,21 +52,22 @@ def test_live_and_backfill_request_builder_is_reference_only() -> None:
     assert request["query_context_request"]["query_pub_id"] == "qry_fixture"
     assert len(request["query_context_request"]["decision_tasks"]) == 2
     assert {item["task_ref"] for item in request["decision_tasks"]} >= {
-        "answer-entity-resolution@2.0.0",
-        "substantive-entity-mention@2.0.0",
-        "recommendation-relation@2.0.0",
-        "rank-semantics@2.0.0",
-        "claim-extraction@2.0.0",
-        "risk-adjudication@2.0.0",
+        "answer-entity-resolution@2.1.0",
+        "substantive-entity-mention@2.1.0",
+        "recommendation-relation@2.1.0",
+        "rank-semantics@2.1.0",
+        "claim-extraction@2.1.0",
+        "risk-adjudication@2.1.0",
     }
     assert all(item["official_use"] is False for item in request["decision_tasks"])
+    assert all(item["max_auto_rejudge_generations"] == 0 for item in request["decision_tasks"])
     assert len(request["manifest"]["decision_task_bundle"]["task_refs"]) == 14
     assert all(
-        task_ref.endswith("@2.0.0")
+        task_ref.endswith("@2.1.0")
         for task_ref in request["manifest"]["decision_task_bundle"]["task_refs"]
     )
     assert all(
-        not policy_ref.startswith("semantic-v2-primary-")
+        policy_ref.startswith("semantic-v2-primary-")
         for policy_ref in request["policy_versions_by_hash"].values()
     )
 
@@ -106,13 +107,13 @@ def test_request_builder_freezes_all_applicable_static_and_dynamic_task_fanout()
 
     query_refs = [item["task_ref"] for item in request["query_context_request"]["decision_tasks"]]
     answer_refs = [item["task_ref"] for item in request["decision_tasks"]]
-    assert "requested-dimension-applicability@2.0.0" in query_refs
-    assert "answer-dimension-coverage@2.0.0" in answer_refs
-    assert answer_refs.count("stance-and-pairwise@2.0.0") == 3
+    assert "requested-dimension-applicability@2.1.0" in query_refs
+    assert "answer-dimension-coverage@2.1.0" in answer_refs
+    assert answer_refs.count("stance-and-pairwise@2.1.0") == 3
     assert set(request["dynamic_task_templates"]) == {
-        "claim-verifiability@2.0.0",
-        "claim-evidence-verdict@2.0.0",
-        "citation-claim-support@2.0.0",
+        "claim-verifiability@2.1.0",
+        "claim-evidence-verdict@2.1.0",
+        "citation-claim-support@2.1.0",
     }
     assert set(request["required_capabilities"]) >= {
         "substantive_entity_mention",
@@ -125,7 +126,7 @@ def test_request_builder_freezes_all_applicable_static_and_dynamic_task_fanout()
         "citation_claim_support",
         "risk_adjudication",
     }
-    template = request["dynamic_task_templates"]["claim-verifiability@2.0.0"]
+    template = request["dynamic_task_templates"]["claim-verifiability@2.1.0"]
     subject = {"answer_pub_id": "ans_fixture", "claim_fingerprint": "d" * 64}
     first = instantiate_decision_task_request(template, subject)
     second = instantiate_decision_task_request(dict(reversed(list(template.items()))), subject)

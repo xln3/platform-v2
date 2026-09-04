@@ -384,7 +384,7 @@ def test_claim_metrics_keep_one_answer_evaluation_but_count_three_claims() -> No
         )
         for index, verdict in enumerate(("supported", "supported", "unsupported"))
     )
-    task = "claim-evidence-verdict@2.0.0"
+    task = "claim-evidence-verdict@2.1.0"
     subject = EvaluationInput(
         answer_pub_id="claim_answer",
         query_context=_query(
@@ -398,8 +398,12 @@ def test_claim_metrics_keep_one_answer_evaluation_but_count_three_claims() -> No
         events=tuple(events),
         decisions={task: _decision(task)},
     )
-    accuracy = MetricEvaluator().evaluate(registry.get("claim_accuracy_rate_v2"), subject)
-    unsupported = MetricEvaluator().evaluate(registry.get("unsupported_claim_rate_v2"), subject)
+    accuracy = MetricEvaluator().evaluate(
+        registry.get("claim_accuracy_rate_v2", "2.1.0"), subject
+    )
+    unsupported = MetricEvaluator().evaluate(
+        registry.get("unsupported_claim_rate_v2", "2.1.0"), subject
+    )
     assert (accuracy.numerator_contribution, accuracy.denominator_contribution) == (
         Decimal("2"),
         Decimal("3"),
