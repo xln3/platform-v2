@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from domain.brandrank.rules import available_domains
 from domain.evidence.dlp import assert_secret_free
+from domain.reporting import mention_metrics as mention_metrics_domain
 
 from ..brandrank import compare as brandrank_compare
 from ..brandrank import service as brandrank_service
@@ -25,6 +26,7 @@ from ..metrics_v2.repository import MetricsV2Repository
 from ..pagination import decode_keyset_cursor, encode_keyset_cursor, numbered_page
 from ..tenancy.psycopg import tenant_connection
 from . import comparisons
+from . import mention_metrics as mention_metrics_service
 from .pagination_policy import (
     SAMPLING_PROGRESS_DEFAULT_PAGE_NUMBER,
     SAMPLING_PROGRESS_DEFAULT_PAGE_SIZE,
@@ -2234,6 +2236,117 @@ def site_audit_suggestions(
             for row in result["suggestions"]
         ],
     )
+
+
+class MentionMetricsQueryItemBody(StrictModel):
+    text: str = Field(min_length=1, max_length=2000)
+    priority: int = Field(ge=1, le=1000)
+
+
+class MentionMetricsQueryGroupBody(StrictModel):
+    name: str = Field(min_length=1, max_length=500)
+    items: list[MentionMetricsQueryItemBody] = Field(min_length=1, max_length=200)
+
+
+class MentionMetricsWaveBody(StrictModel):
+    wave: Literal["w1", "w2"]
+    query_groups: list[MentionMetricsQueryGroupBody] = Field(min_length=1, max_length=500)
+
+
+class MentionMetricsFlagBody(StrictModel):
+    name: str = Field(min_length=1, max_length=200)
+    key: str = Field(min_length=1, max_length=80, pattern=r"^[a-z][a-z0-9_]*$")
+
+
+class MentionMetricsSpecBody(StrictModel):
+    platforms: list[str] = Field(min_length=1, max_length=20)
+    samples_per_query: dict[str, int] = Field(min_length=1, max_length=20)
+    names: list[str] = Field(min_length=1, max_length=50)
+    brands: list[str] = Field(default_factory=list, max_length=200)
+    terms: list[str] = Field(default_factory=list, max_length=500)
+    primary_name: str = Field(min_length=1, max_length=200)
+    waves: list[MentionMetricsWaveBody] = Field(min_length=2, max_length=2)
+    mention_flags: list[MentionMetricsFlagBody] = Field(default_factory=list, max_length=20)
+    excerpt_groups: list[str] = Field(default_factory=list, max_length=20)
+
+
+class MentionMetricsCreate(StrictModel):
+    project_pub_id: str = Field(min_length=5, max_length=40)
+    spec: MentionMetricsSpecBody
+
+
+def _mention_metrics_spec(
+    body: MentionMetricsSpecBody,
+) -> mention_metrics_domain.MentionMetricsSpec:
+    """请求体 → domain spec（frozen dataclass）；结构不合法 → ValueError（API 422）。"""
+    waves = {wave.wave: wave for wave in body.waves}
+    if set(waves) != {"w1", "w2"}:
+        raise ValueError("waves 必须且仅含 w1/w2 各一个")
+    for platform in body.platforms:
+        samples = body.samples_per_query.get(platform)
+        if not isinstance(samples, int) or isinstance(samples, bool) or samples < 1:
+            raise ValueError(f"samples_per_query 缺平台 {platform!r} 或采样数非正整数")
+    return mention_metrics_domain.MentionMetricsSpec(
+        platforms=tuple(body.platforms),
+        samples_per_query=dict(body.samples_per_query),
+        names=tuple(body.names),
+        brands=tuple(body.brands),
+        terms=tuple(body.terms),
+        primary_name=body.primary_name,
+        waves=tuple(
+            mention_metrics_domain.WaveSpec(
+                wave=wave.wave,
+                query_groups=tuple(
+                    mention_metrics_domain.QueryGroup(
+                        name=group.name,
+                        items=tuple(
+                            mention_metrics_domain.QueryItem(text=item.text, priority=item.priority)
+                            for item in group.items
+                        ),
+                    )
+                    for group in wave.query_groups
+                ),
+            )
+            for wave in body.waves
+        ),
+        mention_flags=tuple(
+            mention_metrics_domain.MentionFlag(name=flag.name, key=flag.key)
+            for flag in body.mention_flags
+        ),
+        excerpt_groups=tuple(body.excerpt_groups),
+    )
+
+
+@router.post("/mention-metrics", response_model=None)
+def mention_metrics_compute(
+    request: Request,
+    body: MentionMetricsCreate,
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any] | JSONResponse:
+    """提及指标层（mention-metrics-v1）：spec 驱动的现场重算。
+
+    口径=domain.reporting.mention_metrics 纯函数（名称命中=精确子串、occ=原文
+    次数、（波次×平台×问题）cell 按 capture_time 取最新 N 条采样、canary/retry
+    丢弃计数）；输出顶层带 metric_version 与 spec_hash（口径指纹）。项目不属于
+    本租户 → 404 project_not_found（跨租户同码，不泄露存在性）；spec 结构不
+    合法 → 422 invalid_mention_metrics_spec。
+    """
+    principal.require("project:read")
+    try:
+        spec = _mention_metrics_spec(body.spec)
+    except ValueError as exc:
+        return _error(request, 422, "invalid_mention_metrics_spec", {"why": str(exc)})
+    try:
+        return mention_metrics_service.compute_for_project(
+            _dsn(),
+            principal.tenant_pub_id,
+            project_pub_id=body.project_pub_id,
+            spec=spec,
+        )
+    except mention_metrics_service.ProjectNotFound as exc:
+        raise HTTPException(status_code=404, detail={"code": "project_not_found"}) from exc
+    except ValueError as exc:
+        return _error(request, 422, "invalid_mention_metrics_spec", {"why": str(exc)})
 
 
 @router.get("/trace/{trace_token}")
