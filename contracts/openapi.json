@@ -16629,6 +16629,217 @@
         }
       }
     },
+    "/api/v2/collection-platform-accounts/{pub_id}/force-release": {
+      "post": {
+        "tags": [
+          "collection-account-governance"
+        ],
+        "summary": "Force Release Platform Account",
+        "description": "管理端自助释放（采集账号占用模型，2026-09-01 起）。\n\n- running→idle：Temporal terminate 卡死的占用的人工出口（自动路径 =\n  租约惰性回收 + tools/reap_account_reservations.py）；\n- captcha/error→idle：仅 clear_health=true（人工确认已过码/已修复）；\n- muted/quota_exhausted 未到期 → 409 illegal_state_transition（保护态有\n  自己的恢复语义，绝不被「释放」顺手冲掉）；idle = 幂等空操作。\n状态迁移一律经 AccountGovernor.set_runtime_state——迁移表校验 +\nstate_transition 审计事件（actor=操作者身份）不旁路。",
+        "operationId": "force_release_platform_account_api_v2_collection_platform_accounts__pub_id__force_release_post",
+        "parameters": [
+          {
+            "name": "pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForceReleaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForceReleaseResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/collection-accounts/{pub_id}/link-test": {
       "post": {
         "tags": [
@@ -29863,6 +30074,408 @@
         }
       }
     },
+    "/api/v2/analytics/mention-metrics": {
+      "post": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Mention Metrics Compute",
+        "description": "提及指标层（mention-metrics-v1）：spec 驱动的现场重算。\n\n口径=domain.reporting.mention_metrics 纯函数（名称命中=精确子串、occ=原文\n次数、（波次×平台×问题）cell 按 capture_time 取最新 N 条采样、canary/retry\n丢弃计数）；输出顶层带 metric_version 与 spec_hash（口径指纹）。项目不属于\n本租户 → 404 project_not_found（跨租户同码，不泄露存在性）；spec 结构不\n合法 → 422 invalid_mention_metrics_spec。",
+        "operationId": "mention_metrics_compute_api_v2_analytics_mention_metrics_post",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MentionMetricsCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/analytics/manual-answers": {
+      "post": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Manual Answers Register",
+        "description": "人工补测登记（manual-ingestion-v1）：把人工在浏览器实测的平台回答登记为\n带 provenance（channel=manual）的正式 analytics.answer 行。\n\n幂等：同（project, idempotency_key 或 model+query_text+capture_time）重复\n登记返回既有行（created=false），同键不同文 → 409。项目不属本租户 → 404\nproject_not_found（跨租户同码）；项目无 brand → 422\nmanual_answer_brand_missing；证据 pub_id 不属本租户 → 422\nunknown_evidence_pub_id。",
+        "operationId": "manual_answers_register_api_v2_analytics_manual_answers_post",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualAnswersCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualAnswersRegisteredView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/analytics/trace/{trace_token}": {
       "get": {
         "tags": [
@@ -31986,6 +32599,206 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FormalProductionView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/reports/formal-productions/{production_pub_id}/progress": {
+      "get": {
+        "tags": [
+          "formal_reports"
+        ],
+        "summary": "Formal Production Progress",
+        "operationId": "formal_production_progress_api_v2_reports_formal_productions__production_pub_id__progress_get",
+        "parameters": [
+          {
+            "name": "production_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Production Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormalProductionProgressView"
                 }
               }
             }
@@ -81971,7 +82784,10 @@
           },
           "mime_type": {
             "type": "string",
-            "const": "image/png",
+            "enum": [
+              "image/png",
+              "image/jpeg"
+            ],
             "title": "Mime Type"
           },
           "byte_size": {
@@ -93292,6 +94108,53 @@
         ],
         "title": "FindingReviewCreate"
       },
+      "ForceReleaseRequest": {
+        "properties": {
+          "clear_health": {
+            "type": "boolean",
+            "title": "Clear Health",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ForceReleaseRequest",
+        "description": "强制释放占用/恢复采集面。clear_health=true 才允许 captcha/error→idle\n（健康修复是显式人工判定，不能随普通释放顺手做）。"
+      },
+      "ForceReleaseResult": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "platform_account_pub_id": {
+            "type": "string",
+            "title": "Platform Account Pub Id"
+          },
+          "released": {
+            "type": "boolean",
+            "title": "Released"
+          },
+          "runtime_state": {
+            "type": "string",
+            "title": "Runtime State"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "platform_account_pub_id",
+          "released",
+          "runtime_state",
+          "detail"
+        ],
+        "title": "ForceReleaseResult"
+      },
       "FormalArtifactView": {
         "properties": {
           "format": {
@@ -93469,6 +94332,100 @@
           "has_more"
         ],
         "title": "FormalProductionPage"
+      },
+      "FormalProductionProgressView": {
+        "properties": {
+          "production_pub_id": {
+            "type": "string",
+            "title": "Production Pub Id"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "workflow",
+              "db_fallback"
+            ],
+            "title": "Source"
+          },
+          "failed": {
+            "type": "boolean",
+            "title": "Failed"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/FormalProductionStageView"
+            },
+            "type": "array",
+            "title": "Stages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "production_pub_id",
+          "source",
+          "failed",
+          "error_code",
+          "stages"
+        ],
+        "title": "FormalProductionProgressView"
+      },
+      "FormalProductionStageView": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "binding_snapshot",
+              "preflight",
+              "running",
+              "awaiting_review",
+              "finalizing",
+              "signed"
+            ],
+            "title": "Stage"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "current",
+              "pending",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "entered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entered At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "stage",
+          "status"
+        ],
+        "title": "FormalProductionStageView"
       },
       "FormalProductionState": {
         "type": "string",
@@ -96348,6 +97305,189 @@
         ],
         "title": "LinkedEntity"
       },
+      "ManualAnswerItemIn": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "query_text": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Query Text"
+          },
+          "response_plain_text": {
+            "type": "string",
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Response Plain Text"
+          },
+          "capture_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Capture Time"
+          },
+          "region": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Region",
+            "default": "unknown"
+          },
+          "mode": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Mode",
+            "default": "normal"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "evidence_pub_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Evidence Pub Ids"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model",
+          "query_text",
+          "response_plain_text",
+          "capture_time"
+        ],
+        "title": "ManualAnswerItemIn"
+      },
+      "ManualAnswerResultView": {
+        "properties": {
+          "answer_pub_id": {
+            "type": "string",
+            "title": "Answer Pub Id"
+          },
+          "analysis_pub_id": {
+            "type": "string",
+            "title": "Analysis Pub Id"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created"
+          },
+          "eligible": {
+            "type": "boolean",
+            "title": "Eligible"
+          },
+          "evidence_attached": {
+            "type": "integer",
+            "title": "Evidence Attached"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer_pub_id",
+          "analysis_pub_id",
+          "created",
+          "eligible",
+          "evidence_attached"
+        ],
+        "title": "ManualAnswerResultView"
+      },
+      "ManualAnswersCreate": {
+        "properties": {
+          "project_pub_id": {
+            "type": "string",
+            "pattern": "^prj_[A-Za-z0-9_-]{1,116}$",
+            "title": "Project Pub Id"
+          },
+          "operator": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Operator"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManualAnswerItemIn"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "operator",
+          "reason",
+          "items"
+        ],
+        "title": "ManualAnswersCreate"
+      },
+      "ManualAnswersRegisteredView": {
+        "properties": {
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "registered": {
+            "type": "integer",
+            "title": "Registered"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManualAnswerResultView"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "registered",
+          "items"
+        ],
+        "title": "ManualAnswersRegisteredView"
+      },
       "MemberCreate": {
         "properties": {
           "subject": {
@@ -96417,6 +97557,215 @@
           "service_account"
         ],
         "title": "MemberView"
+      },
+      "MentionMetricsCreate": {
+        "properties": {
+          "project_pub_id": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 5,
+            "title": "Project Pub Id"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/MentionMetricsSpecBody"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "spec"
+        ],
+        "title": "MentionMetricsCreate"
+      },
+      "MentionMetricsFlagBody": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "key": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "key"
+        ],
+        "title": "MentionMetricsFlagBody"
+      },
+      "MentionMetricsQueryGroupBody": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MentionMetricsQueryItemBody"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "items"
+        ],
+        "title": "MentionMetricsQueryGroupBody"
+      },
+      "MentionMetricsQueryItemBody": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "priority": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Priority"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "priority"
+        ],
+        "title": "MentionMetricsQueryItemBody"
+      },
+      "MentionMetricsSpecBody": {
+        "properties": {
+          "platforms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Platforms"
+          },
+          "samples_per_query": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "maxProperties": 20,
+            "minProperties": 1,
+            "title": "Samples Per Query"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Names"
+          },
+          "brands": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Brands"
+          },
+          "terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Terms"
+          },
+          "primary_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Primary Name"
+          },
+          "waves": {
+            "items": {
+              "$ref": "#/components/schemas/MentionMetricsWaveBody"
+            },
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Waves"
+          },
+          "mention_flags": {
+            "items": {
+              "$ref": "#/components/schemas/MentionMetricsFlagBody"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Mention Flags"
+          },
+          "excerpt_groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Excerpt Groups"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "platforms",
+          "samples_per_query",
+          "names",
+          "primary_name",
+          "waves"
+        ],
+        "title": "MentionMetricsSpecBody"
+      },
+      "MentionMetricsWaveBody": {
+        "properties": {
+          "wave": {
+            "type": "string",
+            "enum": [
+              "w1",
+              "w2"
+            ],
+            "title": "Wave"
+          },
+          "query_groups": {
+            "items": {
+              "$ref": "#/components/schemas/MentionMetricsQueryGroupBody"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Query Groups"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "wave",
+          "query_groups"
+        ],
+        "title": "MentionMetricsWaveBody"
       },
       "MetricCatalogView": {
         "properties": {

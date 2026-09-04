@@ -1,4 +1,4 @@
 {
-  "contracts/openapi.json": "d7403b618b25f2a4b9848d3d9ca1ca8cd1c3cc9dbdd83f705e698c6b6a9ff47d",
-  "packages/api-client/src/schema.generated.ts": "f6ca84bda9ce1d95591578446079af558d46e285d2e14f845304d0ecd49f88cd"
+  "contracts/openapi.json": "9aab3b94d2f4ab79e7a00953565e338ff2484c6d6948ce5a5034965e2d13fedf",
+  "packages/api-client/src/schema.generated.ts": "baa28df493152c17a17caed269cefc9cc3738b1e6a6eb3d98ac4d1da9e7b3dba"
 }

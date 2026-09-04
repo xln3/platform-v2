@@ -1137,6 +1137,34 @@ export interface paths {
         patch: operations["patch_platform_account_api_v2_collection_platform_accounts__pub_id__patch"];
         trace?: never;
     };
+    "/api/v2/collection-platform-accounts/{pub_id}/force-release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Force Release Platform Account
+         * @description 管理端自助释放（采集账号占用模型，2026-09-01 起）。
+         *
+         *     - running→idle：Temporal terminate 卡死的占用的人工出口（自动路径 =
+         *       租约惰性回收 + tools/reap_account_reservations.py）；
+         *     - captcha/error→idle：仅 clear_health=true（人工确认已过码/已修复）；
+         *     - muted/quota_exhausted 未到期 → 409 illegal_state_transition（保护态有
+         *       自己的恢复语义，绝不被「释放」顺手冲掉）；idle = 幂等空操作。
+         *     状态迁移一律经 AccountGovernor.set_runtime_state——迁移表校验 +
+         *     state_transition 审计事件（actor=操作者身份）不旁路。
+         */
+        post: operations["force_release_platform_account_api_v2_collection_platform_accounts__pub_id__force_release_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/collection-accounts/{pub_id}/link-test": {
         parameters: {
             query?: never;
@@ -2432,6 +2460,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/analytics/mention-metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mention Metrics Compute
+         * @description 提及指标层（mention-metrics-v1）：spec 驱动的现场重算。
+         *
+         *     口径=domain.reporting.mention_metrics 纯函数（名称命中=精确子串、occ=原文
+         *     次数、（波次×平台×问题）cell 按 capture_time 取最新 N 条采样、canary/retry
+         *     丢弃计数）；输出顶层带 metric_version 与 spec_hash（口径指纹）。项目不属于
+         *     本租户 → 404 project_not_found（跨租户同码，不泄露存在性）；spec 结构不
+         *     合法 → 422 invalid_mention_metrics_spec。
+         */
+        post: operations["mention_metrics_compute_api_v2_analytics_mention_metrics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/analytics/manual-answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Manual Answers Register
+         * @description 人工补测登记（manual-ingestion-v1）：把人工在浏览器实测的平台回答登记为
+         *     带 provenance（channel=manual）的正式 analytics.answer 行。
+         *
+         *     幂等：同（project, idempotency_key 或 model+query_text+capture_time）重复
+         *     登记返回既有行（created=false），同键不同文 → 409。项目不属本租户 → 404
+         *     project_not_found（跨租户同码）；项目无 brand → 422
+         *     manual_answer_brand_missing；证据 pub_id 不属本租户 → 422
+         *     unknown_evidence_pub_id。
+         */
+        post: operations["manual_answers_register_api_v2_analytics_manual_answers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/analytics/trace/{trace_token}": {
         parameters: {
             query?: never;
@@ -2598,6 +2679,23 @@ export interface paths {
         };
         /** Formal Production */
         get: operations["formal_production_api_v2_reports_formal_productions__production_pub_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/reports/formal-productions/{production_pub_id}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Formal Production Progress */
+        get: operations["formal_production_progress_api_v2_reports_formal_productions__production_pub_id__progress_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6509,9 +6607,9 @@ export interface components {
             sha256: string;
             /**
              * Mime Type
-             * @constant
+             * @enum {string}
              */
-            mime_type: "image/png";
+            mime_type: "image/png" | "image/jpeg";
             /** Byte Size */
             byte_size: number;
             /** Image Width */
@@ -10254,6 +10352,31 @@ export interface components {
             /** Rationale */
             rationale: string;
         };
+        /**
+         * ForceReleaseRequest
+         * @description 强制释放占用/恢复采集面。clear_health=true 才允许 captcha/error→idle
+         *     （健康修复是显式人工判定，不能随普通释放顺手做）。
+         */
+        ForceReleaseRequest: {
+            /**
+             * Clear Health
+             * @default false
+             */
+            clear_health: boolean;
+        };
+        /** ForceReleaseResult */
+        ForceReleaseResult: {
+            /** Ok */
+            ok: boolean;
+            /** Platform Account Pub Id */
+            platform_account_pub_id: string;
+            /** Released */
+            released: boolean;
+            /** Runtime State */
+            runtime_state: string;
+            /** Detail */
+            detail: string;
+        };
         /** FormalArtifactView */
         FormalArtifactView: {
             /**
@@ -10313,6 +10436,37 @@ export interface components {
             next_cursor: string | null;
             /** Has More */
             has_more: boolean;
+        };
+        /** FormalProductionProgressView */
+        FormalProductionProgressView: {
+            /** Production Pub Id */
+            production_pub_id: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "workflow" | "db_fallback";
+            /** Failed */
+            failed: boolean;
+            /** Error Code */
+            error_code: string | null;
+            /** Stages */
+            stages: components["schemas"]["FormalProductionStageView"][];
+        };
+        /** FormalProductionStageView */
+        FormalProductionStageView: {
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "queued" | "binding_snapshot" | "preflight" | "running" | "awaiting_review" | "finalizing" | "signed";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "done" | "current" | "pending" | "failed";
+            /** Entered At */
+            entered_at?: string | null;
         };
         /**
          * FormalProductionState
@@ -11389,6 +11543,69 @@ export interface components {
              */
             relation: "parent" | "subsidiary" | "sub_brand" | "spokesperson" | "product_line";
         };
+        /** ManualAnswerItemIn */
+        ManualAnswerItemIn: {
+            /** Model */
+            model: string;
+            /** Query Text */
+            query_text: string;
+            /** Response Plain Text */
+            response_plain_text: string;
+            /**
+             * Capture Time
+             * Format: date-time
+             */
+            capture_time: string;
+            /**
+             * Region
+             * @default unknown
+             */
+            region: string;
+            /**
+             * Mode
+             * @default normal
+             */
+            mode: string;
+            /** Source Url */
+            source_url?: string | null;
+            /** Evidence Pub Ids */
+            evidence_pub_ids?: string[];
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+        };
+        /** ManualAnswerResultView */
+        ManualAnswerResultView: {
+            /** Answer Pub Id */
+            answer_pub_id: string;
+            /** Analysis Pub Id */
+            analysis_pub_id: string;
+            /** Created */
+            created: boolean;
+            /** Eligible */
+            eligible: boolean;
+            /** Evidence Attached */
+            evidence_attached: number;
+        };
+        /** ManualAnswersCreate */
+        ManualAnswersCreate: {
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Operator */
+            operator: string;
+            /** Reason */
+            reason: string;
+            /** Items */
+            items: components["schemas"]["ManualAnswerItemIn"][];
+        };
+        /** ManualAnswersRegisteredView */
+        ManualAnswersRegisteredView: {
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Registered */
+            registered: number;
+            /** Items */
+            items: components["schemas"]["ManualAnswerResultView"][];
+        };
         /** MemberCreate */
         MemberCreate: {
             /** Subject */
@@ -11412,6 +11629,66 @@ export interface components {
             state: string;
             /** Service Account */
             service_account: boolean;
+        };
+        /** MentionMetricsCreate */
+        MentionMetricsCreate: {
+            /** Project Pub Id */
+            project_pub_id: string;
+            spec: components["schemas"]["MentionMetricsSpecBody"];
+        };
+        /** MentionMetricsFlagBody */
+        MentionMetricsFlagBody: {
+            /** Name */
+            name: string;
+            /** Key */
+            key: string;
+        };
+        /** MentionMetricsQueryGroupBody */
+        MentionMetricsQueryGroupBody: {
+            /** Name */
+            name: string;
+            /** Items */
+            items: components["schemas"]["MentionMetricsQueryItemBody"][];
+        };
+        /** MentionMetricsQueryItemBody */
+        MentionMetricsQueryItemBody: {
+            /** Text */
+            text: string;
+            /** Priority */
+            priority: number;
+        };
+        /** MentionMetricsSpecBody */
+        MentionMetricsSpecBody: {
+            /** Platforms */
+            platforms: string[];
+            /** Samples Per Query */
+            samples_per_query: {
+                [key: string]: number;
+            };
+            /** Names */
+            names: string[];
+            /** Brands */
+            brands?: string[];
+            /** Terms */
+            terms?: string[];
+            /** Primary Name */
+            primary_name: string;
+            /** Waves */
+            waves: components["schemas"]["MentionMetricsWaveBody"][];
+            /** Mention Flags */
+            mention_flags?: components["schemas"]["MentionMetricsFlagBody"][];
+            /** Excerpt Groups */
+            excerpt_groups?: string[];
+        };
+        /** MentionMetricsWaveBody */
+        MentionMetricsWaveBody: {
+            /**
+             * Wave
+             * @enum {string}
+             */
+            wave: "w1" | "w2";
+            /** Query Groups */
+            query_groups: components["schemas"]["MentionMetricsQueryGroupBody"][];
         };
         /** MetricCatalogView */
         MetricCatalogView: {
@@ -22570,6 +22847,78 @@ export interface operations {
             };
         };
     };
+    force_release_platform_account_api_v2_collection_platform_accounts__pub_id__force_release_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForceReleaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForceReleaseResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     link_test_api_v2_collection_accounts__pub_id__link_test_post: {
         parameters: {
             query?: never;
@@ -27411,6 +27760,146 @@ export interface operations {
             };
         };
     };
+    mention_metrics_compute_api_v2_analytics_mention_metrics_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MentionMetricsCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    manual_answers_register_api_v2_analytics_manual_answers_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualAnswersCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualAnswersRegisteredView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     trace_api_v2_analytics_trace__trace_token__get: {
         parameters: {
             query?: {
@@ -28135,6 +28624,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FormalProductionView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    formal_production_progress_api_v2_reports_formal_productions__production_pub_id__progress_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                production_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormalProductionProgressView"];
                 };
             };
             /** @description Bad Request */
