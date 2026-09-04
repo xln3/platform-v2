@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, cast
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 from sqlalchemy import select
 from sqlalchemy import text as production_router_text
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from domain.evidence.dlp import assert_secret_free
 from geo_platform.collection.workflow_outbox import (
@@ -29,6 +30,7 @@ from geo_platform.tenancy.models import Tenant
 from geo_platform.tenancy.repository import set_tenant_context
 
 from ..config import get_settings
+from ..observability import connect_temporal
 from .formal_production import (
     LEGACY_SERVICE_CATALOG,
     FormalProductionConflict,
@@ -238,6 +240,113 @@ class FormalProductionPage(StrictModel):
     has_more: bool
 
 
+# ── 生产进度（细粒度阶段透出，与 FormalSnapshotReportWorkflowV2 状态机对齐）──
+
+FormalProductionStage = Literal[
+    "queued",
+    "binding_snapshot",
+    "preflight",
+    "running",
+    "awaiting_review",
+    "finalizing",
+    "signed",
+]
+
+# 有序阶段全集：queued 是库内入队态，其后为 workflow 内部状态机，signed 为成功终态。
+FORMAL_PRODUCTION_STAGES: tuple[FormalProductionStage, ...] = (
+    "queued",
+    "binding_snapshot",
+    "preflight",
+    "running",
+    "awaiting_review",
+    "finalizing",
+    "signed",
+)
+
+# 库内粗粒度 status → 阶段的诚实降级映射（Temporal 不可达/workflow 已关闭时使用）。
+# 库内 running 覆盖 binding_snapshot/preflight/running 三段，无法细分时锚到 running。
+_DB_STATUS_STAGE: dict[str, FormalProductionStage] = {
+    "queued": "queued",
+    "running": "running",
+    "awaiting_review": "awaiting_review",
+    "signed": "signed",
+    # failed 不在此表：失败定位只能来自 error_code（下表），映射不出就诚实不给阶段。
+}
+
+# 失败阶段定位：workflow 失败时 state 被覆盖为 "failed"，只有 error_code 能定位失败点。
+# metric_snapshot_binding_failed 覆盖绑定+预检守卫段（workflow 不保留二者区分），锚到最早阶段。
+_FAILURE_STAGE_BY_ERROR_CODE: dict[str, FormalProductionStage] = {
+    "metric_snapshot_set_not_ready": "binding_snapshot",
+    "metric_snapshot_binding_failed": "binding_snapshot",
+    "production_failed": "running",
+    "changes_requested": "finalizing",
+}
+
+
+class FormalProductionStageView(StrictModel):
+    stage: FormalProductionStage
+    status: Literal["done", "current", "pending", "failed"]
+    entered_at: datetime | None = None
+
+
+class FormalProductionProgressView(StrictModel):
+    production_pub_id: str
+    source: Literal["workflow", "db_fallback"]
+    failed: bool
+    error_code: str | None
+    stages: list[FormalProductionStageView]
+
+
+def _progress_stages(
+    *,
+    current_stage: FormalProductionStage | None,
+    failed_stage: FormalProductionStage | None,
+    created_at: datetime | None,
+    updated_at: datetime | None,
+) -> list[FormalProductionStageView]:
+    """有序阶段数组。
+
+    时间戳诚实口径：库内只有行级 created_at/updated_at——queued 用 created_at，
+    枢轴阶段（当前/失败/终态 signed）用 updated_at（行级最后一次状态迁移），
+    其余阶段一律 None，不造逐阶段时间。
+    """
+    pivot: int | None = None
+    if failed_stage is not None:
+        pivot = FORMAL_PRODUCTION_STAGES.index(failed_stage)
+    elif current_stage is not None:
+        pivot = FORMAL_PRODUCTION_STAGES.index(current_stage)
+    views: list[FormalProductionStageView] = []
+    for index, stage in enumerate(FORMAL_PRODUCTION_STAGES):
+        status: Literal["done", "current", "pending", "failed"]
+        if failed_stage is not None and index == pivot:
+            status = "failed"
+        elif pivot is not None and index < pivot:
+            status = "done"
+        elif pivot is not None and index == pivot:
+            # signed 是成功终态：落在 signed 上时全链路已完成，不显示"进行中"。
+            status = "done" if current_stage == "signed" else "current"
+        else:
+            status = "pending"
+        entered_at: datetime | None = None
+        if stage == "queued":
+            entered_at = created_at
+        elif pivot is not None and index == pivot:
+            entered_at = updated_at
+        views.append(FormalProductionStageView(stage=stage, status=status, entered_at=entered_at))
+    return views
+
+
+async def _query_workflow_state(workflow_id: str) -> str | None:
+    """查询 workflow 细粒度状态机；不可达/已关闭/查询失败/形状未知一律返回 None 由调用方降级。"""
+    try:
+        client = await connect_temporal(get_settings())
+        handle = client.get_workflow_handle(workflow_id)
+        state = await handle.query("state")
+    except Exception:
+        return None
+    return state if isinstance(state, str) else None
+
+
 class FormalReviewCreate(StrictModel):
     decision: Literal["approved", "changes_requested"]
     rationale: str = Field(min_length=1, max_length=1000)
@@ -419,6 +528,59 @@ def formal_production(
             status_code=404, detail={"code": "formal_production_not_found"}
         ) from exc
     return FormalProductionView.model_validate(row)
+
+
+@router.get("/{production_pub_id}/progress", response_model=FormalProductionProgressView)
+async def formal_production_progress(
+    production_pub_id: str,
+    principal: Principal = Depends(get_principal),
+) -> FormalProductionProgressView:
+    principal.require("formal_report:read")
+    try:
+        row = await run_in_threadpool(
+            _service().get,
+            tenant_pub_id=principal.tenant_pub_id,
+            production_pub_id=production_pub_id,
+        )
+    except FormalProductionNotFound as exc:
+        raise HTTPException(
+            status_code=404, detail={"code": "formal_production_not_found"}
+        ) from exc
+    raw_error_code = row.get("error_code")
+    error_code = str(raw_error_code) if raw_error_code else None
+    workflow_state = await _query_workflow_state(str(row["workflow_id"]))
+    failed = False
+    current_stage: FormalProductionStage | None = None
+    failed_stage: FormalProductionStage | None = None
+    if workflow_state in FORMAL_PRODUCTION_STAGES:
+        source: Literal["workflow", "db_fallback"] = "workflow"
+        current_stage = cast(FormalProductionStage, workflow_state)
+    elif workflow_state == "failed":
+        # workflow 查询成功且已到失败终态；失败点只能由库内 error_code 定位。
+        source = "workflow"
+        failed = True
+        failed_stage = _FAILURE_STAGE_BY_ERROR_CODE.get(error_code or "")
+    else:
+        # workflow 已关闭/查询失败/Temporal 不可达/状态未知：诚实降级为库内粗粒度 status。
+        source = "db_fallback"
+        db_status = str(row["status"])
+        if db_status == "failed":
+            failed = True
+            failed_stage = _FAILURE_STAGE_BY_ERROR_CODE.get(error_code or "")
+        else:
+            current_stage = _DB_STATUS_STAGE.get(db_status)
+    return FormalProductionProgressView(
+        production_pub_id=str(row["pub_id"]),
+        source=source,
+        failed=failed,
+        error_code=error_code if failed else None,
+        stages=_progress_stages(
+            current_stage=current_stage,
+            failed_stage=failed_stage,
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
+        ),
+    )
 
 
 @router.post("/{production_pub_id}/review", response_model=FormalProductionView, status_code=202)

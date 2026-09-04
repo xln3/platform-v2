@@ -515,6 +515,82 @@
 .formal-review-actions button {
   width: 100%;
 }
+.formal-progress {
+  margin-top: 8px;
+  min-width: 250px;
+}
+.formal-progress-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.formal-progress-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #8a968e;
+}
+.formal-progress-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid #c6d0ca;
+  background: #f4f7f5;
+  font-size: 10px;
+  line-height: 1;
+}
+.formal-progress-step.done {
+  color: #17613a;
+}
+.formal-progress-step.done .formal-progress-dot {
+  background: #dff4e7;
+  border-color: #17613a;
+  color: #17613a;
+}
+.formal-progress-step.current {
+  color: #17613a;
+  font-weight: 700;
+}
+.formal-progress-step.current .formal-progress-dot {
+  background: #24834f;
+  border-color: #24834f;
+}
+.formal-progress-step.current .formal-progress-dot::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+}
+.formal-progress-step.failed {
+  color: #8e2222;
+  font-weight: 700;
+}
+.formal-progress-step.failed .formal-progress-dot {
+  background: #fde2e2;
+  border-color: #8e2222;
+  color: #8e2222;
+}
+.formal-progress-error,
+.formal-progress-source {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 400;
+}
+.formal-progress-error {
+  color: #8e2222;
+}
+.formal-progress-source {
+  color: #637168;
+}
 .services-page .inline-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;
