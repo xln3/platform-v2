@@ -43,7 +43,6 @@ sys.path.insert(0, str(_ROOT / "api"))
 sys.path.insert(0, str(_ROOT))
 
 import psycopg  # noqa: E402
-
 from geo_platform.evidence.object_store import ContentAddressedObjectStore  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -185,7 +184,11 @@ def process_asset(
         _diff_paths(json.loads(payload), json.loads(new_payload), "", diffs)
         bad = {d for d in diffs if not _HAR_DIFF_ALLOWED.match(d.lstrip("."))}
         if bad:
-            return "undecided", None, {"reason": "har_diff_outside_content", "paths": sorted(bad)[:5]}
+            return (
+                "undecided",
+                None,
+                {"reason": "har_diff_outside_content", "paths": sorted(bad)[:5]},
+            )
         return "repairable", new_payload, {
             "entries_repaired": len(repaired_entries),
             "entries": repaired_entries[:10],

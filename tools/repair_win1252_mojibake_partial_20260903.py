@@ -37,15 +37,15 @@ sys.path.insert(0, str(_ROOT / "api"))
 sys.path.insert(0, str(_ROOT))
 
 import psycopg  # noqa: E402
-
 from geo_platform.evidence.object_store import ContentAddressedObjectStore  # noqa: E402
+
 from tools.repair_win1252_mojibake_20260903 import (  # noqa: E402
     _C1_RE,
+    _HAR_DIFF_ALLOWED,
     _TYPICAL_RE,
     _WIN1252_INVERSE,
-    _encode_har,
-    _HAR_DIFF_ALLOWED,
     _diff_paths,
+    _encode_har,
     _has_signature,
 )
 
@@ -176,7 +176,13 @@ def main() -> int:
             (pub_ids,),
         ).fetchall()
         if not rows or any(r[3] != old_sha for r in rows):
-            results.append({"pub_ids": pub_ids, "old_sha256": old_sha, "status": "skipped_already_repaired"})
+            results.append(
+                {
+                    "pub_ids": pub_ids,
+                    "old_sha256": old_sha,
+                    "status": "skipped_already_repaired",
+                }
+            )
             continue
         kind = rows[0][2]
         object_key = rows[0][4]
@@ -184,10 +190,19 @@ def main() -> int:
         try:
             new_payload, detail = _process(kind, payload)
         except KeyError as exc:
-            results.append({"pub_ids": pub_ids, "old_sha256": old_sha, "status": "failed_keyerror", "char": repr(exc)})
+            results.append(
+                {
+                    "pub_ids": pub_ids,
+                    "old_sha256": old_sha,
+                    "status": "failed_keyerror",
+                    "char": repr(exc),
+                }
+            )
             continue
         if new_payload is None:
-            results.append({"pub_ids": pub_ids, "old_sha256": old_sha, "status": "failed", "detail": detail})
+            results.append(
+                {"pub_ids": pub_ids, "old_sha256": old_sha, "status": "failed", "detail": detail}
+            )
             continue
         entry: dict[str, Any] = {
             "pub_ids": pub_ids,
@@ -210,16 +225,25 @@ def main() -> int:
                 (object_key, old_sha),
             ).fetchone()[0]
             updated = conn.execute(
-                "UPDATE evidence.evidence_asset SET sha256=%s, object_key=%s, byte_size=%s, dlp_findings=%s "
+                "UPDATE evidence.evidence_asset SET sha256=%s, object_key=%s,"
+                " byte_size=%s, dlp_findings=%s "
                 "WHERE object_key=%s AND sha256=%s",
-                (stored.sha256, stored.key, stored.byte_size, list(stored.dlp_findings), object_key, old_sha),
+                (
+                    stored.sha256,
+                    stored.key,
+                    stored.byte_size,
+                    list(stored.dlp_findings),
+                    object_key,
+                    old_sha,
+                ),
             ).rowcount
             if updated != referencing:
                 raise RuntimeError(f"rowcount {updated} != referencing {referencing}")
             for row in rows:
                 conn.execute(
                     "INSERT INTO evidence.evidence_access_audit "
-                    "(tenant_pub_id, resource_pub_id, actor_pub_id, action, outcome, request_id, data) "
+                    "(tenant_pub_id, resource_pub_id, actor_pub_id,"
+                    " action, outcome, request_id, data) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)",
                     (
                         row[1],
