@@ -126,3 +126,19 @@ geo-platform-v2-browser@<实例键>`。重启期间采集 attach 断连按
   （含输 OTP），profile 留在常驻浏览器。
 - 真机演练：`scripts/drill_captcha_assist.py`（缺省实例 `doubao_sh`，
   `DRILL_INSTANCE` 可换）。
+
+## 账号占用卡死处置（2026-09-01 起，s19_0001 采集账号占用模型）
+
+- 占用=带租约的 running（`reservation_expires_at`，TTL 缺省 6h），正常由
+  run 终态自动释放；terminate 等异常卡死有**三级回收**，一般无需手工 SQL：
+  ①派题解析惰性回收（租约过期或持有 run 已终态 → 首次派题自愈）；
+  ②批量清扫 `.venv/bin/python tools/reap_account_reservations.py`
+  （`--dry-run` 先看明细，可挂 cron 10–15min）；
+  ③管理端 `POST /api/v2/collection-platform-accounts/{pub_id}/force-release`
+  （running→idle 直接放；captcha/error 须 `clear_health=true`；muted/quota 409）。
+- **不要**手工 SQL 改 `runtime_state`——会绕过状态机迁移校验与
+  `collection_account_event` 审计（reason=reservation_reaped:*/operator_force_release*）。
+- 竞争排队：第二 run 等同 platform+region 账号会等待（缺省上限 3600s）而非
+  立即占位；等满落 `account_contention_timeout`（与账号不存在的
+  `account_unavailable` 可分辨——前者提示加号或排查占用泄漏）。
+- 设计结论与教训=`developlog/architecture/caiji-0813/采集账号与浏览器管理-设计计划-20260813.md` §11。

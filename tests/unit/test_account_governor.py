@@ -879,9 +879,15 @@ def test_resolve_collectable_skips_non_idle_and_over_quota(
 ) -> None:
     _seed_region(session)
     _seed_browser(session)
-    # 候选1 running；候选2 日预算打满；候选3 可用
+    # 候选1 running（租约有效 = 占用未失活，不会被惰性回收）；候选2 日预算打满；
+    # 候选3 可用
     _seed_account(
-        session, runtime_state="running", browser_instance_key="doubao_sh", pub_id="pac_busy"
+        session,
+        runtime_state="running",
+        current_run_pub_id="run_busy",
+        reservation_expires_at=_FIXED_NOW + timedelta(hours=1),
+        browser_instance_key="doubao_sh",
+        pub_id="pac_busy",
     )
     _seed_account(
         session,
@@ -1125,3 +1131,265 @@ def test_record_region_probe_locks_existing_region_before_updating_streak(
     assert len(region_selects) == 1
     assert region_selects[0]._for_update_arg is not None
     assert region_selects[0].get_execution_options()["populate_existing"] is True
+
+
+# ---------------------------------------------------------------------------
+# 采集账号占用租约（s19_0001，2026-09-01 起）：认领写租约 / 续约 / 释放清空 /
+# 惰性回收 / 批量清扫
+# ---------------------------------------------------------------------------
+
+
+def test_claim_writes_lease_and_owned_reuse_renews(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_region(session)
+    _seed_browser(session)
+    account = _seed_account(session)
+    monkeypatch.setattr(account_governor, "now_utc", lambda: _FIXED_NOW)
+    governor = AccountGovernor(session)  # type: ignore[arg-type]
+
+    governor.resolve_collectable(platform="doubao", region_gb="310000", run_pub_id="run_L")
+    assert account.reservation_expires_at == _FIXED_NOW + timedelta(seconds=21600)
+
+    # owned 复用命中同事务续约（时钟前进 10 分钟后到期点跟随刷新）
+    later = _FIXED_NOW + timedelta(minutes=10)
+    monkeypatch.setattr(account_governor, "now_utc", lambda: later)
+    governor.resolve_collectable(platform="doubao", region_gb="310000", run_pub_id="run_L")
+    assert account.reservation_expires_at == later + timedelta(seconds=21600)
+    assert account.runtime_state == "running"
+    assert account.current_run_pub_id == "run_L"
+
+
+def test_claim_lease_ttl_env_override(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch, fixed_clock: None
+) -> None:
+    _seed_region(session)
+    _seed_browser(session)
+    account = _seed_account(session)
+    monkeypatch.setenv("GEO_ACCOUNT_RESERVATION_TTL_S", "300")
+    governor = AccountGovernor(session)  # type: ignore[arg-type]
+    governor.resolve_collectable(platform="doubao", region_gb="310000", run_pub_id="run_T")
+    assert account.reservation_expires_at == _FIXED_NOW + timedelta(seconds=300)
+    # 畸形 env 回退缺省（记 warning 不 fail，照 resident_browser 先例）
+    monkeypatch.setenv("GEO_ACCOUNT_RESERVATION_TTL_S", "garbage")
+    assert account_governor._reservation_ttl_s() == 21600
+
+
+def test_release_run_reservations_clears_lease(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    account = _seed_account(
+        session,
+        runtime_state="running",
+        current_run_pub_id="run_done",
+        reservation_expires_at=_FIXED_NOW + timedelta(hours=1),
+    )
+    assert governor.release_run_reservations(run_pub_id="run_done") == 1
+    assert account.runtime_state == "idle"
+    assert account.reservation_expires_at is None
+    assert account.current_run_pub_id is None
+
+
+def test_resolve_lazily_reaps_expired_lease_and_reassigns_same_account(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    """租约过期（含 terminate 卡死）→ 同事务回收为 idle 并按普通候选再分配——
+    确定性 ORDER BY id 下原 run 大概率重新拿到同一账号，语义自然延续。"""
+    _seed_region(session)
+    _seed_browser(session)
+    account = _seed_account(
+        session,
+        runtime_state="running",
+        current_run_pub_id="run_terminated",
+        reservation_expires_at=_FIXED_NOW - timedelta(minutes=1),
+    )
+    result = governor.resolve_collectable(
+        platform="doubao", region_gb="310000", run_pub_id="run_new"
+    )
+    assert result is not None
+    assert result["platform_account_pub_id"] == account.pub_id
+    assert account.runtime_state == "running"
+    assert account.current_run_pub_id == "run_new"
+    assert account.reservation_expires_at == _FIXED_NOW + timedelta(seconds=21600)
+    transitions = _events(session, "state_transition")
+    reaped = [e for e in transitions if e.new_value["reason"] == "reservation_reaped:lease_expired"]
+    assert len(reaped) == 1
+    assert reaped[0].old_value["runtime_state"] == "running"
+    assert reaped[0].run_pub_id == "run_terminated"
+
+
+def test_resolve_lazily_reaps_null_lease_legacy_row(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    """存量 running 行 reservation_expires_at=NULL 视同已过期（否则租约列上线
+    前卡死的占用永远无法自愈）。"""
+    _seed_region(session)
+    _seed_browser(session)
+    account = _seed_account(
+        session,
+        runtime_state="running",
+        current_run_pub_id="run_legacy",
+        reservation_expires_at=None,
+    )
+    result = governor.resolve_collectable(
+        platform="doubao", region_gb="310000", run_pub_id="run_new"
+    )
+    assert result is not None
+    assert account.current_run_pub_id == "run_new"
+
+
+def test_resolve_reaps_when_holder_run_terminal(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch, fixed_clock: None
+) -> None:
+    """租约仍有效但持有 run 已终态/不存在 → 先于 TTL 回收（terminate 的 run
+    永远等不到 release_run_reservations）。"""
+    _seed_region(session)
+    _seed_browser(session)
+    account = _seed_account(
+        session,
+        runtime_state="running",
+        current_run_pub_id="run_dead",
+        reservation_expires_at=_FIXED_NOW + timedelta(hours=1),
+    )
+    monkeypatch.setattr(
+        AccountGovernor, "_holder_run_finished", lambda self, run_pub_id: True
+    )
+    governor = AccountGovernor(session)  # type: ignore[arg-type]
+    result = governor.resolve_collectable(platform="doubao", region_gb="310000")
+    assert result is not None
+    # 无 run_pub_id 的解析只回收不认领：账号回 idle 后被选中返回，状态保持 idle
+    assert account.runtime_state == "idle"
+    assert account.current_run_pub_id is None
+    assert account.reservation_expires_at is None
+    transitions = _events(session, "state_transition")
+    assert any(
+        e.new_value["reason"] == "reservation_reaped:holder_run_terminal" for e in transitions
+    )
+
+
+def test_resolve_does_not_reap_active_or_unknown_holder_run(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch, fixed_clock: None
+) -> None:
+    """持有 run 仍活动（False）或状态查不到（None，如函数未部署/DB 异常）→
+    fail-closed 不回收，账号保持忙、解析 miss。"""
+    _seed_region(session)
+    _seed_browser(session)
+    for lookup_result in (False, None):
+        account = _seed_account(
+            session,
+            pub_id=f"pac_{lookup_result}",
+            runtime_state="running",
+            current_run_pub_id="run_alive",
+            reservation_expires_at=_FIXED_NOW + timedelta(hours=1),
+            browser_instance_key=None if lookup_result is None else "doubao_sh",
+        )
+        monkeypatch.setattr(
+            AccountGovernor,
+            "_holder_run_finished",
+            lambda self, run_pub_id, r=lookup_result: r,
+        )
+        governor = AccountGovernor(session)  # type: ignore[arg-type]
+        assert governor.resolve_collectable(platform="doubao", region_gb="310000") is None
+        assert account.runtime_state == "running"
+        assert _events(session, "state_transition") == []
+
+
+def test_resolve_does_not_reap_own_run_occupancy(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    """本 run 自有占用即使租约已过点也不回收（owned 复用是活跃证据，选中即续约）。"""
+    _seed_region(session)
+    _seed_browser(session)
+    account = _seed_account(
+        session,
+        runtime_state="running",
+        current_run_pub_id="run_self",
+        reservation_expires_at=_FIXED_NOW - timedelta(minutes=1),
+    )
+    result = governor.resolve_collectable(
+        platform="doubao", region_gb="310000", run_pub_id="run_self"
+    )
+    assert result is not None
+    assert account.runtime_state == "running"
+    assert account.current_run_pub_id == "run_self"
+    # 过期租约被续约刷新而非回收
+    assert account.reservation_expires_at == _FIXED_NOW + timedelta(seconds=21600)
+    assert _events(session, "state_transition") == []
+
+
+def test_reap_stale_reservations_batch_and_protected_states_untouched(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch, fixed_clock: None
+) -> None:
+    expired = _seed_account(
+        session,
+        pub_id="pac_expired",
+        runtime_state="running",
+        current_run_pub_id="run_a",
+        reservation_expires_at=_FIXED_NOW - timedelta(minutes=5),
+    )
+    terminal = _seed_account(
+        session,
+        pub_id="pac_terminal",
+        runtime_state="running",
+        current_run_pub_id="run_b",
+        reservation_expires_at=_FIXED_NOW + timedelta(hours=1),
+    )
+    active = _seed_account(
+        session,
+        pub_id="pac_active",
+        runtime_state="running",
+        current_run_pub_id="run_c",
+        reservation_expires_at=_FIXED_NOW + timedelta(hours=1),
+    )
+    captcha = _seed_account(
+        session,
+        pub_id="pac_captcha",
+        runtime_state="captcha",
+        current_run_pub_id="run_d",
+        reservation_expires_at=_FIXED_NOW - timedelta(hours=1),
+    )
+    finished = {"run_b": True, "run_c": False}
+    monkeypatch.setattr(
+        AccountGovernor,
+        "_holder_run_finished",
+        lambda self, run_pub_id: finished.get(run_pub_id),
+    )
+    governor = AccountGovernor(session)  # type: ignore[arg-type]
+
+    reaped = governor.reap_stale_reservations()
+
+    assert {entry["platform_account_pub_id"] for entry in reaped} == {
+        "pac_expired",
+        "pac_terminal",
+    }
+    by_pub = {entry["platform_account_pub_id"]: entry for entry in reaped}
+    assert by_pub["pac_expired"]["stale_reason"] == "lease_expired"
+    assert by_pub["pac_expired"]["former_run_pub_id"] == "run_a"
+    assert by_pub["pac_terminal"]["stale_reason"] == "holder_run_terminal"
+    assert expired.runtime_state == "idle"
+    assert expired.reservation_expires_at is None
+    assert terminal.runtime_state == "idle"
+    # 活动 run 的占用与保护态（captcha 即使租约过点）一律不碰
+    assert active.runtime_state == "running"
+    assert captcha.runtime_state == "captcha"
+    assert captcha.reservation_expires_at == _FIXED_NOW - timedelta(hours=1)
+    transitions = _events(session, "state_transition")
+    assert len(transitions) == 2
+    assert all(
+        e.new_value["reason"].startswith("reservation_reaped:") for e in transitions
+    )
+    # 幂等：再扫零回收
+    assert governor.reap_stale_reservations() == []
+
+
+def test_set_runtime_state_idle_clears_lease(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    account = _seed_account(
+        session,
+        runtime_state="running",
+        current_run_pub_id="run_F",
+        reservation_expires_at=_FIXED_NOW + timedelta(hours=1),
+    )
+    governor.set_runtime_state(platform_account_id=account.id, new_state="idle")
+    assert account.reservation_expires_at is None

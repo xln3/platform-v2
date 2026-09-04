@@ -41,6 +41,7 @@ from ..pagination import decode_keyset_cursor, encode_keyset_cursor, set_cursor_
 from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
 from ..tenancy.models import now_utc
+from .account_governor import AccountGovernor
 from .account_models import (
     CollectionAccountEvent,
     CollectionBrowser,
@@ -1045,6 +1046,82 @@ def patch_platform_account(
 def _phone_pub_id(session: Session, account: CollectionPlatformAccount) -> str:
     phone = session.get(CollectionPhoneAccount, account.phone_account_id)
     return phone.pub_id if phone is not None else str(account.phone_account_id)
+
+
+class ForceReleaseRequest(StrictModel):
+    """强制释放占用/恢复采集面。clear_health=true 才允许 captcha/error→idle
+    （健康修复是显式人工判定，不能随普通释放顺手做）。"""
+
+    clear_health: bool = False
+
+
+class ForceReleaseResult(StrictModel):
+    ok: bool
+    platform_account_pub_id: str
+    released: bool
+    runtime_state: str
+    detail: str
+
+
+@router.post(
+    "/collection-platform-accounts/{pub_id}/force-release",
+    response_model=ForceReleaseResult,
+)
+def force_release_platform_account(
+    pub_id: str,
+    body: ForceReleaseRequest,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> ForceReleaseResult:
+    """管理端自助释放（采集账号占用模型，2026-09-01 起）。
+
+    - running→idle：Temporal terminate 卡死的占用的人工出口（自动路径 =
+      租约惰性回收 + tools/reap_account_reservations.py）；
+    - captcha/error→idle：仅 clear_health=true（人工确认已过码/已修复）；
+    - muted/quota_exhausted 未到期 → 409 illegal_state_transition（保护态有
+      自己的恢复语义，绝不被「释放」顺手冲掉）；idle = 幂等空操作。
+    状态迁移一律经 AccountGovernor.set_runtime_state——迁移表校验 +
+    state_transition 审计事件（actor=操作者身份）不旁路。
+    """
+    principal.require("account:operate")
+    account = session.scalar(
+        select(CollectionPlatformAccount).where(CollectionPlatformAccount.pub_id == pub_id)
+    )
+    if account is None:
+        raise HTTPException(status_code=404, detail={"code": "platform_account_not_found"})
+    state = account.runtime_state
+    if state == "idle":
+        return ForceReleaseResult(
+            ok=True,
+            platform_account_pub_id=pub_id,
+            released=False,
+            runtime_state=state,
+            detail="already_idle",
+        )
+    if state == "running":
+        reason = "operator_force_release"
+    elif state in {"captcha", "error"} and body.clear_health:
+        reason = "operator_force_release_clear_health"
+    else:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "illegal_state_transition", "runtime_state": state},
+        )
+    AccountGovernor(session).set_runtime_state(
+        platform_account_id=account.id,
+        new_state="idle",
+        reason=reason,
+        actor=_actor(principal),
+        run_pub_id=account.current_run_pub_id,
+    )
+    session.commit()
+    return ForceReleaseResult(
+        ok=True,
+        platform_account_pub_id=pub_id,
+        released=True,
+        runtime_state="idle",
+        detail=reason,
+    )
 
 
 @router.post("/collection-accounts/{pub_id}/link-test", response_model=LinkTestResult)
