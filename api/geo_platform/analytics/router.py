@@ -25,7 +25,7 @@ from ..metrics_v2.consumer_projection import OfficialMetricsConsumer, OfficialSc
 from ..metrics_v2.repository import MetricsV2Repository
 from ..pagination import decode_keyset_cursor, encode_keyset_cursor, numbered_page
 from ..tenancy.psycopg import tenant_connection
-from . import comparisons
+from . import comparisons, manual_ingestion
 from . import mention_metrics as mention_metrics_service
 from .pagination_policy import (
     SAMPLING_PROGRESS_DEFAULT_PAGE_NUMBER,
@@ -2347,6 +2347,123 @@ def mention_metrics_compute(
         raise HTTPException(status_code=404, detail={"code": "project_not_found"}) from exc
     except ValueError as exc:
         return _error(request, 422, "invalid_mention_metrics_spec", {"why": str(exc)})
+
+
+class ManualAnswerItemIn(StrictModel):
+    model: str = Field(min_length=1, max_length=80)
+    query_text: str = Field(min_length=1, max_length=4000)
+    response_plain_text: str = Field(min_length=1, max_length=200_000)
+    # 人工实测时间（必须带时区），不是登记时间。
+    capture_time: datetime
+    region: str = Field(default="unknown", min_length=1, max_length=80)
+    mode: str = Field(default="normal", min_length=1, max_length=40)
+    source_url: str | None = Field(default=None, max_length=2048)
+    evidence_pub_ids: list[str] = Field(default_factory=list, max_length=32)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @field_validator("capture_time")
+    @classmethod
+    def _capture_time_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("capture_time must be timezone-aware")
+        return value
+
+    @field_validator("evidence_pub_ids")
+    @classmethod
+    def _evidence_pub_id_shape(cls, value: list[str]) -> list[str]:
+        for pub_id in value:
+            if not re.fullmatch(r"evd_[A-Za-z0-9]{16,64}", pub_id):
+                raise ValueError("evidence_pub_ids must be evd_ public IDs")
+        return value
+
+
+class ManualAnswersCreate(StrictModel):
+    project_pub_id: str = Field(pattern=r"^prj_[A-Za-z0-9_-]{1,116}$")
+    # 登记人（人工实测操作者）与登记原因（如「平台风控人工补测」）随
+    # dimensions 持久化，provenance 可辨。
+    operator: str = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=1, max_length=1000)
+    items: list[ManualAnswerItemIn] = Field(min_length=1, max_length=100)
+
+
+class ManualAnswerResultView(StrictModel):
+    answer_pub_id: str
+    analysis_pub_id: str
+    created: bool
+    eligible: bool
+    evidence_attached: int
+
+
+class ManualAnswersRegisteredView(StrictModel):
+    project_pub_id: str
+    registered: int
+    items: list[ManualAnswerResultView]
+
+
+@router.post("/manual-answers", response_model=ManualAnswersRegisteredView)
+def manual_answers_register(
+    request: Request,
+    body: ManualAnswersCreate,
+    principal: Principal = Depends(get_principal),
+) -> ManualAnswersRegisteredView | JSONResponse:
+    """人工补测登记（manual-ingestion-v1）：把人工在浏览器实测的平台回答登记为
+    带 provenance（channel=manual）的正式 analytics.answer 行。
+
+    幂等：同（project, idempotency_key 或 model+query_text+capture_time）重复
+    登记返回既有行（created=false），同键不同文 → 409。项目不属本租户 → 404
+    project_not_found（跨租户同码）；项目无 brand → 422
+    manual_answer_brand_missing；证据 pub_id 不属本租户 → 422
+    unknown_evidence_pub_id。
+    """
+    principal.require("project:write")
+    try:
+        registrations = manual_ingestion.register_manual_answers(
+            _dsn(),
+            tenant_pub_id=principal.tenant_pub_id,
+            project_pub_id=body.project_pub_id,
+            operator=body.operator,
+            reason=body.reason,
+            items=tuple(
+                manual_ingestion.ManualAnswerItem(
+                    model=item.model,
+                    query_text=item.query_text,
+                    response_plain_text=item.response_plain_text,
+                    capture_time=item.capture_time,
+                    region=item.region,
+                    mode=item.mode,
+                    source_url=item.source_url,
+                    evidence_pub_ids=tuple(item.evidence_pub_ids),
+                    idempotency_key=item.idempotency_key,
+                )
+                for item in body.items
+            ),
+        )
+    except manual_ingestion.ProjectNotFound as exc:
+        raise HTTPException(status_code=404, detail={"code": "project_not_found"}) from exc
+    except manual_ingestion.BrandMissing:
+        return _error(request, 422, "manual_answer_brand_missing")
+    except manual_ingestion.UnknownEvidencePubId as exc:
+        return _error(request, 422, "unknown_evidence_pub_id", {"pub_ids": exc.missing})
+    except manual_ingestion.RegistrationConflict as exc:
+        return _error(
+            request, 409, "manual_answer_payload_drift", {"answer_pub_id": exc.answer_pub_id}
+        )
+    except ValueError as exc:
+        return _error(request, 422, "invalid_manual_answer", {"why": str(exc)})
+    return ManualAnswersRegisteredView(
+        project_pub_id=body.project_pub_id,
+        registered=len(registrations),
+        items=[
+            ManualAnswerResultView(
+                answer_pub_id=registration.answer_pub_id,
+                analysis_pub_id=registration.analysis_pub_id,
+                created=registration.created,
+                eligible=registration.eligible,
+                evidence_attached=registration.evidence_attached,
+            )
+            for registration in registrations
+        ],
+    )
 
 
 @router.get("/trace/{trace_token}")
