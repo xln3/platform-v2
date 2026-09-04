@@ -9,6 +9,9 @@ from typing import Any
 class CaptureChannel(StrEnum):
     API = "api"
     WEB = "web"
+    # 人工补测登记（manual-ingestion）：运营在浏览器手动跑出的平台回答，
+    # 无平台账号/浏览器 profile/会话事件可挂——三元 pub_id 一律 None。
+    MANUAL = "manual"
 
 
 class AccessClass(StrEnum):

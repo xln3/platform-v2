@@ -33,10 +33,17 @@ resolve 先经 ``AccountGovernor.resolve_collectable(platform, region_gb)`` 读�
 - 豆包一行账号都没有 → ``account_unavailable(account_unregistered)``；豆包已进入
   正式治理，任何入口都不得绕过账号/模式额度墙；其他尚未迁移的平台才允许
   **env 清单回退**（过渡期保命，structlog 记 ``legacy_unmanaged``）；
-- 有账号但全不可用（全忙/额度尽/禁言/region_down/失败 streak 未恢复）→
+- 有账号但全不可用（额度尽/禁言/region_down/失败 streak 未恢复）→
   ``account_unavailable``
   non_retryable（带 reason；workflow 侧转等长占位落库——绝不回退 env 硬撞，
   也绝不让整批 run failed）；
+- 「账号存在但暂时全忙」（running 占用/浏览器 busy/captcha，采集账号占用模型
+  2026-09-01 起）→ activity 内有界排队等待：每 ``GEO_ACCOUNT_WAIT_POLL_S``
+  （缺省 20，硬夹 ≤25 满足 30s 心跳门）重试治理判定并 heartbeat，预算 =
+  min(``GEO_ACCOUNT_WAIT_TIMEOUT_S`` 缺省 3600, activity start_to_close−45s
+  余量)；等满仍全忙 → ``account_contention_timeout`` non_retryable（与
+  账号根本不存在/不可自愈的 ``account_unavailable`` 在数据层可分辨；
+  ``GEO_ACCOUNT_WAIT_TIMEOUT_S=0`` = 不等待立即判超时）；
 - 治理层 DB 异常 → ``account_unavailable(governor_error)`` fail-closed；只有显式
   ``GEO_ACCOUNT_GOVERNANCE=off`` 应急开关可以绕过治理。
 
@@ -59,6 +66,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -75,6 +83,7 @@ from geo_platform.collection.account_models import (
 from geo_platform.tenancy.database import WorkerSessionLocal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from domain.security.redaction import safe_exception_summary
@@ -86,6 +95,27 @@ ENV_BROWSER_INSTANCES = "GEO_BROWSER_INSTANCES"
 # 采集账号治理消费开关（2026-08-14 起）：db=先消费 AccountGovernor 实体状态
 # （缺省）；off=跳过治理层直走 env 清单（单测/应急 kill switch）。
 ENV_ACCOUNT_GOVERNANCE = "GEO_ACCOUNT_GOVERNANCE"
+
+# 竞争排队等待（采集账号占用模型，2026-09-01 起）：治理 miss 是「账号存在但
+# 暂时全忙」时不再立即占位，activity 内有界轮询等待账号释放/回收。
+ENV_ACCOUNT_WAIT_TIMEOUT_S = "GEO_ACCOUNT_WAIT_TIMEOUT_S"  # 缺省 3600；0=不等
+ENV_ACCOUNT_WAIT_POLL_S = "GEO_ACCOUNT_WAIT_POLL_S"  # 缺省 20
+_DEFAULT_WAIT_TIMEOUT_S = 3600.0
+_DEFAULT_WAIT_POLL_S = 20.0
+# batch activity 的 heartbeat_timeout=30s：轮询间隔硬夹到 25s 以内，保证等待
+# 期间心跳节奏始终满足活动心跳门。
+_MAX_WAIT_POLL_S = 25.0
+# 实际等待预算 = min(env 上限, activity start_to_close - 本余量)——让活动以
+# 可分辨的 account_contention_timeout 如实失败，而不是被 Temporal
+# start_to_close 砍掉（那会升级成整 run failed；itemwise 段只有 15min、
+# 老 batch 上限 120min，都装不下缺省 3600s 等待，必须按活动预算截断）。
+_WAIT_SAFETY_MARGIN_S = 45.0
+
+# 只有「暂时性全忙」值得排队等待；额度尽/禁言/配置错误/region_down/治理故障
+# 在 activity 时间尺度内不会自愈，维持立即 account_unavailable 占位。
+_TRANSIENT_WAIT_REASONS = frozenset(
+    {"no_collectable_account", "browser_busy", "browser_captcha"}
+)
 
 # 豆包已进入正式账号治理；其他平台按账号表分阶段迁移，暂无账号行时仍可走
 # legacy env 路由。显式 GEO_ACCOUNT_GOVERNANCE=off 仍是唯一应急绕过方式。
@@ -259,6 +289,53 @@ def _worker_session() -> Session:
     return WorkerSessionLocal()
 
 
+def _env_seconds(name: str, default: float) -> float:
+    """正浮点秒数 env（畸形/非正 → 缺省，照 resident_browser._env_float 先例）。"""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        log.warning("account_wait_env_invalid", name=name, value=raw)
+        return default
+    return value if value > 0 else default
+
+
+def _wait_budget_s() -> float:
+    """竞争等待预算：min(GEO_ACCOUNT_WAIT_TIMEOUT_S, activity start_to_close - 余量)。
+
+    0 = 不等待（首 miss 即 account_contention_timeout；单测/应急语义）。
+    """
+    budget = _env_seconds(ENV_ACCOUNT_WAIT_TIMEOUT_S, _DEFAULT_WAIT_TIMEOUT_S)
+    if os.environ.get(ENV_ACCOUNT_WAIT_TIMEOUT_S, "").strip() == "0":
+        return 0.0
+    try:
+        if activity.in_activity():
+            start_to_close = activity.info().start_to_close_timeout
+            if start_to_close is not None:
+                budget = min(
+                    budget,
+                    max(start_to_close.total_seconds() - _WAIT_SAFETY_MARGIN_S, 0.0),
+                )
+    except RuntimeError:
+        pass
+    return budget
+
+
+def _wait_poll_s() -> float:
+    return min(_env_seconds(ENV_ACCOUNT_WAIT_POLL_S, _DEFAULT_WAIT_POLL_S), _MAX_WAIT_POLL_S)
+
+
+def _wait_heartbeat(payload: dict[str, Any]) -> None:
+    """等待期心跳（activity 上下文外=单测/CLI 直调，静默跳过）。"""
+    try:
+        if activity.in_activity():
+            activity.heartbeat(payload)
+    except RuntimeError:
+        pass
+
+
 def _governor_decision(
     slug: str,
     region_gb: str,
@@ -425,18 +502,50 @@ def resolve_browser_instance(
     slug = str(platform or "").strip().lower()
     region_gb = normalize_region_gb(region)
     if region_gb and account_governance_enabled():
-        decision, payload = _governor_decision(slug, region_gb, mode, run_pub_id)
-        if decision == "hit" and payload is not None:
-            return _route_from_governor_hit(slug, region_gb, payload)
-        if decision == "unavailable":
-            reason = (payload or {}).get("reason") or "no_collectable_account"
-            raise _fail(
-                "account_unavailable",
-                f"no collectable governed account for platform {slug!r} region "
-                f"gb={region_gb} (reason={reason}) — refusing env fallback "
-                "(never burn another account's session)",
-            )
-        # 只有 no_account_registered → env 清单回退（fallback 已记日志）。
+        started = time.monotonic()
+        budget_s = _wait_budget_s()
+        polls = 0
+        while True:
+            decision, payload = _governor_decision(slug, region_gb, mode, run_pub_id)
+            if decision == "hit" and payload is not None:
+                return _route_from_governor_hit(slug, region_gb, payload)
+            if decision == "unavailable":
+                reason = (payload or {}).get("reason") or "no_collectable_account"
+                if reason not in _TRANSIENT_WAIT_REASONS:
+                    # 非竞争类 miss（额度/禁言/配置/region_down/治理故障）不排队，
+                    # 维持立即占位语义。
+                    raise _fail(
+                        "account_unavailable",
+                        f"no collectable governed account for platform {slug!r} region "
+                        f"gb={region_gb} (reason={reason}) — refusing env fallback "
+                        "(never burn another account's session)",
+                    )
+                waited_s = time.monotonic() - started
+                if waited_s >= budget_s:
+                    # 有账号但等满预算仍全忙：区分性原因（区别于账号根本不存在/
+                    # 不可自愈的 account_unavailable），占位结果在数据层可分辨。
+                    raise _fail(
+                        "account_contention_timeout",
+                        f"governed account contention for platform {slug!r} region "
+                        f"gb={region_gb} did not clear within {int(waited_s)}s "
+                        f"(budget={int(budget_s)}s, polls={polls}, reason={reason})",
+                    )
+                polls += 1
+                _wait_heartbeat(
+                    {
+                        "stage": "account_contention_wait",
+                        "platform": slug,
+                        "region_gb": region_gb,
+                        "run_pub_id": run_pub_id,
+                        "poll": polls,
+                        "waited_s": int(waited_s),
+                        "reason": reason,
+                    }
+                )
+                time.sleep(min(_wait_poll_s(), budget_s - waited_s))
+                continue
+            # 只有 no_account_registered → env 清单回退（fallback 已记日志）。
+            break
     candidates = [_load_instance(key) for key in _instance_keys() if key.split("_", 1)[0] == slug]
     if not candidates:
         raise _fail(

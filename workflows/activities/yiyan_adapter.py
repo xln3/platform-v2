@@ -1165,7 +1165,11 @@ async def run_yiyan_batch(
     # 浏览器矩阵化（2026-08-09 起）：batch 段（同平台同地域）路由到对应常驻
     # 实例，实例键当 opaque platform 进 platform_browser/锁/fence/CDP 解析；
     # 无实例/地域不符/清单畸形一律 fail-closed。空 batch 不解析（旧契约不变）。
-    route = resolve_batch_instance(batch.items, run_pub_id=batch.run_pub_id)
+    # to_thread（2026-09-01 起）：账号竞争排队等待是阻塞轮询，绝不能卡住
+    # async activity 的事件循环（同进程其他活动的心跳会被饿死）。
+    route = await asyncio.to_thread(
+        resolve_batch_instance, batch.items, run_pub_id=batch.run_pub_id
+    )
     instance_key = route.instance_key if route is not None else None
     config = YiyanAdapterConfig.from_env(proxy_url_override=proxy_url_override)
     if route is not None:

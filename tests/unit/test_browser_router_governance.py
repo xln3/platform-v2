@@ -128,9 +128,14 @@ class _FakeGovernanceDb:
 
 @pytest.fixture()
 def governance_db(monkeypatch: pytest.MonkeyPatch) -> _FakeGovernanceDb:
-    """开启治理消费（GEO_ACCOUNT_GOVERNANCE=db）并把 worker session seam 换成 fake。"""
+    """开启治理消费（GEO_ACCOUNT_GOVERNANCE=db）并把 worker session seam 换成 fake。
+
+    竞争排队等待（2026-09-01 起）在本文件缺省关闭（WAIT_TIMEOUT=0 = 首 miss 即
+    判 account_contention_timeout），等待行为由专门的用例显式开启。
+    """
     db = _FakeGovernanceDb()
     monkeypatch.setenv("GEO_ACCOUNT_GOVERNANCE", "db")
+    monkeypatch.setenv("GEO_ACCOUNT_WAIT_TIMEOUT_S", "0")
     monkeypatch.setattr(browser_router, "_worker_session", lambda: db)
     return db
 
@@ -347,21 +352,27 @@ def test_governor_legacy_platform_no_account_registered_env_fallback(
 def test_governor_all_accounts_busy_account_unavailable(
     governance_db: _FakeGovernanceDb,
 ) -> None:
-    """有账号但全部不可用（running）→ account_unavailable（reason 机读），绝不
-    回退 env 硬撞、绝不抛非治理错误拖垮整批。"""
+    """有账号但全部不可用（running 占用，租约有效未失活）→ 不排队（WAIT_TIMEOUT=0）
+    立即判 account_contention_timeout（reason 机读），绝不回退 env 硬撞、绝不
+    抛非治理错误拖垮整批。"""
     _seed_gov_region(governance_db)
     _seed_gov_browser(governance_db)
-    _seed_gov_account(governance_db, runtime_state="running", current_run_pub_id="run_X")
+    _seed_gov_account(
+        governance_db,
+        runtime_state="running",
+        current_run_pub_id="run_X",
+        reservation_expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
     with pytest.raises(ApplicationError) as exc_info:
         resolve_browser_instance("doubao", "CN-SH")
-    assert exc_info.value.type == "account_unavailable"
+    assert exc_info.value.type == "account_contention_timeout"
     assert exc_info.value.non_retryable is True
     assert "no_collectable_account" in str(exc_info.value)
     # batch 入口同样传播该信号（workflow 侧转成等长占位）
     items = [_task("a", "doubao", "CN-SH"), _task("b", "doubao", "CN-SH")]
     with pytest.raises(ApplicationError) as batch_exc:
         resolve_batch_instance(items)
-    assert batch_exc.value.type == "account_unavailable"
+    assert batch_exc.value.type == "account_contention_timeout"
 
 
 @pytest.mark.usefixtures("_prod_topology")
@@ -374,7 +385,8 @@ def test_governor_non_idle_browser_is_account_unavailable(
     _seed_gov_account(governance_db)
     with pytest.raises(ApplicationError) as exc_info:
         resolve_browser_instance("doubao", "CN-SH", "normal")
-    assert exc_info.value.type == "account_unavailable"
+    # 浏览器暂时性占用（busy/captcha）同属竞争等待词表：WAIT_TIMEOUT=0 立即判超时
+    assert exc_info.value.type == "account_contention_timeout"
     assert f"browser_{activity}" in str(exc_info.value)
 
 
@@ -504,3 +516,139 @@ def test_governor_unmapped_region_keeps_region_exit_mismatch(
     with pytest.raises(ApplicationError) as exc_info:
         resolve_browser_instance("doubao", "Atlantis")
     assert exc_info.value.type == "region_exit_mismatch"
+
+
+# ---------------------------------------------------------------------------
+# 竞争排队等待（采集账号占用模型，2026-09-01 起）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("_prod_topology")
+def test_contention_wait_acquires_account_on_later_poll(
+    monkeypatch: pytest.MonkeyPatch, governance_db: _FakeGovernanceDb
+) -> None:
+    """账号暂时全忙 → 有界轮询等待；第 2 次轮询时持有者已释放 → 认领成功。"""
+    monkeypatch.setenv("GEO_ACCOUNT_WAIT_TIMEOUT_S", "300")
+    monkeypatch.setenv("GEO_ACCOUNT_WAIT_POLL_S", "1")
+    _seed_gov_region(governance_db)
+    _seed_gov_browser(governance_db)
+    account = _seed_gov_account(
+        governance_db,
+        runtime_state="running",
+        current_run_pub_id="run_holder",
+        reservation_expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    sleeps: list[float] = []
+    heartbeats: list[dict[str, Any]] = []
+
+    def _fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        # 首次等待期间持有 run 终态释放（release_run_reservations 语义）
+        account.runtime_state = "idle"
+        account.current_run_pub_id = None
+        account.reservation_expires_at = None
+
+    monkeypatch.setattr(browser_router.time, "sleep", _fake_sleep)
+    monkeypatch.setattr(browser_router, "_wait_heartbeat", heartbeats.append)
+
+    route = resolve_browser_instance("doubao", "CN-SH", run_pub_id="run_new")
+
+    assert route.instance_key == "doubao_sh"
+    assert sleeps == [1.0]
+    assert account.runtime_state == "running"
+    assert account.current_run_pub_id == "run_new"
+    assert account.reservation_expires_at is not None  # 认领写租约
+    assert len(heartbeats) == 1
+    assert heartbeats[0]["stage"] == "account_contention_wait"
+    assert heartbeats[0]["run_pub_id"] == "run_new"
+
+
+@pytest.mark.usefixtures("_prod_topology")
+def test_contention_wait_timeout_returns_distinct_error(
+    monkeypatch: pytest.MonkeyPatch, governance_db: _FakeGovernanceDb
+) -> None:
+    """等满预算仍全忙 → account_contention_timeout（区别于账号不存在的
+    account_unavailable），non_retryable，message 带预算与机读 reason。"""
+    monkeypatch.setenv("GEO_ACCOUNT_WAIT_TIMEOUT_S", "5")
+    monkeypatch.setenv("GEO_ACCOUNT_WAIT_POLL_S", "2")
+    _seed_gov_region(governance_db)
+    _seed_gov_browser(governance_db)
+    _seed_gov_account(
+        governance_db,
+        runtime_state="running",
+        current_run_pub_id="run_holder",
+        reservation_expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    now = [1000.0]
+    sleeps: list[float] = []
+    monkeypatch.setattr(browser_router.time, "monotonic", lambda: now[0])
+
+    def _fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    monkeypatch.setattr(browser_router.time, "sleep", _fake_sleep)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        resolve_browser_instance("doubao", "CN-SH", run_pub_id="run_new")
+
+    assert exc_info.value.type == "account_contention_timeout"
+    assert exc_info.value.non_retryable is True
+    message = str(exc_info.value)
+    assert "budget=5" in message
+    assert "no_collectable_account" in message
+    # 末段按剩余预算截断（2,2,1），不 overshoot
+    assert sleeps == [2.0, 2.0, 1.0]
+
+
+@pytest.mark.usefixtures("_prod_topology")
+def test_expired_lease_is_reaped_during_contention_wait(
+    monkeypatch: pytest.MonkeyPatch, governance_db: _FakeGovernanceDb
+) -> None:
+    """占用卡死（租约过期）的账号在首次治理判定即被惰性回收——等待循环根本不
+    需要进入（首次解析直接命中）。"""
+    monkeypatch.setenv("GEO_ACCOUNT_WAIT_TIMEOUT_S", "300")
+    monkeypatch.setenv("GEO_ACCOUNT_WAIT_POLL_S", "1")
+    _seed_gov_region(governance_db)
+    _seed_gov_browser(governance_db)
+    account = _seed_gov_account(
+        governance_db,
+        runtime_state="running",
+        current_run_pub_id="run_terminated",
+        reservation_expires_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    monkeypatch.setattr(
+        browser_router.time,
+        "sleep",
+        lambda seconds: pytest.fail("expired lease must be reaped before any wait"),
+    )
+    route = resolve_browser_instance("doubao", "CN-SH", run_pub_id="run_new")
+    assert route.instance_key == "doubao_sh"
+    assert account.current_run_pub_id == "run_new"
+
+
+def test_wait_budget_capped_by_activity_start_to_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """等待预算被 activity start_to_close 截断（itemwise 段 15min 装不下缺省
+    3600s 等待）——让活动以可分辨的 account_contention_timeout 失败而非被
+    Temporal 超时砍掉。"""
+    monkeypatch.setenv("GEO_ACCOUNT_WAIT_TIMEOUT_S", "3600")
+
+    class _FakeInfo:
+        start_to_close_timeout = timedelta(minutes=15)
+
+    monkeypatch.setattr(browser_router.activity, "in_activity", lambda: True)
+    monkeypatch.setattr(browser_router.activity, "info", lambda: _FakeInfo())
+    assert browser_router._wait_budget_s() == 15 * 60 - 45
+    # activity 上下文外（CLI/直调）= 纯 env 预算
+    monkeypatch.setattr(browser_router.activity, "in_activity", lambda: False)
+    assert browser_router._wait_budget_s() == 3600.0
+
+
+def test_wait_poll_clamped_below_heartbeat_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """轮询间隔硬夹 ≤25s：batch activity 的 heartbeat_timeout=30s 必须始终满足。"""
+    monkeypatch.setenv("GEO_ACCOUNT_WAIT_POLL_S", "120")
+    assert browser_router._wait_poll_s() == 25.0
+    monkeypatch.setenv("GEO_ACCOUNT_WAIT_POLL_S", "garbage")
+    assert browser_router._wait_poll_s() == 20.0

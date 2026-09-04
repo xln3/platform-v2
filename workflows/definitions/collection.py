@@ -361,22 +361,40 @@ def account_unavailable_reason(exc: BaseException) -> str | None:
     return None
 
 
+def account_contention_timeout_reason(exc: BaseException) -> str | None:
+    """batch activity 失败因子里的 account_contention_timeout 原因串；否则 → None。
+
+    采集账号占用模型（2026-09-01 起）：browser_router 对「账号存在但暂时全忙」
+    做有界排队等待，等满预算仍拿不到账号时 raise
+    ApplicationError(type="account_contention_timeout", non_retryable=True)——
+    与 account_unavailable（账号根本不存在/不可自愈）在数据层可分辨。
+    """
+    cause = getattr(exc, "cause", None)
+    if isinstance(cause, ApplicationError) and cause.type == "account_contention_timeout":
+        return cause.message or str(cause)
+    return None
+
+
 def account_unavailable_placeholders(
-    items: list[CollectionTaskInput], reason: str
+    items: list[CollectionTaskInput],
+    reason: str,
+    *,
+    error_type: str = "account_unavailable",
 ) -> list[CollectionBatchItemResult]:
-    """治理不可用段的等长占位（status=wall + error_type=account_unavailable）。
+    """治理不可用段的等长占位（status=wall + error_type 原样透传）。
 
     照 captcha_pause 占位先例：与输入等长同序、走失败落库路径
     （state=failed / quality_state=error_type / answer_text=None）——不进
     fanout、不污染 analytics（dimensions 的 not_challenged/degraded=0 盖章只
     发生在 completed 答案上，占位行永远盖不到）。内容确定（无时间戳），
-    activity 重试/重放的 drift 校验幂等。
+    activity 重试/重放的 drift 校验幂等。error_type 只取
+    account_unavailable / account_contention_timeout（2026-09-01 起）。
     """
     return [
         CollectionBatchItemResult(
             business_key=item.business_key,
             status="wall",
-            error_type="account_unavailable",
+            error_type=error_type,
             error_message=reason,
         )
         for item in items
@@ -729,22 +747,39 @@ class GeoCollectionWorkflow:
                                     "unsupported_mode",
                                     "batch_outcome_contract_violation",
                                     "account_unavailable",
+                                    "account_contention_timeout",
                                 ],
                             ),
                         )
                     except ActivityError as exc:
                         unavailable = account_unavailable_reason(exc)
-                        if unavailable is None:
+                        contention = (
+                            account_contention_timeout_reason(exc)
+                            if unavailable is None
+                            else None
+                        )
+                        if unavailable is None and contention is None:
                             raise
-                        # 账号治理不可用（额度尽/禁言/region_down…）：整段落等长
-                        # account_unavailable 占位——activity 在任何浏览器交互之前
-                        # 失败（不 attach、不撞墙、不回退 env），占位诚实落库后继续
-                        # 后续段；绝不整批 failed（2026-08-14 起，caiji-0813 §6.2）。
+                        # 账号治理不可用（额度尽/禁言/region_down…）或竞争等待
+                        # 超时（采集账号占用模型 2026-09-01 起）：整段落等长
+                        # 占位——activity 在任何浏览器交互之前失败（不 attach、
+                        # 不撞墙、不回退 env），占位诚实落库后继续后续段；绝不
+                        # 整批 failed（2026-08-14 起，caiji-0813 §6.2）。
+                        # error_type 原样透传：竞争超时与账号不存在/不可自愈在
+                        # 数据层可分辨。
+                        reason = unavailable if unavailable is not None else contention
+                        placeholder_error_type = (
+                            "account_unavailable"
+                            if unavailable is not None
+                            else "account_contention_timeout"
+                        )
                         workflow.logger.warning(
-                            "%s batch unavailable (account governance): %s", slug, unavailable
+                            "%s batch unavailable (%s): %s", slug, placeholder_error_type, reason
                         )
                         placeholders = account_unavailable_placeholders(
-                            remaining_items, unavailable
+                            remaining_items,
+                            reason or "",
+                            error_type=placeholder_error_type,
                         )
                         await self._persist_batch_results(data, remaining_items, placeholders)
                         processed += len(placeholders)

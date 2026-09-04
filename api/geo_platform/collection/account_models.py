@@ -93,6 +93,10 @@ class CollectionPlatformAccount(Base):
     # 运行时状态机（per phone×platform；合法性校验在 account_governor）
     runtime_state: Mapped[str] = mapped_column(Text, default="idle")
     current_run_pub_id: Mapped[str | None] = mapped_column(Text)
+    # 占用租约到期点（s19_0001，采集账号占用模型）：idle→running 认领时写
+    # now+GEO_ACCOUNT_RESERVATION_TTL_S，owned 复用续约，释放/回收清空。
+    # NULL = 存量行无租约，惰性回收视同已过期。
+    reservation_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     muted_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     quota_resume_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     state_reason: Mapped[str | None] = mapped_column(Text)

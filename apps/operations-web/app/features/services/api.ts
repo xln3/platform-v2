@@ -633,6 +633,29 @@ export type FormalReportProductionCreate = {
 
 export type FormalReportReviewDecision = 'approved' | 'changes_requested';
 
+// ── 正式报告生产进度（细粒度阶段，与 Temporal 状态机对齐；后端可诚实降级为库内状态）──
+export type FormalReportProductionStage =
+  | 'queued'
+  | 'binding_snapshot'
+  | 'preflight'
+  | 'running'
+  | 'awaiting_review'
+  | 'finalizing'
+  | 'signed';
+export type FormalReportProductionStageStatus = 'done' | 'current' | 'pending' | 'failed';
+export type FormalReportProductionStageView = {
+  stage: FormalReportProductionStage;
+  status: FormalReportProductionStageStatus;
+  entered_at: string | null;
+};
+export type FormalReportProductionProgress = {
+  production_pub_id: string;
+  source: 'workflow' | 'db_fallback';
+  failed: boolean;
+  error_code: string | null;
+  stages: FormalReportProductionStageView[];
+};
+
 // ── 服务 2：冻结范围内全部 U occurrence 的语料与关系审核 ──
 export type Service2Coverage = {
   selected_queries: number;
@@ -1364,6 +1387,15 @@ export const servicesApi = {
     servicesGet(
       session,
       `/api/v2/reports/formal-productions/${encodeURIComponent(productionPubId)}`,
+      {},
+    ),
+  formalReportProductionProgress: (
+    session: SessionContext,
+    productionPubId: string,
+  ): Promise<FormalReportProductionProgress> =>
+    servicesGet(
+      session,
+      `/api/v2/reports/formal-productions/${encodeURIComponent(productionPubId)}/progress`,
       {},
     ),
   createFormalReportProduction: (

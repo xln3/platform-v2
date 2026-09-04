@@ -27,7 +27,7 @@ from launch_sbaq_formal_20260813 import ALL_GROUPS  # noqa: E402
 
 BASE = "https://127.0.0.1:8443"
 PROJECT = "prj_68ER9J6QBX054EAX52G7BEF7PH"
-TOKEN_FILE = Path("/tmp/s04-acceptance-token")
+TOKEN_FILE = Path(os.environ.get("GEO_GRADUAL_TOKEN_FILE", "/tmp/s04-acceptance-token"))
 WINDOW_START = "2026-08-12 17:59:00+00"
 TARGET = 2
 DATE_TAG = "20260816"
@@ -36,10 +36,14 @@ MAX_BATCH_SIZE = 8
 REGION_PROBE_MAX_AGE = timedelta(minutes=25)
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 
-GROUPS: list[tuple[int, str, list[str]]] = [
-    (group_number, name, questions)
-    for group_number, (name, questions) in enumerate(ALL_GROUPS, start=1)
-]
+# 2026-09-01 用户拍板：恢复补采时优先附录三（G19-G34），附录二残余缺口排在后面。
+GROUPS: list[tuple[int, str, list[str]]] = sorted(
+    (
+        (group_number, name, questions)
+        for group_number, (name, questions) in enumerate(ALL_GROUPS, start=1)
+    ),
+    key=lambda group: (0 if 19 <= group[0] <= 34 else 1, group[0]),
+)
 LEGS: dict[str, tuple[str, str]] = {
     "doubao-bj": ("doubao", "北京"),
     "doubao-sh": ("doubao", "上海"),

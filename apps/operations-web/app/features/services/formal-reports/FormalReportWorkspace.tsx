@@ -2,6 +2,7 @@ import { CursorPagination } from '@geo/design-system';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useCursorCollection } from '../../../pagination';
 import { FORMAL_REPORTS_PAGE_SIZE } from '../pagination-policy';
+import { ProductionProgressStepper } from './ProductionProgressStepper';
 import {
   defaultWindow,
   servicesApi,
@@ -663,6 +664,10 @@ export function FormalReportWorkspace({
                         {production.error_code ? (
                           <small>错误：{production.error_code}</small>
                         ) : null}
+                        <ProductionProgressStepper
+                          session={session}
+                          productionPubId={production.pub_id}
+                        />
                         {canReview && production.status === 'awaiting_review' ? (
                           <div className="formal-review-actions">
                             <label>

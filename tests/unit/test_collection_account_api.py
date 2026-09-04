@@ -1281,3 +1281,118 @@ def test_browser_sync_env_missing_503(
     resp = client.post("/api/v2/collection-browsers/sync")
     assert resp.status_code == 503
     assert resp.json()["error"]["code"] == "browser_instances_not_configured"
+
+
+# ---------------------------------------------------------------------------
+# force-release（采集账号占用模型，2026-09-01 起）
+# ---------------------------------------------------------------------------
+
+
+def test_force_release_running_releases_and_audits(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    account = _seed_platform(
+        session,
+        phone.id,
+        runtime_state="running",
+        current_run_pub_id="run_stuck",
+        reservation_expires_at=_NOW + timedelta(hours=1),
+    )
+    _bind(session)
+    resp = client.post(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}/force-release", json={}
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "ok": True,
+        "platform_account_pub_id": account.pub_id,
+        "released": True,
+        "runtime_state": "idle",
+        "detail": "operator_force_release",
+    }
+    assert account.runtime_state == "idle"
+    assert account.current_run_pub_id is None
+    assert account.reservation_expires_at is None
+    events = [
+        row
+        for row in session.rows.get(CollectionAccountEvent, [])
+        if row.event_type == "state_transition"
+    ]
+    assert len(events) == 1
+    assert events[0].new_value["reason"] == "operator_force_release"
+    assert events[0].actor == "usr_ops"
+    assert events[0].run_pub_id == "run_stuck"
+
+
+def test_force_release_captcha_and_error_require_clear_health(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    for state in ("captcha", "error"):
+        account = _seed_platform(
+            session,
+            phone.id,
+            pub_id=f"ppa_{state}",
+            platform=state[:6],
+            runtime_state=state,
+        )
+        _bind(session)
+        url = f"/api/v2/collection-platform-accounts/{account.pub_id}/force-release"
+        denied = client.post(url, json={})
+        assert denied.status_code == 409
+        assert denied.json()["error"]["code"] == "illegal_state_transition"
+        assert account.runtime_state == state
+        ok = client.post(url, json={"clear_health": True})
+        assert ok.status_code == 200
+        assert ok.json()["released"] is True
+        assert ok.json()["detail"] == "operator_force_release_clear_health"
+        assert account.runtime_state == "idle"
+
+
+def test_force_release_muted_and_quota_stay_409(session: _FakeSession) -> None:
+    """muted/quota_exhausted 有自己的恢复语义（到期 lazy resume），force-release
+    连 clear_health 也不得冲掉。"""
+    phone = _seed_phone(session)
+    for state in ("muted", "quota_exhausted"):
+        account = _seed_platform(
+            session,
+            phone.id,
+            pub_id=f"ppa_{state}",
+            platform=state[:6],
+            runtime_state=state,
+        )
+        _bind(session)
+        resp = client.post(
+            f"/api/v2/collection-platform-accounts/{account.pub_id}/force-release",
+            json={"clear_health": True},
+        )
+        assert resp.status_code == 409
+        assert account.runtime_state == state
+        assert session.rows.get(CollectionAccountEvent, []) == []
+
+
+def test_force_release_idle_is_idempotent_noop(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    account = _seed_platform(session, phone.id)
+    _bind(session)
+    resp = client.post(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}/force-release", json={}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["released"] is False
+    assert resp.json()["detail"] == "already_idle"
+    assert session.rows.get(CollectionAccountEvent, []) == []
+
+
+def test_force_release_unknown_account_404(session: _FakeSession) -> None:
+    _bind(session)
+    resp = client.post("/api/v2/collection-platform-accounts/ppa_ghost/force-release", json={})
+    assert resp.status_code == 404
+
+
+def test_force_release_requires_operate_role(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    account = _seed_platform(session, phone.id, runtime_state="running")
+    _bind(session, role=Role.CUSTOMER)
+    resp = client.post(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}/force-release", json={}
+    )
+    assert resp.status_code == 403
+    assert account.runtime_state == "running"

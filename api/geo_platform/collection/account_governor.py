@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -20,7 +21,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from ..tenancy.ids import new_pub_id
@@ -73,6 +74,33 @@ _TRANSITIONS: dict[str, frozenset[str]] = {
 _ALL_STATES = frozenset(_TRANSITIONS)
 
 _WALL_TYPES = frozenset({"wall_quota", "wall_muted", "wall_captcha", "wall_refusal"})
+
+# 采集账号占用租约（s19_0001，采集账号占用模型 2026-09-01 起）：idle→running
+# 认领写 now+TTL、owned 复用续约、释放/回收清空。缺省 6h 须覆盖 captcha 挂起
+# 上限（单 run ≤3 次 × ≤60min）+余量——租约先于挂起上限到期会让正常挂起的
+# run 被误判失活而回收账号。
+ENV_ACCOUNT_RESERVATION_TTL_S = "GEO_ACCOUNT_RESERVATION_TTL_S"
+_DEFAULT_RESERVATION_TTL_S = 21600  # 6h
+
+# collection_run 终态词表（与 mark_collection_run_terminal /
+# ck_collection_run_terminal_state 触发器词表严格对齐）。
+_RUN_TERMINAL_STATES = frozenset(
+    {"completed", "completed_with_failures", "cancelled", "failed", "skipped"}
+)
+
+
+def _reservation_ttl_s() -> int:
+    """GEO_ACCOUNT_RESERVATION_TTL_S（秒，缺省 21600；畸形/非正 → 缺省，照
+    resident_browser._env_float 先例记 warning 不 fail）。"""
+    raw = os.environ.get(ENV_ACCOUNT_RESERVATION_TTL_S, "").strip()
+    if not raw:
+        return _DEFAULT_RESERVATION_TTL_S
+    try:
+        value = int(raw)
+    except ValueError:
+        log.warning("account_reservation_ttl_env_invalid", value=raw)
+        return _DEFAULT_RESERVATION_TTL_S
+    return value if value > 0 else _DEFAULT_RESERVATION_TTL_S
 
 
 def _next_quota_reset(now: datetime) -> datetime:
@@ -527,6 +555,34 @@ class AccountGovernor:
                 region_gb=region_gb,
             )
             return None
+        # 惰性回收（同一行锁事务内）：running 账号的占用已失活（租约过期——NULL
+        # 存量行视同过期；或持有 run 已终态/不存在）→ 回收为 idle 并按普通
+        # idle 候选参与选择（确定性 ORDER BY id 下原 run 大概率重新拿到同一
+        # 账号，语义自然延续）。captcha/muted/quota_exhausted/error 保护态与
+        # 本 run 自有占用一律不碰。
+        for account in candidates:
+            if account.runtime_state != "running":
+                continue
+            if run_pub_id is not None and account.current_run_pub_id == run_pub_id:
+                continue
+            stale_reason = self._reservation_stale(account, now)
+            if stale_reason is None:
+                continue
+            log.warning(
+                "account_reservation_reaped",
+                platform=platform,
+                region_gb=region_gb,
+                platform_account_pub_id=account.pub_id,
+                former_run_pub_id=account.current_run_pub_id,
+                stale_reason=stale_reason,
+            )
+            self.set_runtime_state(
+                platform_account_id=account.id,
+                new_state="idle",
+                reason=f"reservation_reaped:{stale_reason}",
+                actor="system",
+                run_pub_id=account.current_run_pub_id,
+            )
         owned = [
             account
             for account in candidates
@@ -646,6 +702,14 @@ class AccountGovernor:
                     actor="worker",
                     run_pub_id=run_pub_id,
                 )
+            if run_pub_id is not None:
+                # 认领写租约 / owned 复用续约（同事务）；TTL 须覆盖 captcha
+                # 挂起上限，见 ENV_ACCOUNT_RESERVATION_TTL_S 注释。
+                account.reservation_expires_at = now + timedelta(
+                    seconds=_reservation_ttl_s()
+                )
+                account.updated_at = now
+                self._conn.flush()
             payload = {
                 "platform_account_pub_id": account.pub_id,
                 "browser_instance_key": account.browser_instance_key,
@@ -695,6 +759,50 @@ class AccountGovernor:
             released += 1
         return released
 
+    def reap_stale_reservations(self, *, now: datetime | None = None) -> list[dict[str, Any]]:
+        """批量回收失活占用：running 且（租约过期 或 持有 run 已终态/不存在）。
+
+        与 resolve_collectable 的惰性回收共用 ``_reservation_stale`` 判定；
+        captcha/muted/quota_exhausted/error 保护态不碰（清扫不是健康修复）。
+        回收写 state_transition 审计事件（reason=reservation_reaped:<成因>）。
+        调用方拥有事务（commit）。返回回收明细清单（无回收 → 空表）。
+        """
+        now = now or now_utc()
+        accounts = list(
+            self._conn.scalars(
+                select(CollectionPlatformAccount)
+                .where(CollectionPlatformAccount.runtime_state == "running")
+                .order_by(CollectionPlatformAccount.id.asc())
+                .with_for_update()
+            )
+        )
+        reaped: list[dict[str, Any]] = []
+        for account in accounts:
+            stale_reason = self._reservation_stale(account, now)
+            if stale_reason is None:
+                continue
+            former_run_pub_id = account.current_run_pub_id
+            self.set_runtime_state(
+                platform_account_id=account.id,
+                new_state="idle",
+                reason=f"reservation_reaped:{stale_reason}",
+                actor="system",
+                run_pub_id=former_run_pub_id,
+            )
+            reaped.append(
+                {
+                    "platform_account_pub_id": account.pub_id,
+                    "platform": account.platform,
+                    "region_gb": account.region_gb,
+                    "browser_instance_key": account.browser_instance_key,
+                    "former_run_pub_id": former_run_pub_id,
+                    "stale_reason": stale_reason,
+                }
+            )
+        if reaped:
+            log.warning("account_reservations_reaped", count=len(reaped))
+        return reaped
+
     # ------------------------------------------------------------------
     # 管理页 / API 入口
     # ------------------------------------------------------------------
@@ -734,6 +842,7 @@ class AccountGovernor:
             account.current_run_pub_id = None
             account.muted_until = None
             account.quota_resume_at = None
+            account.reservation_expires_at = None
         if new_state == "muted":
             account.muted_until = until
         elif new_state == "quota_exhausted":
@@ -866,7 +975,57 @@ class AccountGovernor:
             "muted_until": _iso(account.muted_until),
             "quota_resume_at": _iso(account.quota_resume_at),
             "current_run_pub_id": account.current_run_pub_id,
+            "reservation_expires_at": _iso(account.reservation_expires_at),
         }
+
+    def _reservation_stale(
+        self, account: CollectionPlatformAccount, now: datetime
+    ) -> str | None:
+        """running 账号的占用是否已失活（回收判定唯一真源）；返回成因或 None。
+
+        - ``lease_expired``：reservation_expires_at < now（**NULL 视同已过期**
+          ——存量行从未持有租约，否则 2026-09-01 前卡死的 running 行永远无法
+          自愈）；
+        - ``holder_run_terminal``：租约仍有效但持有 run 已终态/不存在（Temporal
+          terminate 不走 workflow finally，release_run_reservations 永远等不到
+          ——靠本判定让账号先于 TTL 获释）；
+        - run 状态查不到（函数未部署/DB 异常）→ None：fail-closed 宁不回收，
+          绝不在状态未知时抢活 run 的账号。
+        """
+        expires_at = account.reservation_expires_at
+        if expires_at is None or expires_at <= now:
+            return "lease_expired"
+        if self._holder_run_finished(account.current_run_pub_id) is True:
+            return "holder_run_terminal"
+        return None
+
+    def _holder_run_finished(self, run_pub_id: str | None) -> bool | None:
+        """持有 run 是否已终态/不存在。True=可据以回收；False=活动；None=未知。
+
+        collection_run 是 FORCE RLS 租户表，geo_worker 直查恒空集——必须走
+        s19_0001 的 SECURITY DEFINER 窄口 ``platform.collection_run_terminal_state``。
+        失败用 SAVEPOINT（begin_nested）隔离，绝不毒化调用方事务（函数未部署
+        的滚动发布窗口尤其关键）。current_run_pub_id 为 NULL = 无持有者，视同
+        可回收（running 无占用者是自相矛盾的残留态）。
+        """
+        if not run_pub_id:
+            return True
+        try:
+            with self._conn.begin_nested():
+                state = self._conn.execute(
+                    text("SELECT platform.collection_run_terminal_state(:run_pub_id)"),
+                    {"run_pub_id": run_pub_id},
+                ).scalar()
+        except Exception as exc:  # noqa: BLE001 — 状态未知 fail-closed 不回收
+            log.warning(
+                "account_run_state_lookup_failed",
+                run_pub_id=run_pub_id,
+                error_type=type(exc).__name__,
+            )
+            return None
+        if state is None:
+            return True
+        return str(state) in _RUN_TERMINAL_STATES
 
     @staticmethod
     def _quota_available(account: CollectionPlatformAccount) -> bool:
@@ -994,6 +1153,7 @@ class AccountGovernor:
         account.runtime_state = "idle"
         account.muted_until = None
         account.quota_resume_at = None
+        account.reservation_expires_at = None
         if resumed_from == "quota_exhausted":
             account.used_today = 0
             account.quota_reset_at = _next_quota_reset(now)

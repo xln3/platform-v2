@@ -45,6 +45,14 @@ def test_revision_branches_off_production_line_s18_0003() -> None:
     }
 
 
+def test_merge_revision_restores_single_head() -> None:
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    scripts = ScriptDirectory.from_config(config)
+    heads = scripts.get_heads()
+    assert list(heads) == ["s21_0001_merge_url_identity_manual_channel"]
+
+
 def test_constraint_swap_sql_targets_hash_identity() -> None:
     upgrade_sql = _render("upgrade")
     assert "DROP CONSTRAINT uq_source_url_identity" in upgrade_sql

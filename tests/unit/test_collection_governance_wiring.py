@@ -34,6 +34,7 @@ from workflows.activities.collection import (
     batch_result_with_captcha_pause,
 )
 from workflows.definitions.collection import (
+    account_contention_timeout_reason,
     account_unavailable_placeholders,
     account_unavailable_reason,
 )
@@ -389,3 +390,24 @@ def test_account_unavailable_placeholders_equal_length_failure_shape() -> None:
         assert placeholder.error_type == "account_unavailable"
         assert placeholder.error_message == "no collectable (reason=x)"
         assert placeholder.answer_text is None  # 零合成，绝不进答案/分析链路
+
+
+def test_account_contention_timeout_reason_extracts_signal() -> None:
+    """竞争超时与账号不存在/不可自愈是两种可分辨的占位原因（占用模型 2026-09-01）。"""
+    exc = _activity_error("account_contention_timeout", "governed account contention …")
+    assert account_contention_timeout_reason(exc) == "governed account contention …"
+    assert account_contention_timeout_reason(_activity_error("account_unavailable", "x")) is None
+    assert account_contention_timeout_reason(RuntimeError("plain")) is None
+
+
+def test_placeholders_passthrough_contention_error_type() -> None:
+    """error_type 原样透传进占位：竞争超时占位在数据层与 account_unavailable 可分辨。"""
+    placeholders = account_unavailable_placeholders(
+        [_task_input()],
+        "contention (reason=no_collectable_account)",
+        error_type="account_contention_timeout",
+    )
+    assert len(placeholders) == 1
+    assert placeholders[0].status == "wall"
+    assert placeholders[0].error_type == "account_contention_timeout"
+    assert placeholders[0].answer_text is None
