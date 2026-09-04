@@ -22,7 +22,8 @@ def _counts(value: int) -> dict[str, int]:
 
 
 def test_formal_scope_has_all_34_groups_and_six_legs() -> None:
-    assert [number for number, _, _ in GROUPS] == list(range(1, 35))
+    # 2026-09-01 起附录三（G19-G34）优先补采，附录二残余排后；原始组号保留。
+    assert [number for number, _, _ in GROUPS] == list(range(19, 35)) + list(range(1, 19))
     assert all(len(queries) == 4 for _, _, queries in GROUPS)
     assert set(LEGS) == {
         "doubao-bj",
@@ -47,8 +48,9 @@ def test_doubao_topups_use_quick_mode_but_count_prior_expert_answers() -> None:
 
 def test_deficit_planner_caps_batch_and_preserves_original_group_number() -> None:
     counts = _counts(TARGET)
-    first_g04_query = GROUPS[3][2][0]
-    second_g04_query = GROUPS[3][2][1]
+    anchor_number, anchor_name, anchor_queries = GROUPS[3]
+    first_g04_query = anchor_queries[0]
+    second_g04_query = anchor_queries[1]
     counts[first_g04_query] = 0
     counts[second_g04_query] = 1
 
@@ -56,15 +58,15 @@ def test_deficit_planner_caps_batch_and_preserves_original_group_number() -> Non
 
     assert groups == [
         {
-            "name": GROUPS[3][1],
-            "group_number": 4,
+            "name": anchor_name,
+            "group_number": anchor_number,
             "items": [
                 {"text": first_g04_query, "priority": 1},
                 {"text": second_g04_query, "priority": 2},
             ],
         }
     ]
-    assert _api_groups(groups) == [{"name": GROUPS[3][1], "items": groups[0]["items"]}]
+    assert _api_groups(groups) == [{"name": anchor_name, "items": groups[0]["items"]}]
 
 
 def test_deficit_planner_refuses_to_invent_work_when_complete() -> None:
