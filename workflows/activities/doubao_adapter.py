@@ -5041,9 +5041,17 @@ def _mode_evidence(
 # 深度推理模式标签优先级。2026-07 live：豆包把旧「思考」卡片换成「专家」（研究级
 # 智能模型），当前弹层为 快速 / 专家 / 办公任务 Turbo / 办公任务 Pro，无「思考」
 # 入口。「快速」是默认项，绝不能算作已启用。
+# 2026-09-04 live：弹层再度改版为模型菜单——「豆包 快速」（=快速）与
+# 「豆包 2.1 Turbo」+「专家」徽标（=专家）。菜单项无 menuitem 可访问名匹配短标签
+# （可访问名=「豆包 2.1 Turbo 专家」整串），且合成 click 只关菜单不选中；
+# 实证可靠路径=键盘 ArrowDown/Enter（与通义 20260810 radix 菜单同经验）。
 _DEEP_MODE_LABELS = ("专家", "思考", "深度思考")
 _DEEP_MODE_SUBTITLES = ("研究级智能模型", "擅长解决更难的问题")
 _QUICK_MODE_LABELS = ("快速", "快速模式")
+# 新菜单里专家态 trigger 只显示模型名（「豆包 2.1 Turbo」），无模式词——
+# scoped trigger 以 Turbo 后缀作专家态证据（菜单项内「专家」徽标实证）。
+# 仅 scoped 路径采信；非 Turbo 新模型名一律 None（fail-closed）。
+_DEEP_PICKER_MODEL_SUFFIXES = ("Turbo",)
 
 # Picker 状态探针（selector 漂移防护，旧链 T-03）。2026-08-20 北京账号命中新版
 # composer：模式 trigger 从短文本「快速/专家」变成「豆包 快速/豆包 专家」，但保留
@@ -5110,6 +5118,10 @@ def _picker_mode(hits: list[str]) -> str | None:
                 text == label or text.endswith(f" {label}") for label in _QUICK_PICKER_TEXTS
             )
             deep = any(text == label or text.endswith(f" {label}") for label in _DEEP_PICKER_TEXTS)
+            if not quick and not deep and any(
+                text.endswith(suffix) for suffix in _DEEP_PICKER_MODEL_SUFFIXES
+            ):
+                deep = True
         else:
             quick = any(text == label or text.startswith(label) for label in _QUICK_PICKER_TEXTS)
             deep = any(text == label or text.startswith(label) for label in _DEEP_PICKER_TEXTS)
@@ -5195,6 +5207,60 @@ def _mode_stably_engaged(page: Any, engaged: Callable[[Any], bool]) -> bool:
         return False
 
 
+_MENU_ITEMS_JS = """() => [...document.querySelectorAll('[role="menuitem"]')].map(
+  el => (el.innerText || '').replace(/\\s+/g, ' ').trim()
+)"""
+
+_MENU_HIGHLIGHT_JS = """() => {
+  const items = [...document.querySelectorAll('[role="menuitem"]')];
+  return items.findIndex(
+    el => el.hasAttribute('data-highlighted') || el === document.activeElement
+  );
+}"""
+
+
+def _menu_select_via_keyboard(page: Any, picker: Any, rng: random.Random, want: str) -> bool:
+    """键盘路径选中模式菜单项。2026-09-04 live 实证：新版 Radix 模型菜单
+    （「豆包 快速」/「豆包 2.1 Turbo 专家」）对合成 click 只关菜单不选中，
+    键盘 ArrowDown/Enter 可靠（与通义 20260810 radix 菜单同经验）。
+
+    want: "quick"=含「快速」的项；"deep"=含「专家」徽标/旧版专家词的项。
+    返回 True 只代表按键序列执行完毕；是否生效由调用方 _mode_stably_engaged
+    后置校验判定。菜单开不了/目标项不存在 → False（诚实失败路径）。
+    """
+    if picker is None:
+        return False
+    try:
+        items = page.evaluate(_MENU_ITEMS_JS)
+        if not (isinstance(items, list) and any(items)):
+            human_click(picker, page, rng, hover_s=_PACE_PICKER_HOVER_S)
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                page.wait_for_timeout(200)
+                items = page.evaluate(_MENU_ITEMS_JS)
+                if isinstance(items, list) and any(items):
+                    break
+        if not (isinstance(items, list) and any(items)):
+            return False
+        needle = "快速" if want == "quick" else "专家"
+        target = next((i for i, text in enumerate(items) if needle in str(text)), -1)
+        if target < 0:
+            return False
+        current = page.evaluate(_MENU_HIGHLIGHT_JS)
+        if isinstance(current, int) and current >= 0:
+            steps = (target - current) % len(items)
+        else:
+            steps = target + 1
+        for _ in range(steps):
+            page.keyboard.press("ArrowDown")
+            page.wait_for_timeout(120)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        return True
+    except Exception:
+        return False
+
+
 def _try_enable_quick_mode(page: Any, rng: random.Random) -> bool:
     """把 composer picker 显式切到「快速」，以双拍后置状态为成功判据。
 
@@ -5270,6 +5336,9 @@ def _try_enable_quick_mode(page: Any, rng: random.Random) -> bool:
                         return True
             except Exception:
                 continue
+        # 2026-09-04 新模型菜单：click 路径全灭（合成 click 只关菜单）→ 键盘兜底。
+        if not _mode_stably_engaged(page, _quick_mode_engaged):
+            _menu_select_via_keyboard(page, picker, rng, "quick")
     except Exception:
         pass
     try:
@@ -5372,6 +5441,9 @@ def _try_enable_deep_think(page: Any, rng: random.Random) -> bool:
                                 return True
                 except Exception:
                     continue
+            # 2026-09-04 新模型菜单：click 路径全灭（合成 click 只关菜单）→ 键盘兜底。
+            if not _mode_stably_engaged(page, _deep_think_engaged):
+                _menu_select_via_keyboard(page, picker, rng, "deep")
         except Exception:
             pass
         # 弹层可能仍开着并截获 composer——关闭。

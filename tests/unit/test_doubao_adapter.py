@@ -1446,6 +1446,104 @@ def test_picker_probe_prefers_scoped_model_trigger() -> None:
     assert "composer-model:" in script
 
 
+def test_scoped_model_name_trigger_is_recognized_as_expert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2026-09-04 live：新模型菜单专家态 trigger 显示「豆包 2.1 Turbo」
+    （菜单项内带「专家」徽标，trigger 无模式词）。Turbo 后缀须判专家态。"""
+    page = _FakePage(deep_think=True)
+    original_evaluate = page.evaluate
+
+    def evaluate(script: str, *args: Any) -> Any:
+        if script == doubao_adapter._PICKER_STATE_JS:
+            return [f"{doubao_adapter._SCOPED_PICKER_PREFIX}豆包 2.1 Turbo"]
+        return original_evaluate(script, *args)
+
+    monkeypatch.setattr(page, "evaluate", evaluate)
+
+    assert doubao_adapter._deep_think_engaged(page) is True
+    assert doubao_adapter._quick_mode_engaged(page) is False
+
+
+def test_scoped_unknown_model_trigger_is_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """非词表、非 Turbo 后缀的新模型名（未来漂移）不得猜模式。"""
+    page = _FakePage(deep_think=True)
+    original_evaluate = page.evaluate
+
+    def evaluate(script: str, *args: Any) -> Any:
+        if script == doubao_adapter._PICKER_STATE_JS:
+            return [f"{doubao_adapter._SCOPED_PICKER_PREFIX}豆包 9.9 Pro"]
+        return original_evaluate(script, *args)
+
+    monkeypatch.setattr(page, "evaluate", evaluate)
+
+    assert doubao_adapter._quick_mode_engaged(page) is False
+    assert doubao_adapter._deep_think_engaged(page) is False
+
+
+class _MenuFakeKeyboard:
+    def __init__(self, page: _MenuFakePage) -> None:
+        self._page = page
+        self.presses: list[str] = []
+
+    def press(self, key: str, **_kw: Any) -> None:
+        self.presses.append(key)
+        if key == "ArrowDown":
+            if self._page.highlight < 0:
+                self._page.highlight = 0
+            else:
+                self._page.highlight = (self._page.highlight + 1) % len(self._page.items)
+        elif key == "Enter" and self._page.highlight >= 0:
+            self._page.selected = self._page.items[self._page.highlight]
+
+
+class _MenuFakePage:
+    """菜单键盘选择的最小替身：evaluate 供菜单/高亮探针，keyboard 模拟 Radix
+    高亮移动与 Enter 选中。human_click 不会被调用（菜单已开）。"""
+
+    def __init__(self, items: list[str]) -> None:
+        self.items = items
+        self.highlight = -1
+        self.selected: str | None = None
+        self.keyboard = _MenuFakeKeyboard(self)
+
+    def evaluate(self, script: str, *_args: Any) -> Any:
+        if script == doubao_adapter._MENU_ITEMS_JS:
+            return list(self.items)
+        if script == doubao_adapter._MENU_HIGHLIGHT_JS:
+            return self.highlight
+        return None
+
+    def wait_for_timeout(self, _ms: int) -> None:
+        pass
+
+
+def test_keyboard_menu_select_reaches_expert_item() -> None:
+    """2026-09-04 新菜单（豆包 快速 / 豆包 2.1 Turbo 专家）：deep 须选中第 2 项。"""
+    page = _MenuFakePage(["豆包 快速", "豆包 2.1 Turbo 专家"])
+    ok = doubao_adapter._menu_select_via_keyboard(page, object(), random.Random(7), "deep")
+    assert ok is True
+    assert page.keyboard.presses == ["ArrowDown", "ArrowDown", "Enter"]
+    assert page.selected == "豆包 2.1 Turbo 专家"
+
+
+def test_keyboard_menu_select_quick_first_item() -> None:
+    page = _MenuFakePage(["豆包 快速", "豆包 2.1 Turbo 专家"])
+    ok = doubao_adapter._menu_select_via_keyboard(page, object(), random.Random(7), "quick")
+    assert ok is True
+    assert page.keyboard.presses == ["ArrowDown", "Enter"]
+    assert page.selected == "豆包 快速"
+
+
+def test_keyboard_menu_select_missing_target_is_honest_failure() -> None:
+    page = _MenuFakePage(["豆包 快速"])
+    ok = doubao_adapter._menu_select_via_keyboard(page, object(), random.Random(7), "deep")
+    assert ok is False
+    assert "Enter" not in page.keyboard.presses
+
+
 def test_quick_mode_final_fallback_rejects_one_frame_optimistic_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
