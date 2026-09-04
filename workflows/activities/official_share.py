@@ -1545,6 +1545,18 @@ _YUANBAO_CLOSE_PHOTO_VIEW_JS = r"""() => {
   if (btn) btn.click();
 }"""
 
+# 2026-09-05 生产事故：分享导出中途失败遗留的 PhotoView 覆盖层不随 SPA 路由消失
+# （全屏 pointer-events:auto，把后续分享条点击全部吞掉 → 「poster preview did not
+# open」四连把元宝北京账号熔断）。且 _photo_view_opened/_YUANBAO_POSTER_IMG_JS 都靠
+# querySelector 存在性判定——残留节点会造成「假打开」，甚至把上一题的旧海报采给新题
+# （INV-32 风险）。开新预览前必须把残留节点整棵移除（不是 display:none——存在性
+# 探针照样命中）。
+_YUANBAO_SWEEP_STALE_PHOTOVIEW_JS = r"""() => {
+  const overlays = document.querySelectorAll('.PhotoView-Portal');
+  overlays.forEach(el => el.remove());
+  return overlays.length;
+}"""
+
 _YUANBAO_PHOTO_VIEW_OPEN_JS = "() => !!document.querySelector('.PhotoView-Portal')"
 
 
@@ -1614,9 +1626,19 @@ def _open_yuanbao_poster_preview(
     """
 
     for _ in range(attempts):
+        try:
+            page.evaluate(_YUANBAO_SWEEP_STALE_PHOTOVIEW_JS)
+        except Exception:
+            pass
         poster = _first_visible(
             page,
-            ('.agent-chat__share-bar__item:has-text("生成图片")',),
+            (
+                # 20260905 live 实证：item 的可点区是 logo 子块，item 正中/文字
+                # 区的落点会被吞（点击无声无息，弹层不开）。
+                '.agent-chat__share-bar__item:has-text("生成图片") '
+                '.agent-chat__share-bar__item__logo',
+                '.agent-chat__share-bar__item:has-text("生成图片")',
+            ),
             timeout_ms=10_000,
         )
         click_control(poster)
@@ -1722,6 +1744,11 @@ def capture_yuanbao_official_share(
         if not isinstance(opened, int) or isinstance(opened, bool) or opened < 1:
             raise OfficialShareExportError("Yuanbao answer toolbar share icon was not found")
         _first_visible(page, ("div.agent-chat__share-bar",), timeout_ms=10_000)
+        # 20260905：上一轮分享失败遗留的 PhotoView 覆盖层会拦截分享条点击——先清扫。
+        try:
+            page.evaluate(_YUANBAO_SWEEP_STALE_PHOTOVIEW_JS)
+        except Exception:
+            pass
         # 消息复选框默认全选——核验；未全选则点一次「全选」label 后复核。选不
         # 全的分享链接/海报不是完整会话证据，绝不放行。
         checks: object = page.evaluate(_YUANBAO_SHARE_CHECKS_JS)

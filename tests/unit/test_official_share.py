@@ -844,6 +844,9 @@ class _YuanbaoSharePage:
         self.clipboard_url = clipboard_url
         self.photo_view_closed = False
         self.clicked: list[str] = []
+        # 20260905：分享导出中途失败遗留的 PhotoView 覆盖层（>0 = 有残留，
+        # 存在性探针会假阳性；生产事故实证）
+        self.stale_overlays = 0
         # 生成图片点击→PhotoView 弹层打开的建模：第 open_after_clicks 次点击才开
         # （>2 = 永远不开，驱动「点击被吞」路径）
         self.open_after_clicks = open_after_clicks
@@ -874,7 +877,12 @@ class _YuanbaoSharePage:
         if "clipboard.writeText" in script:
             return None
         if "!!document.querySelector" in script:
-            return self.poster_preview_open
+            # 残留覆盖层也会让存在性探针命中（20260905 事故建模：假打开）
+            return self.poster_preview_open or self.stale_overlays > 0
+        if "querySelectorAll('.PhotoView-Portal')" in script:
+            removed = self.stale_overlays
+            self.stale_overlays = 0
+            return removed
         if "PhotoView__Photo" in script:
             ready = self.poster_ready and (
                 not self.poster_needs_reopen or self.photo_view_closed
@@ -933,6 +941,26 @@ def test_yuanbao_official_share_happy_path_exports_link_and_poster(tmp_path: Pat
     assert any("复制链接" in selector for selector in page.clicked)
     assert any("生成图片" in selector for selector in page.clicked)
     assert not any("content__left label" in selector for selector in page.clicked)
+
+
+def test_yuanbao_official_share_sweeps_stale_photoview_before_open(tmp_path: Path) -> None:
+    """20260905 事故回归：残留 PhotoView 覆盖层必须先整棵移除再点「生成图片」。
+
+    残留节点会让存在性探针假打开、把点击吞掉甚至把上一题旧海报采给新题。
+    """
+    page = _YuanbaoSharePage()
+    page.stale_overlays = 1
+    out = tmp_path / "share.jpg"
+
+    artifacts = official_share.capture_yuanbao_official_share(page, out)
+
+    assert artifacts.share_url == "https://yb.tencent.com/s/AbC123xYz"
+    assert valid_jpeg(out) is True
+    assert page.stale_overlays == 0
+    assert any("item__logo" in selector for selector in page.clicked)
+
+
+
     # PhotoView 弹层关闭，常驻标签页现场留给下一题
     assert page.photo_view_closed is True
     # 剪贴板权限在导出前授予
