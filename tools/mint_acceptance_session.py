@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "api"))
 import psycopg
 
 ENV_FILE = Path("/etc/geo-platform-v2/platform.env")
-TOKEN_FILE = Path("/tmp/s04-acceptance-token")
+TOKEN_FILE = Path(os.environ.get("GEO_MINT_TOKEN_FILE", "/tmp/s04-acceptance-token"))
 
 
 def load_dsn() -> str:

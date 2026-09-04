@@ -10,7 +10,7 @@ set -euo pipefail
 ROOT=/home/xln/geo-system/platform-v2
 PYTHON="$ROOT/.venv/bin/python"
 PSQL=/usr/bin/psql
-TOKEN_FILE=/tmp/s04-acceptance-token
+TOKEN_FILE=/tmp/sbaq-gradual-acceptance-token
 LOCK_FILE=/tmp/sbaq-g0734-gradual.lock
 MAINTENANCE_FILE=/tmp/sbaq-g0134-gradual.maintenance
 PLANNER="$ROOT/tools/topup_sbaq_g0134_20260816.py"
@@ -18,6 +18,7 @@ LOG_PREFIX=sbaq_g0134_gradual
 RUN_PREFIX=sbaq-g0134-gradual
 LEGACY_RUN_PREFIX=sbaq-g0734-gradual
 MIN_AVAILABLE_KB=8388608
+MIN_DISK_AVAIL_KB=15728640
 MAX_LOAD_ONE=8
 MAX_CONCURRENT_RUNS=2
 FAILURE_COOLDOWN_HOURS=2
@@ -46,8 +47,13 @@ fi
 
 available_kb=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
 load_one=$(awk '{print $1}' /proc/loadavg)
+disk_avail_kb=$(/usr/bin/df --output=avail / | /usr/bin/tail -1 | /usr/bin/tr -d ' ')
 if (( available_kb < MIN_AVAILABLE_KB )); then
   log "skip reason=memory available_kb=$available_kb threshold_kb=$MIN_AVAILABLE_KB"
+  exit 0
+fi
+if (( disk_avail_kb < MIN_DISK_AVAIL_KB )); then
+  log "skip reason=disk avail_kb=$disk_avail_kb threshold_kb=$MIN_DISK_AVAIL_KB"
   exit 0
 fi
 if ! awk -v current="$load_one" -v maximum="$MAX_LOAD_ONE" 'BEGIN {exit !(current < maximum)}'; then
@@ -62,13 +68,18 @@ if [[ -z "$dsn_raw" ]]; then
 fi
 psql_dsn=${dsn_raw/postgresql+psycopg:\/\//postgresql:\/\/}
 
-active_foreground_runs=$(
+# 2026-09-01 用户拍板放行并行：前台 run 不再全局阻断渐进补采，只屏蔽其占用
+# 的浏览器实例（按 browser_fence 活跃租约判定）；内存/磁盘/负载门仍然 fail-closed。
+busy_instances=$(
+  "$PSQL" "$psql_dsn" -X -Atc \
+    "SELECT platform FROM platform.browser_fence WHERE released_at IS NULL AND expires_at > now()"
+)
+foreground_runs=$(
   "$PSQL" "$psql_dsn" -X -Atc \
     "SELECT count(*) FROM platform.collection_run WHERE state IN ($ACTIVE_STATES) AND idempotency_key NOT LIKE '$RUN_PREFIX-%' AND idempotency_key NOT LIKE '$LEGACY_RUN_PREFIX-%'"
 )
-if (( active_foreground_runs > 0 )); then
-  log "skip reason=active_foreground_collection count=$active_foreground_runs"
-  exit 0
+if (( foreground_runs > 0 )); then
+  log "notice foreground_collection count=$foreground_runs busy_browsers=$(printf '%s' "$busy_instances" | tr '\n' ',' )"
 fi
 
 active_gradual_runs=$(
@@ -139,6 +150,10 @@ for offset in "${!legs[@]}"; do
   fi
 
   browser_key=${candidate//-/_}
+  if printf '%s\n' "$busy_instances" | /usr/bin/grep -qx "$browser_key"; then
+    log "candidate_skip reason=browser_fenced_external leg=$candidate instance=$browser_key"
+    continue
+  fi
   browser_state=$(
     "$PSQL" "$psql_dsn" -X -F '|' -Atc \
       "SELECT activity, CASE WHEN breaker_until > now() THEN 1 ELSE 0 END, coalesce(to_char(breaker_until AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),'none'), CASE WHEN muted_until > now() THEN 1 ELSE 0 END, coalesce(to_char(muted_until AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),'none') FROM platform.collection_browser WHERE instance_key='$browser_key'"
@@ -211,8 +226,8 @@ cleanup_token() {
   if [[ ! -f "$TOKEN_FILE" ]]; then
     return
   fi
-  "$PYTHON" -c 'import httpx, pathlib
-p = pathlib.Path("/tmp/s04-acceptance-token")
+  GRADUAL_TOKEN_FILE="$TOKEN_FILE" "$PYTHON" -c 'import httpx, os, pathlib
+p = pathlib.Path(os.environ["GRADUAL_TOKEN_FILE"])
 token = p.read_text().strip()
 try:
     httpx.post(
@@ -239,10 +254,10 @@ if (( pre_mint_health_ok == 0 )); then
   exit 0
 fi
 
-GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$ROOT/tools/mint_acceptance_session.py" >/dev/null
+GEO_MINT_TOKEN_FILE="$TOKEN_FILE" GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$ROOT/tools/mint_acceptance_session.py" >/dev/null
 pass_id="auto-$(date '+%Y%m%dT%H%M')"
 output=$(
-  GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$PLANNER" \
+  GEO_GRADUAL_TOKEN_FILE="$TOKEN_FILE" GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$PLANNER" \
     --leg "$leg" \
     --pass-id "$pass_id" \
     --max-queries 4 \
