@@ -155,6 +155,7 @@ from domain.collection.uvw import retrieval_events_from_trace_path
 from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
+from workflows.activities.capture_diagnostics import optional_evidence
 from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
@@ -176,7 +177,6 @@ from workflows.activities.human_like import (
 )
 from workflows.activities.official_share import (
     YIYAN_OFFICIAL_SHARE_HOSTS,
-    OfficialShareExportError,
     capture_yiyan_official_share,
     probe_official_share_url,
     write_share_link_manifest,
@@ -1478,7 +1478,10 @@ def _task_result_from_collected(
         ),
         None,
     )
-    screenshot_ref = f"file://{official_share_image or collected.screenshot_path}"
+    image_path = official_share_image or (
+        collected.screenshot_path if collected.screenshot_path.is_file() else None
+    )
+    screenshot_ref = f"file://{image_path}" if image_path else ""
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -2033,7 +2036,13 @@ class _PlaywrightYiyanSession:
 
         on_stage("screenshot")
         shot_path = self._evidence_dir / f"{spec.file_stem}.png"
-        try:
+        evidence: list[CollectionEvidenceRef] = []
+        with optional_evidence(
+            evidence,
+            path=self._evidence_dir / f"{spec.file_stem}-screenshot-audit.json",
+            platform="yiyan",
+            stage="screenshot",
+        ):
             # 表格答案的 sticky 表头工具条先降级为 static（restore 脚本统一还原），
             # 否则分片拼接会重影；未知 sticky 节点仍由探针 fail-closed。
             page.evaluate(_YIYAN_CAPTURE_UNSTICKY_JS)
@@ -2045,13 +2054,8 @@ class _PlaywrightYiyanSession:
                 expected_question=spec.query,
                 method="yiyan_scoped_message_tiles",
             )
-        except Exception as exc:
-            raise _IncompleteCapture(
-                f"evidence-screenshot-failed: {type(exc).__name__}: {exc}",
-                _shot("screenshot"),
-            ) from exc
-        if not shot_path.exists():
-            raise _IncompleteCapture("evidence-screenshot-failed: no file written")
+            if not shot_path.is_file():
+                raise OSError("no screenshot file written")
         # 思考链 trace 落盘进证据链（kind="sse"，transport="dom"）。写盘失败不
         # 拖垮已成功的采集——如实 warning 且不出该证据（绝不出残缺/编造证据）。
         # deep_think_active 以实际抽到思考步为准（证据为正才标 true；chip 已
@@ -2091,15 +2095,19 @@ class _PlaywrightYiyanSession:
                 "normal-evidence answer as deep_think",
                 _shot("mode_unconfirmed"),
             )
-        evidence = [
-            CollectionEvidenceRef(
-                kind="answer_screenshot",
-                path=str(shot_path),
-                relation_type="answer_page",
-                mime_type="image/png",
-                source_url=_CHAT_URL,
-            )
-        ]
+        evidence.extend(
+            [
+                CollectionEvidenceRef(
+                    kind="answer_screenshot",
+                    path=str(shot_path),
+                    relation_type="answer_page",
+                    mime_type="image/png",
+                    source_url=_CHAT_URL,
+                )
+            ]
+            if shot_path.is_file()
+            else []
+        )
         answer_capture = capture_answer_evidence(
             page,
             assistant_selectors=_ASSISTANT_SELECTORS,
@@ -2120,15 +2128,20 @@ class _PlaywrightYiyanSession:
             else None
         )
 
-        on_stage("share_export")
-        share_image_path = self._evidence_dir / f"{spec.file_stem}-share.png"
+        with optional_evidence(
+            evidence,
+            path=self._evidence_dir / f"{spec.file_stem}-share-export-audit.json",
+            platform="yiyan",
+            stage="share_export",
+        ):
+            on_stage("share_export")
+            share_image_path = self._evidence_dir / f"{spec.file_stem}-share.png"
 
-        def _share_click(locator: Any) -> None:
-            clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
-            if clicked_at is not None:
-                self._mouse_pos = clicked_at
+            def _share_click(locator: Any) -> None:
+                clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
+                if clicked_at is not None:
+                    self._mouse_pos = clicked_at
 
-        try:
             share = capture_yiyan_official_share(
                 page,
                 share_image_path,
@@ -2145,36 +2158,24 @@ class _PlaywrightYiyanSession:
                     allowed_hosts=YIYAN_OFFICIAL_SHARE_HOSTS,
                 ),
             )
-        except (OfficialShareExportError, OSError) as exc:
-            raise _IncompleteCapture(
-                "official-share-export-incomplete: Wenxin must provide both its "
-                f"share-card PNG and public share URL ({type(exc).__name__}: {exc})",
-                _shot("share_export"),
-            ) from exc
-        except Exception as exc:
-            raise _IncompleteCapture(
-                "official-share-export-incomplete: unexpected Wenxin share UI failure "
-                f"({type(exc).__name__}: {exc})",
-                _shot("share_export"),
-            ) from exc
-        evidence.extend(
-            [
-                CollectionEvidenceRef(
-                    kind="share_image",
-                    path=str(share.image_path),
-                    relation_type="official_share_image",
-                    mime_type="image/png",
-                    source_url=share.share_url,
-                ),
-                CollectionEvidenceRef(
-                    kind="share_link",
-                    path=str(share_link_path),
-                    relation_type="official_share_link",
-                    mime_type="application/json",
-                    source_url=share.share_url,
-                ),
-            ]
-        )
+            evidence.extend(
+                [
+                    CollectionEvidenceRef(
+                        kind="share_image",
+                        path=str(share.image_path),
+                        relation_type="official_share_image",
+                        mime_type="image/png",
+                        source_url=share.share_url,
+                    ),
+                    CollectionEvidenceRef(
+                        kind="share_link",
+                        path=str(share_link_path),
+                        relation_type="official_share_link",
+                        mime_type="application/json",
+                        source_url=share.share_url,
+                    ),
+                ]
+            )
         return CollectedAnswer(
             answer_text=answer_text,
             references=references,

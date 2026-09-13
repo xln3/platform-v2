@@ -51,10 +51,18 @@ class ResolvedRegionProxy:
 
 
 class RegionProxyError(RuntimeError):
-    def __init__(self, code: str, message: str, *, non_retryable: bool) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        non_retryable: bool,
+        provider_action: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.non_retryable = non_retryable
+        self.provider_action = provider_action
 
 
 def _masked_proxy(proxy_url: str | None) -> str | None:
@@ -287,6 +295,7 @@ class RegionProxyRouter:
                 f"confirmed Wukong purchase did not yield a usable lease for {city}; "
                 f"action={action}",
                 non_retryable=code == "proxy_purchase_reconciliation_required",
+                provider_action=str(action),
             )
         if action == "validate_failed":
             raise RegionProxyError(

@@ -124,6 +124,11 @@ from domain.collection.uvw import normalize_retrieval_events, retrieval_events_f
 from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
+from workflows.activities.capture_diagnostics import (
+    capture_failure_code,
+    incomplete_stream_message,
+    record_evidence_failure,
+)
 from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
@@ -144,7 +149,6 @@ from workflows.activities.human_like import (
     human_type,
 )
 from workflows.activities.official_share import (
-    OfficialShareExportError,
     capture_deepseek_official_share,
     probe_official_share_url,
     write_share_link_manifest,
@@ -867,7 +871,7 @@ async def run_deepseek_batch(
         # session 级临时故障（浏览器启动失败等）：一题未发，raise 走 batch 重试。
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("deepseek_batch_session_incomplete", reason=str(inc), stage=progress["stage"])
-        raise ApplicationError(f"{inc}{evidence_suffix}", type="answer_capture_incomplete") from inc
+        raise ApplicationError(f"{inc}{evidence_suffix}", type=capture_failure_code(inc)) from inc
     if len(outcomes) != len(batch.items):
         # session 契约：结果列表必须与输入等长（失败/未执行题也占位）。缺斤短两
         # 说明实现有 bug——fail-closed raise（编程错误，重试无意义）。
@@ -1031,7 +1035,7 @@ async def run_deepseek_collection(
     except _IncompleteCapture as inc:
         evidence = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("deepseek_capture_incomplete", reason=str(inc), stage=progress["stage"])
-        raise ApplicationError(f"{inc}{evidence}", type="answer_capture_incomplete") from inc
+        raise ApplicationError(f"{inc}{evidence}", type=capture_failure_code(inc)) from inc
     bound.info(
         "deepseek_collect_ok",
         answer_len=len(collected.answer_text),
@@ -1091,7 +1095,10 @@ def _task_result_from_collected(
         ),
         None,
     )
-    screenshot_ref = f"file://{official_share_image or collected.screenshot_path}"
+    image_path = official_share_image or (
+        collected.screenshot_path if collected.screenshot_path.is_file() else None
+    )
+    screenshot_ref = f"file://{image_path}" if image_path else ""
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -1228,7 +1235,7 @@ class _PlaywrightDeepseekSession:
                 except _IncompleteCapture as inc:
                     # 同上：截图为题级 flake，记 incomplete 后续跑，不中止整批。
                     outcomes.append(
-                        self._failure_outcome(spec, "incomplete", "answer_capture_incomplete", inc)
+                        self._failure_outcome(spec, "incomplete", capture_failure_code(inc), inc)
                     )
                     continue
                 outcomes.append(
@@ -1607,9 +1614,7 @@ class _PlaywrightDeepseekSession:
                 )
             if not meta.get("finished"):
                 raise _IncompleteCapture(
-                    "stream-open-at-timeout: completion stream still open after "
-                    f"budget ({meta.get('bytes_received', 0)} bytes captured) — answer "
-                    "would be truncated; failing honestly",
+                    incomplete_stream_message(meta),
                     _shot("truncated"),
                 )
             if not answer_text:
@@ -1634,24 +1639,29 @@ class _PlaywrightDeepseekSession:
 
             on_stage("screenshot")
             shot_path = self._evidence_dir / f"{spec.file_stem}.png"
+            evidence: list[CollectionEvidenceRef] = []
             try:
                 _capture_full_page(page, shot_path, expected_question=spec.query)
+                if not shot_path.is_file():
+                    raise OSError("no screenshot file written")
             except Exception as exc:
-                raise _IncompleteCapture(
-                    f"evidence-screenshot-failed: {type(exc).__name__}: {exc}",
-                    _shot("screenshot"),
-                ) from exc
-            if not shot_path.exists():
-                raise _IncompleteCapture("evidence-screenshot-failed: no file written")
-            evidence = [
-                CollectionEvidenceRef(
-                    kind="answer_screenshot",
-                    path=str(shot_path),
-                    relation_type="answer_page",
-                    mime_type="image/png",
-                    source_url=_CHAT_URL,
+                record_evidence_failure(
+                    evidence,
+                    path=self._evidence_dir / f"{spec.file_stem}-screenshot-audit.json",
+                    platform="deepseek",
+                    stage="screenshot",
+                    error=exc,
                 )
-            ]
+            else:
+                evidence.append(
+                    CollectionEvidenceRef(
+                        kind="answer_screenshot",
+                        path=str(shot_path),
+                        relation_type="answer_page",
+                        mime_type="image/png",
+                        source_url=_CHAT_URL,
+                    )
+                )
             answer_capture = capture_answer_evidence(
                 page,
                 assistant_selectors=_ASSISTANT_SELECTORS,
@@ -1709,37 +1719,33 @@ class _PlaywrightDeepseekSession:
                         allowed_hosts={"chat.deepseek.com"},
                     ),
                 )
-            except (OfficialShareExportError, OSError) as exc:
-                raise _IncompleteCapture(
-                    "official-share-export-incomplete: DeepSeek must provide its "
-                    "public share URL and a clean image of that official share page "
-                    f"({type(exc).__name__}: {exc})",
-                    _shot("share_export"),
-                ) from exc
             except Exception as exc:
-                raise _IncompleteCapture(
-                    "official-share-export-incomplete: unexpected DeepSeek share UI "
-                    f"failure ({type(exc).__name__}: {exc})",
-                    _shot("share_export"),
-                ) from exc
-            evidence.extend(
-                [
-                    CollectionEvidenceRef(
-                        kind="share_image",
-                        path=str(share.image_path),
-                        relation_type="official_share_image",
-                        mime_type="image/png",
-                        source_url=share.share_url,
-                    ),
-                    CollectionEvidenceRef(
-                        kind="share_link",
-                        path=str(share_link_path),
-                        relation_type="official_share_link",
-                        mime_type="application/json",
-                        source_url=share.share_url,
-                    ),
-                ]
-            )
+                record_evidence_failure(
+                    evidence,
+                    path=self._evidence_dir / f"{spec.file_stem}-share-export-audit.json",
+                    platform="deepseek",
+                    stage="share_export",
+                    error=exc,
+                )
+            else:
+                evidence.extend(
+                    [
+                        CollectionEvidenceRef(
+                            kind="share_image",
+                            path=str(share.image_path),
+                            relation_type="official_share_image",
+                            mime_type="image/png",
+                            source_url=share.share_url,
+                        ),
+                        CollectionEvidenceRef(
+                            kind="share_link",
+                            path=str(share_link_path),
+                            relation_type="official_share_link",
+                            mime_type="application/json",
+                            source_url=share.share_url,
+                        ),
+                    ]
+                )
             answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
@@ -1814,6 +1820,7 @@ class _CompletionCapture:
         self._completion_request_ids: list[str] = []
         self._loading_finished: set[str] = set()
         self._loading_failed: set[str] = set()
+        self._network_errors: dict[str, str] = {}
         self._bytes: dict[str, int] = {}
         self._bodies: dict[str, str] = {}
         for name in (
@@ -1854,6 +1861,7 @@ class _CompletionCapture:
                     self._fetch_body(req_id)
             elif name == "Network.loadingFailed":
                 self._loading_failed.add(req_id)
+                self._network_errors[req_id] = str(payload.get("errorText") or "")[:200]
             elif name == "Network.dataReceived":
                 self._bytes[req_id] = self._bytes.get(req_id, 0) + int(
                     payload.get("dataLength", 0) or 0
@@ -1920,6 +1928,7 @@ class _CompletionCapture:
             "found": True,
             "finished": target in self._loading_finished,
             "failed": target in self._loading_failed,
+            "network_error": self._network_errors.get(target),
             "bytes_received": self._bytes.get(target, 0),
             "elapsed_ms": int((time.monotonic() - t0) * 1000),
         }

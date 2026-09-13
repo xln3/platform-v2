@@ -181,6 +181,7 @@ from domain.collection.uvw import retrieval_events_from_trace_path
 from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
+from workflows.activities.capture_diagnostics import optional_evidence
 from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
@@ -201,7 +202,6 @@ from workflows.activities.human_like import (
 )
 from workflows.activities.official_share import (
     TONGYI_OFFICIAL_SHARE_HOSTS,
-    OfficialShareExportError,
     capture_tongyi_official_share,
     probe_official_share_url,
     write_share_link_manifest,
@@ -1106,7 +1106,10 @@ def _task_result_from_collected(
         ),
         None,
     )
-    screenshot_ref = f"file://{official_share_image or collected.screenshot_path}"
+    image_path = official_share_image or (
+        collected.screenshot_path if collected.screenshot_path.is_file() else None
+    )
+    screenshot_ref = f"file://{image_path}" if image_path else ""
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -1768,16 +1771,23 @@ class _PlaywrightTongyiSession:
 
             # 千问没有原生「下载分享图片」动作；其官方链路是生成 qianwen.my.cn
             # 公共页。先在未扁平化的运行页创建链接，再截取该公共页的完整内容，
-            # 两者缺一均诚实失败，不能把带工具栏的运行页截图冒充正式分享图。
-            on_stage("share_export")
-            share_image_path = self._evidence_dir / f"{spec.file_stem}-share.png"
+            # 缺失如实留审计，运行页截图不能冒充正式分享图。
+            evidence: list[CollectionEvidenceRef] = []
+            share = None
+            with optional_evidence(
+                evidence,
+                path=self._evidence_dir / f"{spec.file_stem}-share-export-audit.json",
+                platform="tongyi",
+                stage="share_export",
+            ):
+                on_stage("share_export")
+                share_image_path = self._evidence_dir / f"{spec.file_stem}-share.png"
 
-            def _share_click(locator: Any) -> None:
-                clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
-                if clicked_at is not None:
-                    self._mouse_pos = clicked_at
+                def _share_click(locator: Any) -> None:
+                    clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
+                    if clicked_at is not None:
+                        self._mouse_pos = clicked_at
 
-            try:
                 share = capture_tongyi_official_share(
                     page,
                     share_image_path,
@@ -1794,48 +1804,42 @@ class _PlaywrightTongyiSession:
                         allowed_hosts=TONGYI_OFFICIAL_SHARE_HOSTS,
                     ),
                 )
-            except (OfficialShareExportError, OSError) as exc:
-                raise _IncompleteCapture(
-                    "official-share-export-incomplete: Qianwen must provide its "
-                    "public share URL and a clean image of that official share page "
-                    f"({type(exc).__name__}: {exc})",
-                    _shot("share_export"),
-                ) from exc
-            except Exception as exc:
-                raise _IncompleteCapture(
-                    "official-share-export-incomplete: unexpected Qianwen share UI "
-                    f"failure ({type(exc).__name__}: {exc})",
-                    _shot("share_export"),
-                ) from exc
-            evidence = [
-                CollectionEvidenceRef(
-                    kind="share_image",
-                    path=str(share.image_path),
-                    relation_type="official_share_image",
-                    mime_type="image/png",
-                    source_url=share.share_url,
-                ),
-                CollectionEvidenceRef(
-                    kind="share_link",
-                    path=str(share_link_path),
-                    relation_type="official_share_link",
-                    mime_type="application/json",
-                    source_url=share.share_url,
-                ),
-            ]
-
+                evidence.extend(
+                    [
+                        CollectionEvidenceRef(
+                            kind="share_image",
+                            path=str(share.image_path),
+                            relation_type="official_share_image",
+                            mime_type="image/png",
+                            source_url=share.share_url,
+                        ),
+                        CollectionEvidenceRef(
+                            kind="share_link",
+                            path=str(share_link_path),
+                            relation_type="official_share_link",
+                            mime_type="application/json",
+                            source_url=share.share_url,
+                        ),
+                    ]
+                )
             # 运行页截图仍保留作采集现场证据，但在分享动作完成后再扁平化页面；
             # 正式 screenshot_ref 在结果映射层优先指向上面的官方分享图。
             on_stage("screenshot")
             shot_path = self._evidence_dir / f"{spec.file_stem}.png"
-            _capture_full_page(page, shot_path)
-            if not shot_path.exists():
-                raise _IncompleteCapture("evidence-screenshot-failed: no file written")
+            with optional_evidence(
+                evidence,
+                path=self._evidence_dir / f"{spec.file_stem}-screenshot-audit.json",
+                platform="tongyi",
+                stage="screenshot",
+            ):
+                _capture_full_page(page, shot_path)
+                if not shot_path.is_file():
+                    raise OSError("no screenshot file written")
             answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
                 screenshot_path=shot_path,
-                meta={"stream": meta, "driver": driver, "share": share.audit},
+                meta={"stream": meta, "driver": driver, "share": share.audit if share else None},
                 trace_path=trace_path,
                 search_queries=search_queries,
                 raw_evidence=raw_evidence,

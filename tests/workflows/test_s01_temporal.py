@@ -704,6 +704,129 @@ async def test_batch_account_unavailable_persists_placeholders_and_run_completes
 
 
 @activity.defn(name="collect_doubao_batch")
+async def collect_doubao_batch_flaky_infra(batch: CollectionBatchInput) -> CollectionBatchResult:
+    """活动级临时故障 fixture：每次尝试都 raise answer_capture_incomplete（可重试
+    语义）——maximum_attempts=2 耗尽后 ActivityError 到 workflow 侧。"""
+    batch_calls.append([item.business_key for item in batch.items])
+    raise ApplicationError(
+        "browser-launch-failed(patchright): connect ECONNREFUSED (fixture)",
+        type="answer_capture_incomplete",
+    )
+
+
+async def test_batch_activity_failure_after_retries_persists_placeholders() -> None:
+    """batch-activity-failure-placeholders-v1（2026-09-10，汇宜 run 卡死根治）：
+    batch activity 重试耗尽仍失败（卡死超时/基础设施故障）→ 整段等长占位
+    （error_type=batch_activity_failed）诚实落库，run 继续后续段并正常终态——
+    绝不因一段活动失败把整 run 打成 failed。重试语义不变（恰好 2 次调用）。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    persisted_error_types.clear()
+    terminal_run_states.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-batch-activity-failure-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_with_adapter,
+                collect_doubao_batch_flaky_infra,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            result = await environment.client.execute_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_batch_actfail",
+                    project_pub_id="prj_batch_actfail",
+                    run_pub_id="run_batch_actfail",
+                    config_version_pub_id="cfv_batch_actfail",
+                    tasks=[
+                        _batch_task("s-1", "doubao"),
+                        _batch_task("s-2", "doubao"),
+                        _batch_task("s-3", "fixed"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/batch-activity-failure-test",
+                task_queue="s01-batch-activity-failure-test",
+            )
+    assert result.state == "completed"
+    # 可重试故障按既定 RetryPolicy 重试一次后耗尽（恰好 2 次 batch 调用）
+    assert batch_calls == [["s-1", "s-2"], ["s-1", "s-2"]]
+    # 该段两题落等长 batch_activity_failed 占位；后续 fixed 题照常采集
+    assert persisted_items == [("s-1", "wall"), ("s-2", "wall"), ("s-3", "ok")]
+    assert persisted_error_types == [
+        ("s-1", "batch_activity_failed"),
+        ("s-2", "batch_activity_failed"),
+        ("s-3", None),
+    ]
+    assert [item.business_key for item in result.completed] == ["s-3"]
+    assert terminal_run_states == [("tnt_batch_actfail", "run_batch_actfail", "completed", None)]
+
+
+@activity.defn(name="collect_doubao_batch")
+async def collect_doubao_batch_misconfigured(batch: CollectionBatchInput) -> CollectionBatchResult:
+    """配置类错误 fixture：adapter_not_configured（non_retryable）——占位会掩盖
+    配置缺陷，必须响亮失败整 run。"""
+    batch_calls.append([item.business_key for item in batch.items])
+    raise ApplicationError(
+        "GEO_DOUBAO_PROFILE_DIR is not set (fixture)",
+        type="adapter_not_configured",
+        non_retryable=True,
+    )
+
+
+async def test_batch_activity_config_error_still_fails_run_loudly() -> None:
+    """配置/契约类错误不在占位词表：run 照旧 failed（响亮），绝不把配置缺陷
+    翻译成测量数据。未打补丁的历史重放路径行为不变（原样 raise）。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    persisted_error_types.clear()
+    terminal_run_states.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-batch-config-fail-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_with_adapter,
+                collect_doubao_batch_misconfigured,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await environment.client.execute_workflow(
+                    GeoCollectionWorkflow.run,
+                    GeoCollectionInput(
+                        tenant_pub_id="tnt_batch_cfgfail",
+                        project_pub_id="prj_batch_cfgfail",
+                        run_pub_id="run_batch_cfgfail",
+                        config_version_pub_id="cfv_batch_cfgfail",
+                        tasks=[
+                            _batch_task("c-1", "doubao"),
+                            _batch_task("c-2", "fixed"),
+                        ],
+                        persist_results=True,
+                        inter_task_delay_max_s=0.0,
+                    ),
+                    id="geo-collection/batch-config-fail-test",
+                    task_queue="s01-batch-config-fail-test",
+                )
+    # non_retryable 配置错误：恰好 1 次调用；占位零落库；run 终态 failed
+    assert batch_calls == [["c-1"]]
+    assert persisted_items == []
+    assert terminal_run_states == [
+        ("tnt_batch_cfgfail", "run_batch_cfgfail", "failed", "workflow_failed")
+    ]
+
+
+@activity.defn(name="collect_doubao_batch")
 async def collect_doubao_batch_with_deep_mode_block(
     batch: CollectionBatchInput,
 ) -> CollectionBatchResult:

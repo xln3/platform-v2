@@ -1120,7 +1120,7 @@ async def test_session_collect_full_humanized_flow(
     assert prefs["other_key"] == 1
 
 
-async def test_session_fails_when_official_share_page_is_missing(
+async def test_session_preserves_answer_when_official_share_page_is_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     evidence = tmp_path / "evidence"
@@ -1132,19 +1132,19 @@ async def test_session_fails_when_official_share_page_is_missing(
     _install_fake_browser(monkeypatch, page)
 
     def _missing_share(*_args: Any, **_kwargs: Any) -> Any:
-        raise tongyi_adapter.OfficialShareExportError("share page unavailable")
+        raise RuntimeError("share page unavailable")
 
     monkeypatch.setattr(tongyi_adapter, "capture_tongyi_official_share", _missing_share)
 
-    with pytest.raises(ApplicationError) as exc_info:
-        await tongyi_adapter.run_tongyi_collection(
-            _item(),
-            session_factory=_PlaywrightTongyiSession,
-            heartbeat=lambda _payload: None,
-        )
-
-    assert exc_info.value.type == "answer_capture_incomplete"
-    assert "official-share-export-incomplete" in str(exc_info.value)
+    result = await tongyi_adapter.run_tongyi_collection(
+        _item(),
+        session_factory=_PlaywrightTongyiSession,
+        heartbeat=lambda _payload: None,
+    )
+    assert result.quality_state == "live_valid"
+    assert result.answer_text
+    assert any(ref.kind == "capture_evidence_audit" for ref in result.evidence)
+    assert not any(ref.kind == "share_image" for ref in result.evidence)
 
 
 def test_overlay_cleanup_clicks_only_visible_overlay() -> None:

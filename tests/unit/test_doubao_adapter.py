@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import random
+import time
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -1152,9 +1154,12 @@ async def test_session_collect_full_humanized_flow(
     assert len([e for e in events if e[0] == "mouse_move"]) >= 5
 
 
-async def test_session_fails_when_official_share_link_is_missing(
+async def test_session_degrades_when_official_share_link_is_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """分享链接导出失败（2026-09-10 起降级语义）：答案本体已采到，绝不判死——
+    结果 ok/live_valid、答案正文原样、无 share_link 证据 ref、share_export_audit
+    审计证据落盘（缺席原因可审计，INV-32 零合成边界不变）。"""
     evidence = tmp_path / "evidence"
     evidence.mkdir()
     monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
@@ -1168,20 +1173,32 @@ async def test_session_fails_when_official_share_link_is_missing(
         lambda _page: {"ok": False, "error": "share link unavailable"},
     )
 
-    with pytest.raises(ApplicationError) as exc_info:
-        await run_doubao_collection(
-            _item(),
-            session_factory=_PlaywrightDoubaoSession,
-            heartbeat=lambda _payload: None,
-        )
+    result = await run_doubao_collection(
+        _item(),
+        session_factory=_PlaywrightDoubaoSession,
+        heartbeat=lambda _payload: None,
+    )
 
-    assert exc_info.value.type == "answer_capture_incomplete"
-    assert "official-share-export-incomplete" in str(exc_info.value)
+    assert result.quality_state == "live_valid"
+    assert result.answer_text == "这是答案"
+    kinds = {ref.kind for ref in result.evidence}
+    assert "share_link" not in kinds
+    assert "share_image" in kinds  # 分享图导出成功，仍进证据链
+    audit_refs = [ref for ref in result.evidence if ref.kind == "share_export_audit"]
+    assert len(audit_refs) == 1
+    audit = json.loads(Path(audit_refs[0].path).read_text(encoding="utf-8"))
+    assert audit["schema_version"] == "official-share-export-audit-v1"
+    assert audit["image_ok"] is True
+    assert audit["link_ok"] is False
+    assert "share link unavailable" in audit["link_audit"]["error"]
 
 
 async def test_session_quarantines_content_incomplete_official_share_image(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """分享图内容校验失败（2026-09-10 起降级语义）：问题图片照旧隔离（绝不留在
+    正式证据路径冒充有效分享图），但答案本体不判死——结果 ok/live_valid、
+    无 share_image ref、share_export_audit 审计证据落盘。"""
     evidence = tmp_path / "evidence"
     evidence.mkdir()
     monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
@@ -1221,16 +1238,106 @@ async def test_session_quarantines_content_incomplete_official_share_image(
         },
     )
 
-    with pytest.raises(ApplicationError) as exc_info:
-        await run_doubao_collection(
-            _item(),
-            session_factory=_PlaywrightDoubaoSession,
-            heartbeat=lambda _payload: None,
-        )
+    result = await run_doubao_collection(
+        _item(),
+        session_factory=_PlaywrightDoubaoSession,
+        heartbeat=lambda _payload: None,
+    )
 
-    assert exc_info.value.type == "answer_capture_incomplete"
+    assert result.quality_state == "live_valid"
+    assert result.answer_text == "这是答案"
     assert not (evidence / "run-7-task-3-a1-share.png").exists()
     assert (evidence / "run-7-task-3-a1-share-rejected.png").is_file()
+    kinds = {ref.kind for ref in result.evidence}
+    assert "share_image" not in kinds
+    assert "share_verification" not in kinds
+    audit_refs = [ref for ref in result.evidence if ref.kind == "share_export_audit"]
+    assert len(audit_refs) == 1
+    audit = json.loads(Path(audit_refs[0].path).read_text(encoding="utf-8"))
+    assert audit["image_ok"] is False
+    assert audit["link_ok"] is True
+
+
+async def test_session_degrades_when_answer_screenshot_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """全页截图失败（2026-09-10 起降级语义，汇宜 run 实证两题答案被误杀）：
+    答案本体不判死——结果 ok/live_valid、无 answer_screenshot ref、
+    screenshot_ref 诚实指向分享图（分享导出成功时）。"""
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(evidence))
+    monkeypatch.setenv("GEO_DOUBAO_HEADLESS", "1")
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+
+    def _failing_capture(*_args: Any, **_kwargs: Any) -> None:
+        raise TimeoutError("CDP screenshot timed out")
+
+    monkeypatch.setattr(doubao_adapter, "_capture_full_page", _failing_capture)
+
+    result = await run_doubao_collection(
+        _item(),
+        session_factory=_PlaywrightDoubaoSession,
+        heartbeat=lambda _payload: None,
+    )
+
+    assert result.quality_state == "live_valid"
+    assert result.answer_text == "这是答案"
+    kinds = {ref.kind for ref in result.evidence}
+    assert "answer_screenshot" not in kinds
+    # 分享图成功：screenshot_ref 指向官方分享图（既有偏好序不变）
+    share_refs = [ref for ref in result.evidence if ref.kind == "share_image"]
+    assert share_refs and result.screenshot_ref == f"file://{share_refs[0].path}"
+
+
+async def test_session_screenshot_ref_empty_when_all_images_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """截图与分享图双失败的极端降级：答案仍 ok，screenshot_ref 诚实为空串，
+    绝不指向不存在的路径。"""
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(evidence))
+    monkeypatch.setenv("GEO_DOUBAO_HEADLESS", "1")
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+
+    def _failing_capture(*_args: Any, **_kwargs: Any) -> None:
+        raise TimeoutError("CDP screenshot timed out")
+
+    monkeypatch.setattr(doubao_adapter, "_capture_full_page", _failing_capture)
+    monkeypatch.setattr(
+        doubao_adapter,
+        "capture_share_image",
+        lambda *_args, **_kwargs: {"ok": False, "error": "card export unavailable"},
+    )
+    monkeypatch.setattr(
+        doubao_adapter,
+        "_verify_doubao_generated_share_image",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        doubao_adapter,
+        "_capture_official_share_page",
+        lambda *_args, **_kwargs: {"ok": False, "error": "fallback unavailable"},
+    )
+
+    result = await run_doubao_collection(
+        _item(),
+        session_factory=_PlaywrightDoubaoSession,
+        heartbeat=lambda _payload: None,
+    )
+
+    assert result.quality_state == "live_valid"
+    assert result.answer_text == "这是答案"
+    assert result.screenshot_ref == ""
+    kinds = {ref.kind for ref in result.evidence}
+    assert "answer_screenshot" not in kinds
+    assert "share_image" not in kinds
+    assert "share_export_audit" in kinds
 
 
 async def test_session_uses_verified_official_share_page_when_generated_card_is_clipped(
@@ -2238,7 +2345,7 @@ def test_collect_batch_wall_aborts_remaining_items(
     assert events[-1] == ("clean",)
 
 
-def test_collect_batch_retries_when_resident_browser_closes_during_share_export(
+def test_collect_batch_preserves_answer_when_browser_closes_during_share_export(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """TargetClosed 是 session 基建故障，必须逃出 batch 触发 Temporal activity 重试。"""
@@ -2266,11 +2373,9 @@ def test_collect_batch_retries_when_resident_browser_closes_during_share_export(
         },
     )
 
-    with pytest.raises(
-        doubao_adapter._BrowserSessionLost,
-        match="browser-session-lost-during-share-export",
-    ):
-        session.collect_batch(_batch_specs(1), on_stage=lambda _stage: None)
+    outcomes = session.collect_batch(_batch_specs(1), on_stage=lambda _stage: None)
+    assert outcomes[0].status == "ok"
+    assert outcomes[0].answer and outcomes[0].answer.answer_text
 
 
 def test_submit_falls_back_to_keyboard_when_button_click_is_swallowed(
@@ -2426,9 +2531,11 @@ def test_collect_batch_raw_capture_disabled_restores_prior_behavior(
     assert page.cdp.detached == 2  # 既有 completion capture + chain/single 捕获
 
 
-def test_batch_item_result_maps_raw_evidence_refs() -> None:
+def test_batch_item_result_maps_raw_evidence_refs(tmp_path: Path) -> None:
     """outcome→result 映射：ok 题 evidence 原样并入（截图前置逻辑不变）；失败题
-    outcome.evidence 原样透传（persist 层 `_persist_collection_failure` 的输入）。"""
+    outcome.evidence 原样透传（persist 层 `_persist_collection_failure` 的输入）。
+    截图文件缺失（降级路径）时 answer_screenshot ref 诚实缺席，绝不指向不存在的
+    路径（2026-09-10 起）。"""
     ref = CollectionEvidenceRef(
         kind="har",
         path="/tmp/x-har.json",
@@ -2436,18 +2543,35 @@ def test_batch_item_result_maps_raw_evidence_refs() -> None:
         mime_type="application/har+json",
         source_url=None,
     )
+    shot = tmp_path / "x.png"
+    shot.write_bytes(b"\x89PNG-fake")
     ok_outcome = doubao_adapter.DoubaoBatchItemOutcome(
         business_key="run-7-task-3",
         status="ok",
         answer=CollectedAnswer(
             answer_text="答案",
             references=[],
-            screenshot_path=Path("/tmp/x.png"),
+            screenshot_path=shot,
             evidence=[ref],
         ),
     )
     ok_result = doubao_adapter._batch_item_result(_item(), ok_outcome)
     assert [r.kind for r in ok_result.evidence] == ["answer_screenshot", "har"]
+    assert ok_result.screenshot_ref == f"file://{shot}"
+
+    missing_shot_outcome = doubao_adapter.DoubaoBatchItemOutcome(
+        business_key="run-7-task-3",
+        status="ok",
+        answer=CollectedAnswer(
+            answer_text="答案",
+            references=[],
+            screenshot_path=tmp_path / "missing.png",
+            evidence=[ref],
+        ),
+    )
+    missing_shot_result = doubao_adapter._batch_item_result(_item(), missing_shot_outcome)
+    assert [r.kind for r in missing_shot_result.evidence] == ["har"]
+    assert missing_shot_result.screenshot_ref == ""
 
     wall_outcome = doubao_adapter.DoubaoBatchItemOutcome(
         business_key="run-7-task-3",
@@ -2479,6 +2603,9 @@ async def test_run_doubao_batch_maps_outcomes(
             self,
             items: list[doubao_adapter.DoubaoBatchItemSpec],
             on_stage: Callable[[str], None],
+            *,
+            on_item_done: Any = None,
+            cancel_event: Any = None,
         ) -> list[doubao_adapter.DoubaoBatchItemOutcome]:
             on_stage(f"item:{items[0].business_key}")
             return [
@@ -2550,6 +2677,9 @@ async def test_run_doubao_batch_session_wall_marks_all_items(
             self,
             items: list[doubao_adapter.DoubaoBatchItemSpec],
             on_stage: Callable[[str], None],
+            *,
+            on_item_done: Any = None,
+            cancel_event: Any = None,
         ) -> list[doubao_adapter.DoubaoBatchItemOutcome]:
             raise _WallError("wall_login_required", "doubao login wall detected", None)
 
@@ -2579,6 +2709,9 @@ async def test_run_doubao_batch_session_incomplete_raises_retryable(
             self,
             items: list[doubao_adapter.DoubaoBatchItemSpec],
             on_stage: Callable[[str], None],
+            *,
+            on_item_done: Any = None,
+            cancel_event: Any = None,
         ) -> list[doubao_adapter.DoubaoBatchItemOutcome]:
             raise _IncompleteCapture("browser-launch-failed(patchright): boom")
 
@@ -2603,7 +2736,9 @@ async def test_run_doubao_batch_config_and_mode_gates(
     monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(tmp_path / "evidence"))
 
     class _NeverCalled:
-        def collect_batch(self, items: Any, on_stage: Any) -> Any:
+        def collect_batch(
+            self, items: Any, on_stage: Any, *, on_item_done: Any = None, cancel_event: Any = None
+        ) -> Any:
             raise AssertionError("session must not be started")
 
     factory = lambda config, evidence_dir, stem: _NeverCalled()  # noqa: E731
@@ -2638,7 +2773,9 @@ async def test_run_doubao_batch_empty_items_and_outcome_contract(
     monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(tmp_path / "evidence"))
 
     class _EmptySession:
-        def collect_batch(self, items: Any, on_stage: Any) -> list[Any]:
+        def collect_batch(
+            self, items: Any, on_stage: Any, *, on_item_done: Any = None, cancel_event: Any = None
+        ) -> list[Any]:
             assert items == []
             return []
 
@@ -2652,7 +2789,9 @@ async def test_run_doubao_batch_empty_items_and_outcome_contract(
     assert empty.results == []
 
     class _ShortSession:
-        def collect_batch(self, items: Any, on_stage: Any) -> list[Any]:
+        def collect_batch(
+            self, items: Any, on_stage: Any, *, on_item_done: Any = None, cancel_event: Any = None
+        ) -> list[Any]:
             return []  # 契约违背：3 题 0 结果
 
     with pytest.raises(ApplicationError) as exc_info:
@@ -2668,7 +2807,7 @@ async def test_run_doubao_batch_empty_items_and_outcome_contract(
     assert exc_info.value.type == "batch_outcome_contract_violation"
 
 
-async def test_run_doubao_batch_default_session_runs_in_thread(
+async def test_run_doubao_batch_default_session_uses_isolated_process(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """生产约定（不传 session_factory）必须走 to_thread——sync 浏览器不进事件循环。
@@ -2677,29 +2816,23 @@ async def test_run_doubao_batch_default_session_runs_in_thread(
     _PlaywrightDoubaoSession，被误判为注入 fake，在事件循环里直跑 sync
     patchright（"Playwright Sync API inside the asyncio loop"）。
     """
-    import threading
-
     monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
     monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(tmp_path / "evidence"))
     seen: dict[str, bool] = {}
 
-    class _ThreadProbeSession:
-        def collect_batch(self, items: Any, on_stage: Any) -> list[Any]:
-            seen["on_main_thread"] = threading.current_thread() is threading.main_thread()
-            return [
-                doubao_adapter.DoubaoBatchItemOutcome(
-                    business_key=items[0].business_key,
-                    status="aborted",
-                    error_type="aborted_after_failure",
-                    error_message="probe only",
-                )
-            ]
+    async def isolated(worker: Any, args: Any, *, on_event: Any, on_stopped: Any) -> list[Any]:
+        assert worker is doubao_adapter._doubao_process_worker
+        seen["isolated"] = True
+        return [
+            doubao_adapter.DoubaoBatchItemOutcome(
+                business_key=args[2][0].business_key,
+                status="aborted",
+                error_type="aborted_after_failure",
+                error_message="probe only",
+            )
+        ]
 
-    monkeypatch.setattr(
-        doubao_adapter,
-        "_PlaywrightDoubaoSession",
-        lambda config, evidence_dir, stem: _ThreadProbeSession(),
-    )
+    monkeypatch.setattr(doubao_adapter, "run_isolated_browser", isolated)
     result = await doubao_adapter.run_doubao_batch(
         doubao_adapter.CollectionBatchInput(
             tenant_pub_id="tnt_test",
@@ -2708,8 +2841,200 @@ async def test_run_doubao_batch_default_session_runs_in_thread(
         ),
         heartbeat=lambda p: None,
     )
-    assert seen["on_main_thread"] is False
+    assert seen["isolated"] is True
     assert result.results[0].error_type == "aborted_after_failure"
+
+
+def test_synthesize_stuck_outcomes_preserves_done_and_marks_current() -> None:
+    """看门狗合成（2026-09-10）：已完成题原样保留、当前题 task_stage_stuck、
+    余题 aborted——等长同序契约不变。"""
+    specs = [
+        doubao_adapter.DoubaoBatchItemSpec(
+            business_key=f"k{i}", query=f"q{i}", mode="normal", file_stem=f"f{i}"
+        )
+        for i in range(3)
+    ]
+    done = [
+        doubao_adapter.DoubaoBatchItemOutcome(
+            business_key="k0",
+            status="ok",
+            answer=CollectedAnswer(
+                answer_text="已采答案", references=[], screenshot_path=Path("/nonexistent.png")
+            ),
+        )
+    ]
+    outcomes = doubao_adapter._synthesize_stuck_outcomes(
+        specs, done=done, current_key="k1", stage="share_export", elapsed_s=812.0
+    )
+    assert [o.business_key for o in outcomes] == ["k0", "k1", "k2"]
+    assert outcomes[0].status == "ok"
+    assert outcomes[0].answer is not None and outcomes[0].answer.answer_text == "已采答案"
+    assert outcomes[1].status == "incomplete"
+    assert outcomes[1].error_type == "task_stage_stuck"
+    assert "share_export" in (outcomes[1].error_message or "")
+    assert "812" in (outcomes[1].error_message or "")
+    assert outcomes[2].status == "aborted"
+    assert outcomes[2].error_type == "aborted_after_failure"
+
+
+def test_synthesize_stuck_outcomes_before_any_item_marks_all_stuck() -> None:
+    """卡死在首题之前（如 browser_launch 锁排队）：全部题 task_stage_stuck。"""
+    specs = [
+        doubao_adapter.DoubaoBatchItemSpec(
+            business_key=f"k{i}", query=f"q{i}", mode="normal", file_stem=f"f{i}"
+        )
+        for i in range(2)
+    ]
+    outcomes = doubao_adapter._synthesize_stuck_outcomes(
+        specs, done=[], current_key=None, stage="browser_launch", elapsed_s=905.0
+    )
+    assert [o.status for o in outcomes] == ["incomplete", "incomplete"]
+    assert {o.error_type for o in outcomes} == {"task_stage_stuck"}
+    assert all("browser_launch" in (o.error_message or "") for o in outcomes)
+
+
+async def test_pump_returns_thread_result_when_done_before_stale() -> None:
+    """心跳泵：线程按期完成 → 结果原样返回（看门狗不误伤）。"""
+    beats: list[dict[str, Any]] = []
+
+    async def _work() -> list[str]:
+        await asyncio.sleep(0.01)
+        return ["ok"]
+
+    thread = asyncio.ensure_future(_work())
+    result = await doubao_adapter._pump_collection_thread(
+        thread,
+        heartbeat=beats.append,
+        payload=lambda: {"stage": "await_stream"},
+        stale_after_s=30.0,
+        progress_updated=time.monotonic,
+        interval_s=0.01,
+        monotonic=time.monotonic,
+    )
+    assert result == ["ok"]
+    assert beats and beats[0]["stage"] == "await_stream"
+
+
+async def test_pump_returns_none_when_stage_stale() -> None:
+    """心跳泵：线程未完成且 stage 零推进超阈值 → 看门狗跳闸返回 None。"""
+    loop = asyncio.get_running_loop()
+    never = loop.create_future()
+    virtual_now = 1_000.0
+
+    def _monotonic() -> float:
+        return virtual_now
+
+    beats = 0
+
+    def _heartbeat(_payload: dict[str, Any]) -> None:
+        nonlocal beats
+        beats += 1
+
+    async def _run() -> list[Any] | None:
+        return await doubao_adapter._pump_collection_thread(
+            never,
+            heartbeat=_heartbeat,
+            payload=lambda: {},
+            stale_after_s=0.05,
+            progress_updated=lambda: 1_000.0,
+            interval_s=0.01,
+            monotonic=_monotonic,
+        )
+
+    async def _advance() -> None:
+        nonlocal virtual_now
+        for _ in range(10):
+            await asyncio.sleep(0.02)
+            virtual_now += 1.0
+
+    result, _ = await asyncio.gather(_run(), _advance())
+    assert result is None
+    assert beats >= 1
+
+
+async def test_task_deadline_expires_despite_continuous_stage_progress() -> None:
+    never = asyncio.get_running_loop().create_future()
+    now = 1000.0
+    result = await doubao_adapter._pump_collection_thread(
+        never,
+        heartbeat=lambda _: None,
+        payload=lambda: {},
+        stale_after_s=700,
+        progress_updated=lambda: now,
+        task_deadline=lambda: 999.0,
+        interval_s=0.001,
+        monotonic=lambda: now,
+    )
+    assert result is None
+    never.cancel()
+
+
+def test_orphan_thread_done_swallows_exceptions_and_results() -> None:
+    """孤儿线程收场：异常/取消/迟来完成都只记日志，绝不扩散。"""
+    loop = asyncio.new_event_loop()
+    try:
+        ok_fut: asyncio.Future[list[Any]] = loop.create_future()
+        ok_fut.set_result(["x"])
+        exc_fut: asyncio.Future[list[Any]] = loop.create_future()
+        exc_fut.set_exception(RuntimeError("boom"))
+        cancelled_fut: asyncio.Future[list[Any]] = loop.create_future()
+        cancelled_fut.cancel()
+        for fut in (ok_fut, exc_fut, cancelled_fut):
+            doubao_adapter._orphan_thread_done(fut)  # 不抛即通过
+    finally:
+        loop.close()
+
+
+async def test_run_doubao_batch_watchdog_synthesizes_stuck_item(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """端到端（线程路径）：采集线程卡死 → 看门狗在 activity 预算内跳闸，
+    当前题诚实落 task_stage_stuck（incomplete 可重试语义），cancel_event
+    通知线程协作 unwind（释放浏览器锁/fence，杜绝孤儿持锁毒化重试）。"""
+    monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(tmp_path / "evidence"))
+    monkeypatch.setattr(doubao_adapter, "_HEARTBEAT_INTERVAL_S", 0.02)
+    real_from_env = doubao_adapter.DoubaoAdapterConfig.from_env
+    monkeypatch.setattr(
+        doubao_adapter.DoubaoAdapterConfig,
+        "from_env",
+        classmethod(
+            lambda cls, **kw: doubao_adapter.replace(real_from_env(**kw), stage_stuck_s=0.2)
+        ),
+    )
+    seen: dict[str, Any] = {}
+
+    async def stuck_process(worker: Any, args: Any, *, on_event: Any, on_stopped: Any) -> Any:
+        on_event("stage", f"item:{args[2][0].business_key}")
+        try:
+            await asyncio.Future()
+        finally:
+            seen["unwound"] = True
+
+    monkeypatch.setattr(doubao_adapter, "run_isolated_browser", stuck_process)
+    result = await doubao_adapter.run_doubao_batch(
+        doubao_adapter.CollectionBatchInput(
+            tenant_pub_id="tnt_test",
+            run_pub_id="run_test",
+            items=[
+                _item(),
+                CollectionTaskInput(
+                    business_key="run-7-task-4",
+                    query="中意人寿的重疾险有哪些",
+                    model="doubao",
+                    region="CN-SH",
+                    mode="normal",
+                    adapter="doubao",
+                ),
+            ],
+        ),
+        heartbeat=lambda p: None,
+    )
+    assert [r.status for r in result.results] == ["incomplete", "aborted"]
+    assert result.results[0].error_type == "task_stage_stuck"
+    assert "no stage progress" in (result.results[0].error_message or "")
+    assert result.results[1].error_type == "aborted_after_failure"
+    assert seen.get("unwound") is True
 
 
 async def test_run_doubao_batch_marks_captcha_pause(
@@ -2729,6 +3054,9 @@ async def test_run_doubao_batch_marks_captcha_pause(
             self,
             items: list[doubao_adapter.DoubaoBatchItemSpec],
             on_stage: Callable[[str], None],
+            *,
+            on_item_done: Any = None,
+            cancel_event: Any = None,
         ) -> list[doubao_adapter.DoubaoBatchItemOutcome]:
             return [
                 doubao_adapter.DoubaoBatchItemOutcome(
@@ -2771,6 +3099,53 @@ async def test_run_doubao_batch_marks_captcha_pause(
     assert result.captcha_pause.evidence_ref == f"file://{wall_shot}"
 
 
+async def test_watchdog_keeps_validated_answer_when_evidence_hangs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(tmp_path))
+    monkeypatch.setattr(doubao_adapter, "_HEARTBEAT_INTERVAL_S", 0.01)
+    original = doubao_adapter.DoubaoAdapterConfig.from_env
+    monkeypatch.setattr(
+        doubao_adapter.DoubaoAdapterConfig,
+        "from_env",
+        classmethod(
+            lambda cls, **kwargs: doubao_adapter.replace(original(**kwargs), stage_stuck_s=0.02),
+        ),
+    )
+
+    async def isolated(worker: Any, args: Any, *, on_event: Any, on_stopped: Any) -> Any:
+        spec = args[2][0]
+        on_event("stage", f"item:{spec.business_key}")
+        on_event(
+            "answer_ready",
+            doubao_adapter.DoubaoBatchItemOutcome(
+                business_key=spec.business_key,
+                status="ok",
+                answer=CollectedAnswer(
+                    answer_text="已确认完整的真实答案",
+                    references=[],
+                    screenshot_path=tmp_path / "missing.png",
+                ),
+            ),
+        )
+        on_event("stage", "share_export")
+        await asyncio.Future()
+
+    monkeypatch.setattr(doubao_adapter, "run_isolated_browser", isolated)
+    result = await doubao_adapter.run_doubao_batch(
+        doubao_adapter.CollectionBatchInput(
+            tenant_pub_id="tnt_test",
+            run_pub_id="run_test",
+            items=[_item()],
+        )
+    )
+    assert result.results[0].status == "ok"
+    assert "已确认完整的真实答案" in result.results[0].answer_text
+    assert any(ref.kind == "capture_evidence_audit" for ref in result.results[0].evidence)
+
+
 async def test_run_doubao_batch_session_level_captcha_marks_pause_at_zero(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2783,6 +3158,9 @@ async def test_run_doubao_batch_session_level_captcha_marks_pause_at_zero(
             self,
             items: list[doubao_adapter.DoubaoBatchItemSpec],
             on_stage: Callable[[str], None],
+            *,
+            on_item_done: Any = None,
+            cancel_event: Any = None,
         ) -> list[doubao_adapter.DoubaoBatchItemOutcome]:
             raise _WallError("wall_captcha", "captcha widget visible before input", None)
 
@@ -2811,6 +3189,9 @@ async def test_run_doubao_batch_non_captcha_wall_has_no_pause(
             self,
             items: list[doubao_adapter.DoubaoBatchItemSpec],
             on_stage: Callable[[str], None],
+            *,
+            on_item_done: Any = None,
+            cancel_event: Any = None,
         ) -> list[doubao_adapter.DoubaoBatchItemOutcome]:
             raise _WallError("wall_login_required", "doubao login wall detected", None)
 

@@ -1,0 +1,10 @@
+[Unit]
+Description=Reconcile GEO resident browser capacity every 15 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=15s
+Unit=geo-platform-v2-elastic-browsers.service
+
+[Install]
+WantedBy=timers.target

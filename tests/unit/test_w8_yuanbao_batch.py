@@ -868,9 +868,7 @@ def test_collect_batch_resident_attach_skips_launch_and_cleanup(
             audit={"fake": True},
         )
 
-    monkeypatch.setattr(
-        yuanbao_adapter, "capture_yuanbao_official_share", _fake_official_share
-    )
+    monkeypatch.setattr(yuanbao_adapter, "capture_yuanbao_official_share", _fake_official_share)
     monkeypatch.setattr(
         yuanbao_adapter,
         "probe_official_share_url",
@@ -1789,7 +1787,7 @@ def test_collect_batch_ok_item_carries_share_evidence(
     assert "share_image" in kinds and "share_link" in kinds
 
 
-def test_collect_batch_share_export_failure_is_incomplete(
+def test_collect_batch_share_export_failure_preserves_answers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """分享导不出（平台瞬时「分享失败」/海报不渲染）→ 题级 incomplete
@@ -1798,21 +1796,18 @@ def test_collect_batch_share_export_failure_is_incomplete(
     session = _make_session(tmp_path, monkeypatch, page)
 
     def _missing_share(*_args: Any, **_kwargs: Any) -> Any:
-        raise yuanbao_adapter.OfficialShareExportError("share poster did not render")
+        raise RuntimeError("share poster did not render")
 
     monkeypatch.setattr(yuanbao_adapter, "capture_yuanbao_official_share", _missing_share)
     specs = _batch_specs(2)
 
     outcomes = session.collect_batch(specs, on_stage=lambda s: None)
 
-    assert [o.status for o in outcomes] == ["incomplete", "aborted"]
-    assert outcomes[0].error_type == "answer_capture_incomplete"
-    assert outcomes[0].error_message and "official-share-export-incomplete" in (
-        outcomes[0].error_message
-    )
+    assert [o.status for o in outcomes] == ["ok", "ok"]
+    assert all(o.answer and o.answer.answer_text for o in outcomes)
 
 
-async def test_run_yuanbao_collection_share_failure_maps_to_capture_incomplete(
+async def test_run_yuanbao_collection_share_failure_preserves_answer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """per-task 路径同一语义：分享导出失败 → ApplicationError
@@ -1822,18 +1817,19 @@ async def test_run_yuanbao_collection_share_failure_maps_to_capture_incomplete(
     _install_fake_browser(monkeypatch, page)
 
     def _missing_share(*_args: Any, **_kwargs: Any) -> Any:
-        raise yuanbao_adapter.OfficialShareExportError("share link was not copied")
+        raise RuntimeError("share link was not copied")
 
     monkeypatch.setattr(yuanbao_adapter, "capture_yuanbao_official_share", _missing_share)
 
-    with pytest.raises(ApplicationError) as exc_info:
-        await run_yuanbao_collection(
-            _item(),
-            session_factory=_PlaywrightYuanbaoSession,
-            heartbeat=lambda p: None,
-        )
-    assert exc_info.value.type == "answer_capture_incomplete"
-    assert "official-share-export-incomplete" in str(exc_info.value)
+    result = await run_yuanbao_collection(
+        _item(),
+        session_factory=_PlaywrightYuanbaoSession,
+        heartbeat=lambda p: None,
+    )
+    assert result.quality_state == "live_valid"
+    assert result.answer_text
+    assert any(ref.kind == "capture_evidence_audit" for ref in result.evidence)
+    assert not any(ref.kind == "share_image" for ref in result.evidence)
 
 
 # ---------------------------------------------------------------------------

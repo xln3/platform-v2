@@ -624,26 +624,27 @@ def test_scoped_capture_probe_is_semantic_and_does_not_mutate_styles() -> None:
     assert "removeAttribute('style'" not in script
 
 
-async def test_session_fails_when_official_share_image_is_missing(
+async def test_session_preserves_answer_when_official_share_image_is_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, adapter_env: Path
 ) -> None:
     page = _FakePage(messages=0)
     _install_fake_browser(monkeypatch, page)
 
     def _missing_share(*_args: Any, **_kwargs: Any) -> Any:
-        raise yiyan_adapter.OfficialShareExportError("share image unavailable")
+        raise RuntimeError("share image unavailable")
 
     monkeypatch.setattr(yiyan_adapter, "capture_yiyan_official_share", _missing_share)
 
-    with pytest.raises(ApplicationError) as exc_info:
-        await run_yiyan_collection(
-            _item(),
-            session_factory=_PlaywrightYiyanSession,
-            heartbeat=lambda _payload: None,
-        )
+    result = await run_yiyan_collection(
+        _item(),
+        session_factory=_PlaywrightYiyanSession,
+        heartbeat=lambda _payload: None,
+    )
 
-    assert exc_info.value.type == "answer_capture_incomplete"
-    assert "official-share-export-incomplete" in str(exc_info.value)
+    assert result.quality_state == "live_valid"
+    assert result.answer_text
+    assert any(ref.kind == "capture_evidence_audit" for ref in result.evidence)
+    assert not any(ref.kind == "share_image" for ref in result.evidence)
 
 
 # ---------------------------------------------------------------------------

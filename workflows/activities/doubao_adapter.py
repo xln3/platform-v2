@@ -155,6 +155,7 @@ import math
 import os
 import random
 import re
+import threading
 import time
 import uuid
 from collections import Counter
@@ -173,7 +174,13 @@ from temporalio.exceptions import ApplicationError
 from domain.collection.uvw import normalize_retrieval_events, retrieval_events_from_trace_path
 from workflows.activities.answer_dom_anchor import capture_answer_evidence, recognize_image_text
 from workflows.activities.browser_driver import load_sync_browser_driver
+from workflows.activities.browser_process import BrowserProcessError, run_isolated_browser
 from workflows.activities.browser_router import resolve_batch_instance
+from workflows.activities.capture_diagnostics import (
+    capture_failure_code,
+    incomplete_stream_message,
+    record_evidence_failure,
+)
 from workflows.activities.collection import (
     CaptchaPause,
     CollectionBatchInput,
@@ -218,6 +225,8 @@ ENV_SHARED_EVIDENCE_DIR = "GEO_ADAPTER_EVIDENCE_DIR"  # 多平台共享证据目
 ENV_HEADLESS = "GEO_DOUBAO_HEADLESS"
 ENV_SOURCE_SCREENSHOT_LIMIT = "GEO_DOUBAO_SOURCE_SCREENSHOT_LIMIT"
 ENV_CHAT_TIMEOUT_S = "GEO_DOUBAO_CHAT_TIMEOUT_S"
+ENV_STAGE_STUCK_S = "GEO_DOUBAO_STAGE_STUCK_S"
+ENV_TASK_DEADLINE_S = "GEO_DOUBAO_TASK_DEADLINE_S"
 
 # 平台 slug：常驻浏览器契约层（resident_browser）按它解析 GEO_<PLATFORM>_CDP_URL。
 _PLATFORM_SLUG = "doubao"
@@ -226,6 +235,11 @@ _DEFAULT_EVIDENCE_DIR = Path(__file__).resolve().parents[2] / "runtime" / "douba
 _HEARTBEAT_INTERVAL_S = 10.0  # workflow heartbeat_timeout=30s，泵频 ≤15s 硬约束
 _NAV_TIMEOUT_MS = 25_000
 _DEFAULT_CHAT_TIMEOUT_S = 600.0  # 流式完成预算缺省（deep_think 远长于 normal；env 可配）
+# stage 进度看门狗缺省（2026-09-10，单题卡死劫持整 run 根治）：stage 零推进
+# 超过该秒数即判卡死——须覆盖最长合法静默 stage（await_stream=chat_timeout_s
+# 缺省 600s），生效值取 max(env, chat_timeout_s+120)。批次超时预算（单题
+# 900s）之内跳闸，把卡死题诚实落 failed 而不是整 activity 被服务端杀掉。
+_DEFAULT_STAGE_STUCK_S = 700.0
 
 _CHAT_URL = "https://www.doubao.com/chat/"
 _HOME_URL = "https://www.doubao.com/"
@@ -728,6 +742,10 @@ class DoubaoAdapterConfig:
     headless: bool
     chat_timeout_s: float = _DEFAULT_CHAT_TIMEOUT_S
     browser_key: str = _PLATFORM_SLUG
+    # stage 进度看门狗阈值（秒）；生效下限 chat_timeout_s+120（await_stream 是
+    # 最长合法静默 stage，看门狗绝不能掐正常深思考流）。
+    stage_stuck_s: float = _DEFAULT_STAGE_STUCK_S
+    task_deadline_s: float = 840.0
 
     @classmethod
     def from_env(cls, *, proxy_url_override: str | None = None) -> DoubaoAdapterConfig:
@@ -791,12 +809,48 @@ class DoubaoAdapterConfig:
                     type="adapter_not_configured",
                     non_retryable=True,
                 )
+        stage_stuck_s = max(chat_timeout_s + 120.0, _DEFAULT_STAGE_STUCK_S)
+        raw_stuck = os.environ.get(ENV_STAGE_STUCK_S, "").strip()
+        if raw_stuck:
+            try:
+                stage_stuck_s = float(raw_stuck)
+            except ValueError:
+                raise ApplicationError(
+                    f"{ENV_STAGE_STUCK_S} is not a number: {raw_stuck!r}",
+                    type="adapter_not_configured",
+                    non_retryable=True,
+                ) from None
+            if not 60.0 <= stage_stuck_s <= 7_200.0:
+                raise ApplicationError(
+                    f"{ENV_STAGE_STUCK_S} must be within [60, 7200] seconds",
+                    type="adapter_not_configured",
+                    non_retryable=True,
+                )
+            # 看门狗阈值低于最长合法静默 stage 会误伤正常深思考——floor 到
+            # chat_timeout+120（宁可迟钝，绝不掐活）。
+            stage_stuck_s = max(stage_stuck_s, chat_timeout_s + 120.0)
+        try:
+            task_deadline_s = float(os.getenv(ENV_TASK_DEADLINE_S, "840"))
+        except ValueError:
+            raise ApplicationError(
+                f"{ENV_TASK_DEADLINE_S} must be a number",
+                type="adapter_not_configured",
+                non_retryable=True,
+            ) from None
+        if not chat_timeout_s + 60.0 < task_deadline_s <= 840.0:
+            raise ApplicationError(
+                f"{ENV_TASK_DEADLINE_S} must exceed chat timeout + 60s and be <= 840 seconds",
+                type="adapter_not_configured",
+                non_retryable=True,
+            )
         return cls(
             profile_dir=profile_dir,
             proxy_url=proxy_url,
             evidence_dir=evidence_dir,
             headless=headless,
             chat_timeout_s=chat_timeout_s,
+            stage_stuck_s=stage_stuck_s,
+            task_deadline_s=task_deadline_s,
         )
 
 
@@ -855,6 +909,16 @@ class _BrowserSessionLost(_IncompleteCapture):
     """常驻浏览器在题内断开；必须提升为 activity 级重试，不能固化成题级失败。"""
 
 
+class _CollectionAbandoned(RuntimeError):
+    """stage 看门狗跳闸后的协作式终止（2026-09-10）。
+
+    卡死题的采集线程无法被外部杀死（to_thread 不可取消），只能协作 unwind：
+    session 各等待点轮询 cancel_event，命中即抛本异常沿 _browser_session /
+    platform_browser 的 finally 释放本地锁与 DB fence——避免孤儿线程继续持锁
+    毒化后续 batch（锁排队 30min 上限会把下一次采集也拖死）。结果落账由
+    看门狗合成路径负责，本异常绝不进 per-item outcome。"""
+
+
 class _DeepThinkToggleFailed(RuntimeError):
     """deep_think 模式 picker 无法确认启用（non_retryable；绝不静默回退 normal）。"""
 
@@ -911,11 +975,22 @@ class _BrowserSession(Protocol):
     ) -> CollectedAnswer: ...
 
     def collect_batch(
-        self, items: list[DoubaoBatchItemSpec], on_stage: Callable[[str], None]
+        self,
+        items: list[DoubaoBatchItemSpec],
+        on_stage: Callable[[str], None],
+        *,
+        on_item_done: Callable[[DoubaoBatchItemOutcome], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> list[DoubaoBatchItemOutcome]: ...
 
 
 SessionFactory = Callable[[DoubaoAdapterConfig, Path, str], _BrowserSession]
+
+
+def _raise_if_abandoned(cancel_event: threading.Event | None) -> None:
+    """协作式终止轮询点：看门狗已判卡死 → 立即 unwind 释放浏览器锁/fence。"""
+    if cancel_event is not None and cancel_event.is_set():
+        raise _CollectionAbandoned("collection abandoned by stage-stuck watchdog")
 
 
 @dataclass(frozen=True)
@@ -1022,6 +1097,167 @@ def _batch_result_with_pause(
     return CollectionBatchResult(results=results)
 
 
+async def _pump_collection_thread(
+    thread: asyncio.Future[list[DoubaoBatchItemOutcome]],
+    *,
+    heartbeat: Callable[[dict[str, Any]], None],
+    payload: Callable[[], dict[str, Any]],
+    stale_after_s: float,
+    progress_updated: Callable[[], float],
+    task_deadline: Callable[[], float] | None = None,
+    interval_s: float = _HEARTBEAT_INTERVAL_S,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> list[DoubaoBatchItemOutcome] | None:
+    """心跳泵 + stage 进度看门狗（2026-09-10，单题卡死劫持整 run 根治）。
+
+    历史教训：旧泵无条件心跳——采集线程卡死时 heartbeat_timeout=30s 结构上
+    永远兜不住，只能等 start_to_close（单题 900s）服务端杀 activity，卡死题
+    零落账、run 被拖进 workflow_failed。现泵只看 stage 推进：线程未 done 且
+    stage 超过 ``stale_after_s`` 零变化 → 返回 None（看门狗跳闸），由调用方
+    合成诚实结果并通知线程协作 unwind；正常长 stage（await_stream ≤
+    chat_timeout_s，阈值已 floor 到 chat_timeout+120）绝不误伤。
+    """
+    while True:
+        heartbeat(payload())
+        done, _pending = await asyncio.wait({thread}, timeout=interval_s)
+        if done:
+            return thread.result()
+        if monotonic() - progress_updated() > stale_after_s:
+            return None
+        if task_deadline is not None and monotonic() >= task_deadline():
+            return None
+
+
+def _synthesize_stuck_outcomes(
+    specs: list[DoubaoBatchItemSpec],
+    *,
+    done: list[DoubaoBatchItemOutcome],
+    current_key: str | None,
+    stage: str,
+    elapsed_s: float,
+    error_type: str = "task_stage_stuck",
+) -> list[DoubaoBatchItemOutcome]:
+    """看门狗跳闸后的等长诚实合成（2026-09-10）。
+
+    - 已完成题（session 逐题上报）原样保留——已采答案是真实结果，绝不连坐；
+    - 当前题（或卡死在首题之前时的全部题）：status=incomplete /
+      error_type=task_stage_stuck，error_message 带卡死 stage 与停滞秒数
+      （诚实可重试语义，retry queue 可后续补采）；
+    - 当前题之后：aborted（零浏览器交互，不编造）。
+    """
+    done_by_key = {outcome.business_key: outcome for outcome in done}
+    outcomes: list[DoubaoBatchItemOutcome] = []
+    reason = "no stage progress" if error_type == "task_stage_stuck" else "task deadline exceeded"
+    stuck_message = (
+        f"{error_type.replace('_', '-')}: {reason}; elapsed_s={elapsed_s:.0f} "
+        f"(stuck at {stage!r}) — collection thread abandoned cooperatively"
+    )
+    for spec in specs:
+        prior = done_by_key.get(spec.business_key)
+        if prior is not None:
+            outcomes.append(prior)
+            continue
+        if current_key is None or spec.business_key == current_key:
+            # 卡死题本身（或卡死在首题之前时的全部题）：诚实失败，可重试。
+            outcomes.append(
+                DoubaoBatchItemOutcome(
+                    business_key=spec.business_key,
+                    status="incomplete",
+                    error_type=error_type,
+                    error_message=stuck_message,
+                )
+            )
+            continue
+        outcomes.append(
+            DoubaoBatchItemOutcome(
+                business_key=spec.business_key,
+                status="aborted",
+                error_type="aborted_after_failure",
+                error_message=(
+                    f"not executed: batch abandoned after item {current_key!r} stuck "
+                    f"at stage {stage!r} — no browser interaction for this item"
+                ),
+            )
+        )
+    return outcomes
+
+
+def _orphan_thread_done(thread: asyncio.Future[list[DoubaoBatchItemOutcome]]) -> None:
+    """看门狗跳闸后的孤儿线程收场（可观测）：结果一律丢弃（落账已合成），
+    异常/迟来完成都只记日志——绝不静默吞掉「never retrieved」式黑盒。"""
+    try:
+        late = thread.result()
+    except asyncio.CancelledError:
+        log.warning("doubao_batch_orphan_thread_cancelled")
+    except Exception as exc:  # noqa: BLE001 — 孤儿异常只观测，不扩散
+        log.warning(
+            "doubao_batch_orphan_thread_exited",
+            error_type=type(exc).__name__,
+            error=str(exc)[:300],
+        )
+    else:
+        log.warning(
+            "doubao_batch_orphan_thread_completed_late",
+            outcomes=len(late) if late is not None else None,
+        )
+
+
+def _doubao_process_worker(
+    config: DoubaoAdapterConfig,
+    batch_stem: str,
+    specs: list[DoubaoBatchItemSpec],
+    *,
+    events: Any,
+    stop: Any,
+) -> list[DoubaoBatchItemOutcome]:
+    session = _PlaywrightDoubaoSession(config, config.evidence_dir, batch_stem)
+    session._on_answer_ready = lambda outcome: events.put(("answer_ready", outcome))
+
+    def on_stage(stage: str) -> None:
+        _raise_if_abandoned(stop)
+        events.put(("stage", stage))
+
+    return session.collect_batch(
+        specs,
+        on_stage=on_stage,
+        on_item_done=lambda outcome: events.put(("item_done", outcome)),
+        cancel_event=stop,
+    )
+
+
+def _release_stopped_process_fence(instance: str, holder: str) -> None:
+    """Release only this confirmed-dead child's lease, never a successor's fence."""
+    from geo_platform.collection.leases import release_browser_fence
+    from geo_platform.collection.models import BrowserFence
+    from geo_platform.tenancy.database import WorkerSessionLocal
+    from sqlalchemy import select, text
+
+    try:
+        with WorkerSessionLocal() as session:
+            session.execute(text("SET LOCAL lock_timeout = '2s'"))
+            session.execute(text("SET LOCAL statement_timeout = '3s'"))
+            row = session.scalar(
+                select(BrowserFence)
+                .where(
+                    BrowserFence.platform == instance,
+                    BrowserFence.holder == holder,
+                    BrowserFence.released_at.is_(None),
+                )
+                .with_for_update()
+            )
+            if row is not None:
+                release_browser_fence(
+                    session, platform=instance, holder=holder, fencing_token=row.fencing_token
+                )
+                session.commit()
+    except Exception as exc:
+        log.warning(
+            "stopped_browser_process_fence_cleanup_failed",
+            instance=instance,
+            error_type=type(exc).__name__,
+        )
+
+
 async def run_doubao_batch(
     batch: CollectionBatchInput,
     *,
@@ -1039,6 +1275,7 @@ async def run_doubao_batch(
     （浏览器启动失败等临时故障，一题未发）raise 可重试 ApplicationError——
     结果全空时重试无已完成题损失。配置类错误一律 raise。
     """
+    routing_started = time.monotonic()
     uses_default_session = session_factory is None
     if session_factory is None:
         session_factory = _PlaywrightDoubaoSession
@@ -1065,6 +1302,14 @@ async def run_doubao_batch(
     )
     instance_key = route.instance_key if route is not None else None
     config = DoubaoAdapterConfig.from_env(proxy_url_override=proxy_url_override)
+    remaining = config.task_deadline_s - (time.monotonic() - routing_started)
+    if remaining <= config.chat_timeout_s + 60:
+        raise ApplicationError(
+            "resource wait left insufficient time for a complete answer; no question sent",
+            type="account_contention_timeout",
+            non_retryable=True,
+        )
+    config = replace(config, task_deadline_s=remaining)
     if route is not None:
         config = replace(config, browser_key=route.instance_key)
     config.evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -1086,17 +1331,57 @@ async def run_doubao_batch(
         egress_region_gb=route.exit_gb if route is not None else None,
         fallback_proxy=(mask_proxy_url(config.proxy_url) if route is None else None),
     )
-    progress: dict[str, Any] = {"stage": "browser_launch", "item": None}
+    progress: dict[str, Any] = {
+        "stage": "browser_launch",
+        "item": None,
+        "updated": time.monotonic(),
+        "started": time.monotonic(),
+    }
+    # stage 看门狗共享态（2026-09-10）：done_outcomes 逐题完成上报（卡死合成
+    # 保留已完成题真实结果）；cancel_event 跳闸后通知采集线程协作 unwind。
+    done_outcomes: list[DoubaoBatchItemOutcome] = []
+    ready_outcomes: dict[str, DoubaoBatchItemOutcome] = {}
+    cancel_event = threading.Event()
+    execution_deadline = time.monotonic() + max(len(specs), 1) * config.task_deadline_s
+
+    def _on_stage(stage: str) -> None:
+        _raise_if_abandoned(cancel_event)
+        progress["stage"] = stage
+        progress["updated"] = time.monotonic()
+        if stage.startswith("item:"):
+            progress["item"] = stage.removeprefix("item:")
+            progress["started"] = time.monotonic()
+
+    def _on_event(kind: str, value: Any) -> None:
+        if kind == "stage":
+            _on_stage(value)
+        elif kind == "item_done":
+            done_outcomes.append(value)
+            ready_outcomes.pop(value.business_key, None)
+        elif kind == "answer_ready":
+            ready_outcomes[value.business_key] = value
+
+    def _preserved_outcomes(reason: str) -> list[DoubaoBatchItemOutcome]:
+        for key, outcome in ready_outcomes.items():
+            if outcome.answer is not None:
+                record_evidence_failure(
+                    outcome.answer.evidence,
+                    path=config.evidence_dir / f"{_safe_stem(key)}-a{attempt}-deadline-audit.json",
+                    platform="doubao",
+                    stage=str(progress["stage"]),
+                    error=RuntimeError(reason),
+                )
+        return [*ready_outcomes.values(), *done_outcomes]
 
     def _blocking() -> list[DoubaoBatchItemOutcome]:
         session = session_factory(config, config.evidence_dir, batch_stem)
 
-        def _on_stage(stage: str) -> None:
-            progress["stage"] = stage
-            if stage.startswith("item:"):
-                progress["item"] = stage.removeprefix("item:")
-
-        return session.collect_batch(specs, on_stage=_on_stage)
+        return session.collect_batch(
+            specs,
+            on_stage=_on_stage,
+            on_item_done=done_outcomes.append,
+            cancel_event=cancel_event,
+        )
 
     def _heartbeat_payload() -> dict[str, Any]:
         return {
@@ -1104,20 +1389,125 @@ async def run_doubao_batch(
             "stage": progress["stage"],
             "item": progress["item"],
             "items_total": len(specs),
+            "stage_elapsed_s": round(time.monotonic() - float(progress["updated"]), 1),
+            "task_elapsed_s": round(time.monotonic() - float(progress["started"]), 1),
         }
+
+    async def _on_process_stopped(holder: str) -> None:
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(_release_stopped_process_fence, config.browser_key, holder),
+                timeout=5,
+            )
+        except TimeoutError:
+            bound.warning("stopped_browser_process_fence_cleanup_timeout")
 
     try:
         if uses_default_session:
-            thread = asyncio.ensure_future(asyncio.to_thread(_blocking))
-            while True:
-                heartbeat(_heartbeat_payload())
-                done, _pending = await asyncio.wait({thread}, timeout=_HEARTBEAT_INTERVAL_S)
-                if done:
-                    break
-            outcomes = thread.result()
+            thread = asyncio.ensure_future(
+                run_isolated_browser(
+                    _doubao_process_worker,
+                    (config, batch_stem, specs),
+                    on_event=_on_event,
+                    on_stopped=_on_process_stopped,
+                )
+            )
+            try:
+                pumped = await _pump_collection_thread(
+                    thread,
+                    heartbeat=heartbeat,
+                    payload=_heartbeat_payload,
+                    stale_after_s=config.stage_stuck_s,
+                    progress_updated=lambda: float(progress["updated"]),
+                    task_deadline=lambda: min(
+                        execution_deadline,
+                        float(progress["started"])
+                        + (config.task_deadline_s if progress["item"] is not None else 90.0),
+                    ),
+                    interval_s=_HEARTBEAT_INTERVAL_S,
+                )
+            except _CollectionAbandoned:
+                # 竞态：看门狗跳闸后线程抢先 unwind——与跳闸同路合成（幂等）。
+                pumped = None
+            except BaseException:
+                # Temporal cancellation must reach the browser thread before a retry.
+                cancel_event.set()
+                thread.cancel()
+                await asyncio.gather(thread, return_exceptions=True)
+                raise
+            if pumped is None:
+                now = time.monotonic()
+                deadline_exceeded = now >= min(
+                    execution_deadline,
+                    float(progress["started"]) + config.task_deadline_s,
+                )
+                error_type = (
+                    "browser_initialization_timeout"
+                    if progress["item"] is None
+                    else "task_deadline_exceeded"
+                    if deadline_exceeded
+                    else "task_stage_stuck"
+                )
+                elapsed_s = now - float(
+                    progress["updated" if error_type == "task_stage_stuck" else "started"]
+                )
+                bound.warning(
+                    "doubao_batch_stage_stuck",
+                    stage=progress["stage"],
+                    item=progress["item"],
+                    elapsed_s=round(elapsed_s, 1),
+                    error_type=error_type,
+                )
+                cancel_event.set()
+                thread.cancel()
+                await asyncio.gather(thread, return_exceptions=True)
+                outcomes = _synthesize_stuck_outcomes(
+                    specs,
+                    done=_preserved_outcomes("evidence collection exceeded deadline"),
+                    current_key=progress["item"],
+                    stage=str(progress["stage"]),
+                    elapsed_s=elapsed_s,
+                    error_type=error_type,
+                )
+            else:
+                outcomes = pumped
         else:
             heartbeat(_heartbeat_payload())
             outcomes = _blocking()
+    except BrowserProcessError as exc:
+        detail = exc.detail
+        # Keep completed items even when the process fails during a later item.
+        completed = {outcome.business_key: outcome for outcome in _preserved_outcomes(str(exc))}
+        wall_type = detail.get("wall_type")
+        error_type = wall_type or {
+            "_ModeUnconfirmed": "mode_unconfirmed",
+            "_DeepThinkToggleFailed": "deep_think_toggle_failed",
+            "_QuickModeToggleFailed": "mode_toggle_failed",
+        }.get(detail["type"], "answer_capture_incomplete")
+        return _batch_result_with_pause(
+            [
+                _batch_item_result(item, completed[item.business_key])
+                if item.business_key in completed
+                else _failure_batch_item(
+                    item,
+                    status="aborted",
+                    error_type="aborted_after_failure",
+                    error_message="not executed: browser process stopped before this item",
+                    evidence_path=None,
+                )
+                if progress["item"] is not None and item.business_key != progress["item"]
+                else _failure_batch_item(
+                    item,
+                    status="wall" if wall_type else "incomplete",
+                    error_type=error_type,
+                    error_message=f"{detail['type']}: {detail['message']}",
+                    evidence_path=detail.get("evidence_path"),
+                    evidence=detail.get("evidence_refs", []),
+                )
+                for item in batch.items
+            ],
+            instance_key=instance_key,
+        )
     except _WallError as wall:
         # session 级墙（导航后登录墙/cloak）：一题未发，全题诚实记 wall。
         # wall_captcha 同样经 _batch_result_with_pause 标注 resume_index=0——
@@ -1193,7 +1583,7 @@ async def run_doubao_batch(
         # session 级临时故障（浏览器启动失败等）：一题未发，raise 走 batch 重试。
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("doubao_batch_session_incomplete", reason=str(inc), stage=progress["stage"])
-        raise ApplicationError(f"{inc}{evidence_suffix}", type="answer_capture_incomplete") from inc
+        raise ApplicationError(f"{inc}{evidence_suffix}", type=capture_failure_code(inc)) from inc
     if len(outcomes) != len(batch.items):
         # session 契约：结果列表必须与输入等长（失败/未执行题也占位）。缺斤短两
         # 说明实现有 bug——fail-closed raise（编程错误，重试无意义）。
@@ -1359,7 +1749,7 @@ async def run_doubao_collection(
     except _IncompleteCapture as inc:
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("doubao_capture_incomplete", reason=str(inc), stage=progress["stage"])
-        raise ApplicationError(f"{inc}{evidence_suffix}", type="answer_capture_incomplete") from inc
+        raise ApplicationError(f"{inc}{evidence_suffix}", type=capture_failure_code(inc)) from inc
     bound.info(
         "doubao_collect_ok",
         answer_len=len(collected.answer_text),
@@ -1377,7 +1767,11 @@ def _task_result_from_collected(
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     citations = _citation_payloads(collected.references)
     evidence = list(collected.evidence)
-    if not any(ref.kind == "answer_screenshot" for ref in evidence):
+    if not any(ref.kind == "answer_screenshot" for ref in evidence) and (
+        collected.screenshot_path.is_file()
+    ):
+        # 降级路径下截图可能未产出——证据 ref 只指向真实存在的文件（诚实零
+        # 参照，绝不指向不存在的路径）。
         evidence.insert(
             0,
             CollectionEvidenceRef(
@@ -1392,7 +1786,10 @@ def _task_result_from_collected(
         evidence.append(collected.answer_evidence)
     # The product-facing answer image is the platform's official share image.
     # Runtime screenshots remain separate audit evidence and are only a backward-
-    # compatible fallback for injected/legacy CollectedAnswer objects.
+    # compatible fallback for injected/legacy CollectedAnswer objects. 降级路径
+    # （2026-09-10 起：分享导出/全页截图失败不再判死答案）下两类图都可能
+    # 缺席——ref 只指向真实存在的文件，全缺则空串（诚实零参照，绝不指向
+    # 不存在的路径）。
     official_share_image = next(
         (
             ref.path
@@ -1401,7 +1798,9 @@ def _task_result_from_collected(
         ),
         None,
     )
-    screenshot_ref = f"file://{official_share_image or collected.screenshot_path}"
+    runtime_shot = str(collected.screenshot_path) if collected.screenshot_path.is_file() else None
+    image_ref = official_share_image or runtime_shot
+    screenshot_ref = f"file://{image_ref}" if image_ref else ""
     trace_path = next(
         (
             ref.path
@@ -1564,6 +1963,7 @@ class _PlaywrightDoubaoSession:
         self._config = config
         self._evidence_dir = evidence_dir
         self._file_stem = file_stem
+        self._on_answer_ready: Callable[[DoubaoBatchItemOutcome], None] | None = None
         # 拟人化：本 session 专用 RNG（真随机；测试在 human_like 层 seeded）与
         # 光标位置追踪（连续轨迹，避免每次点击都从合成起点重新起跳）。
         self._rng = random.Random()
@@ -1584,9 +1984,22 @@ class _PlaywrightDoubaoSession:
             )
 
     def collect_batch(
-        self, items: list[DoubaoBatchItemSpec], on_stage: Callable[[str], None]
+        self,
+        items: list[DoubaoBatchItemSpec],
+        on_stage: Callable[[str], None],
+        *,
+        on_item_done: Callable[[DoubaoBatchItemOutcome], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> list[DoubaoBatchItemOutcome]:
         outcomes: list[DoubaoBatchItemOutcome] = []
+
+        def _append(outcome: DoubaoBatchItemOutcome) -> None:
+            outcomes.append(outcome)
+            if on_item_done is not None:
+                # stage 看门狗（2026-09-10）：逐题完成上报，卡死合成路径据此
+                # 保留已完成题的真实结果，绝不把已采答案一并误杀。
+                on_item_done(outcome)
+
         # 配额墙按 (账号×mode) 计费（2026-08-14 起）：wall_quota 只连坐同 mode
         # 余题——记录已撞配额的 mode，轮到其余题位次时零浏览器交互追加 aborted
         # 占位（结果列表与输入等长同序的契约不变）。
@@ -1597,14 +2010,15 @@ class _PlaywrightDoubaoSession:
         mode_toggle_blocked: dict[str, tuple[DoubaoBatchItemSpec, str]] = {}
         with self._browser_session(on_stage) as (context, page, pw_timeout, driver):
             for index, spec in enumerate(items):
+                _raise_if_abandoned(cancel_event)
                 if spec.mode in mode_toggle_blocked:
                     failed_spec, error_type = mode_toggle_blocked[spec.mode]
-                    outcomes.append(
+                    _append(
                         self._aborted_outcome(spec, failed_spec, error_type, batch_stopped=False)
                     )
                     continue
                 if spec.mode in quota_blocked:
-                    outcomes.append(
+                    _append(
                         self._aborted_outcome(
                             spec, quota_blocked[spec.mode], "wall_quota", batch_stopped=False
                         )
@@ -1613,10 +2027,16 @@ class _PlaywrightDoubaoSession:
                 on_stage(f"item:{spec.business_key}")
                 try:
                     answer = self._collect_one(
-                        context, page, spec, on_stage, pw_timeout=pw_timeout, driver=driver
+                        context,
+                        page,
+                        spec,
+                        on_stage,
+                        pw_timeout=pw_timeout,
+                        driver=driver,
+                        cancel_event=cancel_event,
                     )
                 except _WallError as wall:
-                    outcomes.append(self._failure_outcome(spec, "wall", wall.wall_type, wall))
+                    _append(self._failure_outcome(spec, "wall", wall.wall_type, wall))
                     if wall.wall_type == "wall_refusal":
                         # 拒答=题级内容失败（平台拒答本题），非账号墙：不连坐，
                         # 本题诚实失败后继续下一题。
@@ -1628,31 +2048,25 @@ class _PlaywrightDoubaoSession:
                         continue
                     # 真墙（captcha/login/send/muted/cloak…）：账号级阻断，余题
                     # 全 aborted（真人撞墙即停，零浏览器交互不硬闯）。
-                    outcomes.extend(
-                        self._aborted_outcome(rest, spec, wall.wall_type)
-                        for rest in items[index + 1 :]
-                    )
+                    for rest in items[index + 1 :]:
+                        _append(self._aborted_outcome(rest, spec, wall.wall_type))
                     return outcomes
                 except _ModeUnconfirmed as mu:
                     # deep_think 无 SSE 思考证据（2026-08-14 起 non_retryable 诚实
                     # 失败）：题级失败不连坐（与 toggle 失败同哲学），余题照跑。
-                    outcomes.append(self._failure_outcome(spec, "wall", "mode_unconfirmed", mu))
+                    _append(self._failure_outcome(spec, "wall", "mode_unconfirmed", mu))
                     continue
                 except _DeepThinkToggleFailed as toggle:
                     # 单题内两轮 trigger/option + native fallback 均失败后，当前
                     # session 的专家控件不可确认；本题诚实失败，后续同 mode 零交互
                     # aborted。normal 题仍可继续，避免专家不可用拖死快速补齐。
-                    outcomes.append(
-                        self._failure_outcome(spec, "wall", "deep_think_toggle_failed", toggle)
-                    )
+                    _append(self._failure_outcome(spec, "wall", "deep_think_toggle_failed", toggle))
                     mode_toggle_blocked[spec.mode] = (spec, "deep_think_toggle_failed")
                     continue
                 except _QuickModeToggleFailed as toggle:
                     # 与专家同款 session×mode 小熔断；绝不把未确认的专家态答案
                     # 按快速落库，也不让同批后续题重复撞同一个漂移控件。
-                    outcomes.append(
-                        self._failure_outcome(spec, "wall", "mode_toggle_failed", toggle)
-                    )
+                    _append(self._failure_outcome(spec, "wall", "mode_toggle_failed", toggle))
                     mode_toggle_blocked[spec.mode] = (spec, "mode_toggle_failed")
                     continue
                 except _BrowserSessionLost:
@@ -1663,15 +2077,16 @@ class _PlaywrightDoubaoSession:
                     raise
                 except _IncompleteCapture as inc:
                     # 同上：截图为题级 flake，记 incomplete 后续跑，不中止整批。
-                    outcomes.append(
-                        self._failure_outcome(spec, "incomplete", "answer_capture_incomplete", inc)
+                    _append(
+                        self._failure_outcome(spec, "incomplete", capture_failure_code(inc), inc)
                     )
                     continue
-                outcomes.append(
+                _append(
                     DoubaoBatchItemOutcome(
                         business_key=spec.business_key, status="ok", answer=answer
                     )
                 )
+                _raise_if_abandoned(cancel_event)
                 # 阅读停顿：拟人读完回答（滚动浏览 + 停留 8-25s 抖动）——题间天然
                 # 间隔，也产出真实浏览信号；最后一题同样停留（真人读完才关浏览器）。
                 pause_s = self._reading_pause(page)
@@ -1865,9 +2280,14 @@ class _PlaywrightDoubaoSession:
         *,
         pw_timeout: type[Exception],
         driver: str,
+        cancel_event: threading.Event | None = None,
     ) -> CollectedAnswer:
         """单题主体：await_input → fresh_chat → [deep_think toggle] → 拟人输入/
-        发送 → SSE 捕获/组装/证据落盘。per-task 单题与 batch 每题共用。"""
+        发送 → SSE 捕获/组装/证据落盘。per-task 单题与 batch 每题共用。
+
+        ``cancel_event``（2026-09-10，stage 看门狗）：各 stage 边界轮询，命中
+        即抛 _CollectionAbandoned 协作 unwind（结果由看门狗合成路径落账，
+        此处只为尽快释放浏览器锁/fence）。"""
         capture = _CompletionCapture(context, page)
         # 引用恢复（2026-09-03 起）：/im/chain/single 的 CDP 拦截与 /im/ 查询串
         # 模板记录，与 completion 捕获并行挂载、互不干扰。attach 失败 fail-open
@@ -2049,6 +2469,7 @@ class _PlaywrightDoubaoSession:
             meta = capture.wait_finish(
                 page, appearance_timeout_s=20.0, timeout_s=self._config.chat_timeout_s
             )
+            _raise_if_abandoned(cancel_event)
             answer_text = ""
             references: list[dict[str, Any]] = []
             search_queries: list[dict[str, Any]] = []
@@ -2107,9 +2528,7 @@ class _PlaywrightDoubaoSession:
                 )
             if not meta.get("finished"):
                 raise _IncompleteCapture(
-                    "stream-open-at-timeout: /chat/completion stream still open after "
-                    f"budget ({meta.get('bytes_received', 0)} bytes captured) — answer "
-                    "would be truncated; failing honestly",
+                    incomplete_stream_message(meta),
                     _shot("truncated"),
                 )
             if not answer_text:
@@ -2132,45 +2551,8 @@ class _PlaywrightDoubaoSession:
                     _shot("answer_wall"),
                 )
 
-            on_stage("screenshot")
+            evidence: list[CollectionEvidenceRef] = []
             shot_path = self._evidence_dir / f"{spec.file_stem}.png"
-            try:
-                _capture_full_page(page, shot_path, expected_question=spec.query)
-            except Exception as exc:
-                raise _IncompleteCapture(
-                    f"evidence-screenshot-failed: {type(exc).__name__}: {exc}",
-                    _shot("screenshot"),
-                ) from exc
-            if not shot_path.exists():
-                raise _IncompleteCapture("evidence-screenshot-failed: no file written")
-            evidence = [
-                CollectionEvidenceRef(
-                    kind="answer_screenshot",
-                    path=str(shot_path),
-                    relation_type="answer_page",
-                    mime_type="image/png",
-                    source_url=_CHAT_URL,
-                )
-            ]
-            answer_capture = capture_answer_evidence(
-                page,
-                assistant_selectors=_ASSISTANT_SELECTORS,
-                answer_text=answer_text,
-                output_path=self._evidence_dir / f"{spec.file_stem}-answer-evidence.png",
-            )
-            answer_evidence = (
-                CollectionEvidenceRef(
-                    kind="answer_excerpt_screenshot",
-                    path=str(answer_capture.path),
-                    relation_type="answer_evidence_excerpt",
-                    mime_type="image/png",
-                    source_url=_CHAT_URL,
-                    anchors=answer_capture.anchors,
-                )
-                if answer_capture is not None and answer_capture.anchors
-                else None
-            )
-
             # 请求态≠实际态（旧链纪律：请求 deep_think ≠ 实际启用）。actual 仅当
             # SSE 证据（thinking root block_type=10040）为正才标 deep_think；证据
             # 缺失（DOM 兜底/解析失败）或为负一律如实 normal。结论注入 trace 的
@@ -2233,9 +2615,72 @@ class _PlaywrightDoubaoSession:
                     _shot("mode_unconfirmed"),
                 )
 
-            # Official share output is part of the successful-capture contract.  A
-            # runtime browser screenshot is audit evidence, not a substitute for the
-            # user-requested official share image/link.
+            if self._on_answer_ready is not None:
+                self._on_answer_ready(
+                    DoubaoBatchItemOutcome(
+                        business_key=spec.business_key,
+                        status="ok",
+                        answer=CollectedAnswer(
+                            answer_text=answer_text,
+                            references=list(references),
+                            screenshot_path=shot_path,
+                            evidence=list(evidence),
+                            search_queries=list(search_queries),
+                            meta={"stream": meta, "evidence_pending": True},
+                        ),
+                    )
+                )
+
+            on_stage("screenshot")
+            # 全页截图是附加审计证据，不是答案本体（正文此刻已抽取定稿）。截图
+            # 失败不污染答案：降级为「答案有效但缺 answer_page 截图」继续走完
+            # 分享导出/落库，绝不把真实答案按 answer_capture_incomplete 判死
+            # （2026-09-10 汇宜 run 实证：两题答案因此被误杀）。诊断截图
+            # 存证照旧 best-effort 留存。
+            try:
+                _capture_full_page(page, shot_path, expected_question=spec.query)
+            except Exception as exc:
+                log.warning(
+                    "doubao_answer_screenshot_degraded",
+                    business_key=spec.business_key,
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                _shot("screenshot")
+            if shot_path.exists():
+                evidence.append(
+                    CollectionEvidenceRef(
+                        kind="answer_screenshot",
+                        path=str(shot_path),
+                        relation_type="answer_page",
+                        mime_type="image/png",
+                        source_url=_CHAT_URL,
+                    )
+                )
+            answer_capture = capture_answer_evidence(
+                page,
+                assistant_selectors=_ASSISTANT_SELECTORS,
+                answer_text=answer_text,
+                output_path=self._evidence_dir / f"{spec.file_stem}-answer-evidence.png",
+            )
+            answer_evidence = (
+                CollectionEvidenceRef(
+                    kind="answer_excerpt_screenshot",
+                    path=str(answer_capture.path),
+                    relation_type="answer_evidence_excerpt",
+                    mime_type="image/png",
+                    source_url=_CHAT_URL,
+                    anchors=answer_capture.anchors,
+                )
+                if answer_capture is not None and answer_capture.anchors
+                else None
+            )
+
+            # 官方分享产物（图/链接）是附加证据，不是答案本体（正文在分享导出
+            # 之前已抽取定稿）。导出失败 = 本题这两类证据永久缺失（20260831
+            # 定案：采集期一次性证据不可离线补），如实记 warning+audit 证据后
+            # 降级继续——绝不再把真实答案按 answer_capture_incomplete 判死
+            # （2026-09-10 汇宜 run 实证：两题 live_valid 级答案被分享图失败
+            # 误杀）。INV-32 边界不变：降级只是「证据缺席」，不合成任何替代品。
             on_stage("share_export")
             # legacy share_export（server/proxyllm 只读移植源，bridge 动态加载）内部
             # 大量裸 mouse.click / locator.click：包一层 facade 换成拟人化路径。
@@ -2304,10 +2749,11 @@ class _PlaywrightDoubaoSession:
                 }
             share_url = _validated_doubao_share_url(share_link_audit.get("url"))
             share_link_ok = bool(share_link_audit.get("ok")) and share_url is not None
+            _raise_if_abandoned(cancel_event)
             if _share_export_lost_browser(page, share_image_audit, share_link_audit):
-                raise _BrowserSessionLost(
-                    "browser-session-lost-during-share-export: the resident browser "
-                    "closed while collecting the official share evidence"
+                log.warning(
+                    "doubao_share_browser_lost_after_answer",
+                    business_key=spec.business_key,
                 )
             if not share_image_ok and share_link_ok and share_url:
                 generated_failure = {
@@ -2450,11 +2896,44 @@ class _PlaywrightDoubaoSession:
                         or ""
                     )[:300],
                 )
-                raise _IncompleteCapture(
-                    "official-share-export-incomplete: both a valid platform share PNG "
-                    "and an official public share URL are required",
-                    _shot("share_export"),
-                )
+                # 降级而非判死（2026-09-10 起）：答案本体已在分享导出前定稿，
+                # 分享产物失败只意味着这两类证据永久缺席。把双侧 audit 落盘进
+                # 证据链（缺席原因可审计、绝不合成替代品），随后继续走完主链。
+                share_audit_path = self._evidence_dir / f"{spec.file_stem}-share-export-audit.json"
+                try:
+                    share_audit_path.write_text(
+                        json.dumps(
+                            {
+                                "image_ok": share_image_ok,
+                                "link_ok": share_link_ok,
+                                "image_audit": share_image_audit,
+                                "link_audit": share_link_audit,
+                                "platform": "doubao",
+                                "schema_version": "official-share-export-audit-v1",
+                            },
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            default=str,
+                        ),
+                        encoding="utf-8",
+                    )
+                except OSError as exc:
+                    log.warning(
+                        "doubao_share_export_audit_write_failed",
+                        business_key=spec.business_key,
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                else:
+                    evidence.append(
+                        CollectionEvidenceRef(
+                            kind="share_export_audit",
+                            path=str(share_audit_path),
+                            relation_type="official_share_export_audit",
+                            mime_type="application/json",
+                            source_url=share_url,
+                        )
+                    )
 
             # 引用恢复（2026-09-03 起，/im/chain/single）：08-17 后 SSE 引用卡
             # 瘸腿（summary/sitename 空、个别 results 缺失），消息链接口是平台
@@ -2463,6 +2942,7 @@ class _PlaywrightDoubaoSession:
             # 位置在分享导出之后：live 实证生成中页面自动拉的 chain 只含用户
             # 消息，分享面板动作会把完整消息链（含 10025 引用块）再拉一遍——
             # 此时拦截命中即零新增请求；都没拉到才走页面上下文只读重放。
+            _raise_if_abandoned(cancel_event)
             chain_references, chain_queries, chain_audit = _resolve_chain_single(
                 page,
                 chain_capture,
@@ -3238,6 +3718,7 @@ class _CompletionCapture:
             "found": True,
             "finished": False,
             "failed": bool(failed_segments) or target in self._loading_failed,
+            "terminal_failed": target in self._loading_failed,
             "bytes_received": sum(self._bytes.get(rid, 0) for rid in self._completion_request_ids),
             "request_count": len(self._completion_request_ids),
             "recovered": False,
@@ -5118,8 +5599,10 @@ def _picker_mode(hits: list[str]) -> str | None:
                 text == label or text.endswith(f" {label}") for label in _QUICK_PICKER_TEXTS
             )
             deep = any(text == label or text.endswith(f" {label}") for label in _DEEP_PICKER_TEXTS)
-            if not quick and not deep and any(
-                text.endswith(suffix) for suffix in _DEEP_PICKER_MODEL_SUFFIXES
+            if (
+                not quick
+                and not deep
+                and any(text.endswith(suffix) for suffix in _DEEP_PICKER_MODEL_SUFFIXES)
             ):
                 deep = True
         else:

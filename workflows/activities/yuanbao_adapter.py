@@ -49,7 +49,7 @@ v2 边界（与豆包适配器对齐）：
   打开分享条——「复制链接」剪贴板取 ``https://yb.tencent.com/s/<id>``，「生成图片」
   从 PhotoView 弹层取平台自渲染海报（``data:image/jpeg;base64`` 解码原样落盘，
   INV-32 零合成）。分享链接与海报是采集期一次性证据（20260831 定案：sse_raw/HAR
-  离线补不出）；任一缺失 → ``answer_capture_incomplete``（可重试诚实失败），
+  离线补不出）；缺失仅记录证据降级，保留通过校验的答案，
   运行时截图绝不冒充分享图。
 
 拟人化口径（2026-08-06 起，与豆包同标准——自动化交互序列本身即指纹）：
@@ -117,6 +117,7 @@ from domain.collection.uvw import normalize_retrieval_events, retrieval_events_f
 from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
+from workflows.activities.capture_diagnostics import optional_evidence
 from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
@@ -140,7 +141,6 @@ from workflows.activities.human_like import (
 )
 from workflows.activities.official_share import (
     YUANBAO_OFFICIAL_SHARE_HOSTS,
-    OfficialShareExportError,
     capture_yuanbao_official_share,
     probe_official_share_url,
     write_share_link_manifest,
@@ -1132,7 +1132,9 @@ def _task_result_from_collected(
     raw_record = _yuanbao_record_from_raw_evidence(collected.raw_evidence)
     use_raw_sources = raw_record is not None and bool(raw_record.get("search_guid_observed"))
     references = (
-        list(raw_record.get("references") or []) if use_raw_sources else collected.references
+        list((raw_record or {}).get("references") or [])
+        if use_raw_sources
+        else collected.references
     )
     answer_text = _compose_answer_text(collected.answer_text, references)
     citations = [
@@ -1148,7 +1150,9 @@ def _task_result_from_collected(
         and isinstance(ref.get("url"), str)
         and ref["url"].startswith(("http://", "https://"))
     ]
-    screenshot_ref = f"file://{collected.screenshot_path}"
+    screenshot_ref = (
+        f"file://{collected.screenshot_path}" if collected.screenshot_path.is_file() else ""
+    )
     evidence: list[CollectionEvidenceRef] = []
     if collected.trace_path is not None:
         evidence.append(
@@ -1175,7 +1179,7 @@ def _task_result_from_collected(
         citations=citations,
         evidence=evidence,
         retrieval_events=(
-            list(raw_record.get("retrieval_events") or [])
+            list((raw_record or {}).get("retrieval_events") or [])
             if use_raw_sources
             else retrieval_events_from_trace_path(collected.trace_path)
         ),
@@ -1287,16 +1291,16 @@ def _yuanbao_record_from_sse(raw_sse: str) -> dict[str, Any] | None:
     references: list[dict[str, Any]] = []
     unresolved: list[int] = []
     for index in citation_indexes:
-        card = cards_by_index.get(index)
+        matched_card = cards_by_index.get(index)
         if (
             index in collided_indexes
-            or card is None
-            or not isinstance(card.get("url"), str)
-            or not card["url"].startswith(("http://", "https://"))
+            or matched_card is None
+            or not isinstance(matched_card.get("url"), str)
+            or not matched_card["url"].startswith(("http://", "https://"))
         ):
             unresolved.append(index)
             continue
-        references.append(card)
+        references.append(matched_card)
     final_references = [
         {
             "url": ref["url"],
@@ -1886,7 +1890,7 @@ class _PlaywrightYuanbaoSession:
             sse_answer = (
                 str(sse_record.get("answer_text") or "").strip() if sse_record is not None else ""
             )
-            if sse_answer:
+            if sse_answer and sse_record is not None:
                 # ``/api/chat/`` 是本次请求的机器响应真相源。DOM 仍承担页面截图、
                 # 墙扫描和协议漂移时的备用抽取，不再无条件决定答案正文。
                 answer_text = sse_answer
@@ -1956,9 +1960,16 @@ class _PlaywrightYuanbaoSession:
 
             on_stage("screenshot")
             shot_path = self._evidence_dir / f"{spec.file_stem}.png"
-            _capture_full_page(page, shot_path)
-            if not shot_path.exists():
-                raise _IncompleteCapture("evidence-screenshot-failed: no file written")
+            share_evidence: list[CollectionEvidenceRef] = []
+            with optional_evidence(
+                share_evidence,
+                path=self._evidence_dir / f"{spec.file_stem}-screenshot-audit.json",
+                platform="yuanbao",
+                stage="screenshot",
+            ):
+                _capture_full_page(page, shot_path)
+                if not shot_path.is_file():
+                    raise OSError("no screenshot file written")
             # 结构化 trace 落盘进证据链（kind="sse"，transport="dom"；词表对齐
             # 文心/DeepSeek）：思考链（deep_think 模式 DOM 探针）+ 引用卡片折叠。
             # 写盘失败不拖垮已成功的采集——如实 warning 且不出该证据（绝不出残缺/
@@ -2028,16 +2039,21 @@ class _PlaywrightYuanbaoSession:
             # 同一答案页打开分享条——复制链接（剪贴板取 https://yb.tencent.com/s/
             # <id>）+ 生成图片（PhotoView 弹层平台自渲染海报 JPEG）。分享链接与
             # 海报是采集期一次性证据（20260831 定案：sse_raw/HAR 离线补不出），
-            # 任一导不出 → 题级 incomplete 诚实失败，绝不落 completed。
-            on_stage("share_export")
-            share_image_path = self._evidence_dir / f"{spec.file_stem}-share.jpg"
+            # 导出失败只记录证据缺失，不影响已通过校验的答案。
+            with optional_evidence(
+                share_evidence,
+                path=self._evidence_dir / f"{spec.file_stem}-share-export-audit.json",
+                platform="yuanbao",
+                stage="share_export",
+            ):
+                on_stage("share_export")
+                share_image_path = self._evidence_dir / f"{spec.file_stem}-share.jpg"
 
-            def _share_click(locator: Any) -> None:
-                clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
-                if clicked_at is not None:
-                    self._mouse_pos = clicked_at
+                def _share_click(locator: Any) -> None:
+                    clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
+                    if clicked_at is not None:
+                        self._mouse_pos = clicked_at
 
-            try:
                 share = capture_yuanbao_official_share(
                     page,
                     share_image_path,
@@ -2054,34 +2070,24 @@ class _PlaywrightYuanbaoSession:
                         allowed_hosts=YUANBAO_OFFICIAL_SHARE_HOSTS,
                     ),
                 )
-            except (OfficialShareExportError, OSError) as exc:
-                raise _IncompleteCapture(
-                    "official-share-export-incomplete: Yuanbao must provide both its "
-                    f"share poster JPEG and public share URL ({type(exc).__name__}: {exc})",
-                    _shot("share_export"),
-                ) from exc
-            except Exception as exc:
-                raise _IncompleteCapture(
-                    "official-share-export-incomplete: unexpected Yuanbao share UI failure "
-                    f"({type(exc).__name__}: {exc})",
-                    _shot("share_export"),
-                ) from exc
-            share_evidence = [
-                CollectionEvidenceRef(
-                    kind="share_image",
-                    path=str(share.image_path),
-                    relation_type="official_share_image",
-                    mime_type="image/jpeg",
-                    source_url=share.share_url,
-                ),
-                CollectionEvidenceRef(
-                    kind="share_link",
-                    path=str(share_link_path),
-                    relation_type="official_share_link",
-                    mime_type="application/json",
-                    source_url=share.share_url,
-                ),
-            ]
+                share_evidence.extend(
+                    [
+                        CollectionEvidenceRef(
+                            kind="share_image",
+                            path=str(share.image_path),
+                            relation_type="official_share_image",
+                            mime_type="image/jpeg",
+                            source_url=share.share_url,
+                        ),
+                        CollectionEvidenceRef(
+                            kind="share_link",
+                            path=str(share_link_path),
+                            relation_type="official_share_link",
+                            mime_type="application/json",
+                            source_url=share.share_url,
+                        ),
+                    ]
+                )
             answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,

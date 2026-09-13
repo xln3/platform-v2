@@ -4,7 +4,14 @@ from datetime import datetime, timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    CancelledError,
+)
+from temporalio.exceptions import (
+    TimeoutError as TemporalTimeoutError,
+)
 
 with workflow.unsafe.imports_passed_through():
     from collections.abc import Callable, Coroutine
@@ -201,6 +208,11 @@ BATCH_CAPABLE_ADAPTERS = frozenset(
     }
 )
 ADAPTER_BATCH_MODE_SEGMENTS_PATCH = "adapter-batch-mode-segments-v3"
+# batch activity 重试耗尽后失败（start_to_close 超时/临时故障）→ 整段等长占位
+# 落库（error_type=batch_activity_failed），run 继续后续段——绝不因一段活动
+# 失败把整 run 打成 failed（2026-09-10 汇宜 9/14 题成功仍 run=failed 根治）。
+# 配置/契约类错误依旧响亮失败（见 batch_activity_failure_placeholder）。
+BATCH_ACTIVITY_FAILURE_PLACEHOLDERS_PATCH = "batch-activity-failure-placeholders-v1"
 BATCH_ACTIVITY_BY_SLUG: dict[
     str, Callable[[CollectionBatchInput], Coroutine[Any, Any, CollectionBatchResult]]
 ] = {
@@ -375,6 +387,37 @@ def account_contention_timeout_reason(exc: BaseException) -> str | None:
     return None
 
 
+# 配置/契约类错误：编程或配置缺陷，占位会掩盖问题——必须响亮失败整 run。
+_BATCH_ACTIVITY_LOUD_ERROR_TYPES = frozenset(
+    {
+        "adapter_not_configured",
+        "unsupported_mode",
+        "batch_outcome_contract_violation",
+    }
+)
+
+
+def batch_activity_failure_placeholder(exc: BaseException) -> tuple[str, str] | None:
+    """batch activity 重试耗尽后失败的占位判定（2026-09-10，汇宜 run 卡死根治）。
+
+    配置/契约类错误 → None（调用方 re-raise，响亮失败）；其余（start_to_close
+    超时、answer_capture_incomplete 等重试耗尽的临时/平台故障）→
+    (error_type, reason) 占位二元组。调度/活动级失败绝不翻译成测量数据——
+    占位走失败落库（state=failed/quality_state=error_type/answer_text=None），
+    与 account_unavailable 占位同哲学。
+    """
+    cause = getattr(exc, "cause", None)
+    if isinstance(cause, ApplicationError):
+        if cause.type in _BATCH_ACTIVITY_LOUD_ERROR_TYPES:
+            return None
+        detail = cause.message or str(cause)
+        return "batch_activity_failed", f"{cause.type or 'application_error'}: {detail}"[:500]
+    if isinstance(cause, TemporalTimeoutError):
+        timeout_type = getattr(cause, "type", None)
+        return "batch_activity_failed", f"activity_timeout({timeout_type}): {cause}"[:500]
+    return "batch_activity_failed", f"{type(exc).__name__}: {exc}"[:500]
+
+
 def account_unavailable_placeholders(
     items: list[CollectionTaskInput],
     reason: str,
@@ -388,7 +431,8 @@ def account_unavailable_placeholders(
     fanout、不污染 analytics（dimensions 的 not_challenged/degraded=0 盖章只
     发生在 completed 答案上，占位行永远盖不到）。内容确定（无时间戳），
     activity 重试/重放的 drift 校验幂等。error_type 只取
-    account_unavailable / account_contention_timeout（2026-09-01 起）。
+    account_unavailable / account_contention_timeout（2026-09-01 起）/
+    batch_activity_failed（2026-09-10 起，活动级失败占位）。
     """
     return [
         CollectionBatchItemResult(
@@ -752,14 +796,44 @@ class GeoCollectionWorkflow:
                             ),
                         )
                     except ActivityError as exc:
+                        if isinstance(exc.cause, CancelledError) and workflow.patched(
+                            BATCH_ACTIVITY_FAILURE_PLACEHOLDERS_PATCH
+                        ):
+                            raise exc.cause from exc
                         unavailable = account_unavailable_reason(exc)
                         contention = (
-                            account_contention_timeout_reason(exc)
-                            if unavailable is None
-                            else None
+                            account_contention_timeout_reason(exc) if unavailable is None else None
                         )
                         if unavailable is None and contention is None:
-                            raise
+                            # batch-activity-failure-placeholders-v1（2026-09-10）：
+                            # 活动级失败（卡死超时/临时故障重试耗尽）不再把整 run
+                            # 打成 failed——整段等长占位诚实落库后继续后续段（与
+                            # 账号治理占位同哲学：调度/活动失败是数据不是工作流
+                            # 故障）。配置/契约类错误依旧响亮 re-raise。未打补丁
+                            # 的历史重放保持旧语义（原样 raise）。
+                            if not workflow.patched(BATCH_ACTIVITY_FAILURE_PLACEHOLDERS_PATCH):
+                                raise
+                            failure = batch_activity_failure_placeholder(exc)
+                            if failure is None:
+                                raise
+                            placeholder_error_type, failure_reason = failure
+                            workflow.logger.warning(
+                                "%s batch activity failed after retries (%s): %s — "
+                                "persisting segment placeholders",
+                                slug,
+                                placeholder_error_type,
+                                failure_reason,
+                            )
+                            failure_placeholders = account_unavailable_placeholders(
+                                remaining_items,
+                                failure_reason,
+                                error_type=placeholder_error_type,
+                            )
+                            await self._persist_batch_results(
+                                data, remaining_items, failure_placeholders
+                            )
+                            processed += len(failure_placeholders)
+                            break
                         # 账号治理不可用（额度尽/禁言/region_down…）或竞争等待
                         # 超时（采集账号占用模型 2026-09-01 起）：整段落等长
                         # 占位——activity 在任何浏览器交互之前失败（不 attach、

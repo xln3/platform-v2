@@ -2883,6 +2883,13 @@ def _persist_collection_failure(
     """
     error_type = (result.error_type or "unknown_failure")[:40]
     error_message = (result.error_message or "")[:1_000]
+    from workflows.activities.capture_diagnostics import stream_failure_diagnostics
+
+    stream_diagnostics = (
+        stream_failure_diagnostics(error_message)
+        if result.error_type in {"stream_connection_failed", "stream_timeout"}
+        else {}
+    )
     # error_message 可能嵌入页面文本——属原始采集材料，原文存储（零 DLP）；
     # error_type/截图 ref 是平台自产词表与路径，保持 fail-closed 自检。
     try:
@@ -2910,6 +2917,7 @@ def _persist_collection_failure(
                 "status": status,
                 "error_type": error_type,
                 "message": error_message,
+                **({"stream": stream_diagnostics} if stream_diagnostics else {}),
             }
         ],
         ensure_ascii=False,

@@ -608,7 +608,7 @@ async def test_session_collect_full_humanized_flow(
     assert (evidence / "run-9-task-5-a1.png").is_file()
 
 
-async def test_session_fails_when_official_share_page_image_is_missing(
+async def test_session_preserves_answer_when_official_share_page_image_is_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _adapter_env(tmp_path, monkeypatch)
@@ -616,19 +616,43 @@ async def test_session_fails_when_official_share_page_image_is_missing(
     _install_fake_browser(monkeypatch, page)
 
     def _missing_share(*_args: Any, **_kwargs: Any) -> Any:
-        raise deepseek_adapter.OfficialShareExportError("share page unavailable")
+        raise RuntimeError("share page unavailable")
 
     monkeypatch.setattr(deepseek_adapter, "capture_deepseek_official_share", _missing_share)
 
-    with pytest.raises(ApplicationError) as exc_info:
-        await run_deepseek_collection(
-            _item(),
-            session_factory=_PlaywrightDeepseekSession,
-            heartbeat=lambda _payload: None,
-        )
+    result = await run_deepseek_collection(
+        _item(),
+        session_factory=_PlaywrightDeepseekSession,
+        heartbeat=lambda _payload: None,
+    )
+    assert result.quality_state == "live_valid"
+    assert result.answer_text
+    assert not any(ref.kind == "share_image" for ref in result.evidence)
+    audit = next(ref for ref in result.evidence if ref.kind == "capture_evidence_audit")
+    assert json.loads(Path(audit.path).read_text())["stage"] == "share_export"
 
-    assert exc_info.value.type == "answer_capture_incomplete"
-    assert "official-share-export-incomplete" in str(exc_info.value)
+
+async def test_session_preserves_answer_without_screenshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _adapter_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise TimeoutError("fonts did not load")
+
+    monkeypatch.setattr(deepseek_adapter, "_capture_full_page", fail)
+    monkeypatch.setattr(deepseek_adapter, "capture_deepseek_official_share", fail)
+    result = await run_deepseek_collection(
+        _item(),
+        session_factory=_PlaywrightDeepseekSession,
+        heartbeat=lambda _payload: None,
+    )
+    assert result.quality_state == "live_valid"
+    assert result.answer_text
+    assert result.screenshot_ref == ""
+    assert len([ref for ref in result.evidence if ref.kind == "capture_evidence_audit"]) == 2
 
 
 def test_fresh_chat_fast_path_when_already_fresh() -> None:

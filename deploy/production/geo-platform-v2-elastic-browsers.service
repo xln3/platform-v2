@@ -1,0 +1,15 @@
+[Unit]
+Description=GEO resident browser capacity reconciliation
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/geo-platform-v2/current
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+Environment=PYTHONPATH=/opt/geo-platform-v2/current/api:/opt/geo-platform-v2/current
+# Enable --apply only together with GEO_BROWSER_ELASTIC_ENABLED=1 on workers.
+ExecStart=/opt/geo-platform-v2/current/.venv/bin/python -m tools.elastic_browser_controller --idle-seconds 900 --max-active 8
+TimeoutStartSec=180
+UMask=0077
+NoNewPrivileges=true

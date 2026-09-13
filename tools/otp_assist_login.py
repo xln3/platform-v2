@@ -27,7 +27,7 @@ best-effort 登录态验证并干净退出。
   ``GEO_ASSIST_PUBLIC_BASE`` / ``GEO_ASSIST_NOTIFY_URL``；``feishu_app`` 需要公网基址和
   ``GEO_FEISHU_CHAT_ID``。bearer 只作为完整或相对接管 URL 的路径段输出；公网基址
   缺失时不会单独打印 ticket。推送 flavor 走 ``GEO_ASSIST_NOTIFY_FLAVOR``
-  （feishu_app|feishu_webhook|bark|serverchan|wecom|ntfy|raw，缺省 raw）。
+  （feishu_app|feishu_webhook|bark|wecom|ntfy|raw，缺省 raw；serverchan 已停用）。
 - 平台互斥锁走 ``browser_lock(platform)``（进程内 + DB fencing；单 worker
   开发/测试可 ``GEO_BROWSER_FENCING=local`` 纯进程内锁）——会话全程持锁，
   防 batch 抢页；锁忙/DB 不可达 fail-closed → exit 1。

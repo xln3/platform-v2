@@ -642,6 +642,35 @@ def test_mode_quota_outcome_does_not_escalate_to_global_account_error(
     )
 
 
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        "account_unavailable",
+        "account_contention_timeout",
+        "region_down",
+        "batch_activity_failed",
+    ],
+)
+def test_resource_contention_never_breaks_healthy_account(
+    session: _FakeSession,
+    governor: AccountGovernor,
+    fixed_clock: None,
+    error_type: str,
+) -> None:
+    account = _seed_account(session)
+    for index in range(5):
+        governor.record_task_outcome(
+            platform="doubao",
+            browser_instance_key="doubao_sh",
+            outcome="failed",
+            error_type=error_type,
+            run_pub_id=f"resource_wait_{index}",
+        )
+    assert account.runtime_state == "idle"
+    assert _events(session, "breaker") == []
+    assert all(e.new_value["breaker_eligible"] is False for e in _events(session, "task_outcome"))
+
+
 def test_record_task_outcome_orphan_is_logged_noop(
     session: _FakeSession, governor: AccountGovernor, fixed_clock: None
 ) -> None:
@@ -1251,9 +1280,7 @@ def test_resolve_reaps_when_holder_run_terminal(
         current_run_pub_id="run_dead",
         reservation_expires_at=_FIXED_NOW + timedelta(hours=1),
     )
-    monkeypatch.setattr(
-        AccountGovernor, "_holder_run_finished", lambda self, run_pub_id: True
-    )
+    monkeypatch.setattr(AccountGovernor, "_holder_run_finished", lambda self, run_pub_id: True)
     governor = AccountGovernor(session)  # type: ignore[arg-type]
     result = governor.resolve_collectable(platform="doubao", region_gb="310000")
     assert result is not None
@@ -1375,9 +1402,7 @@ def test_reap_stale_reservations_batch_and_protected_states_untouched(
     assert captcha.reservation_expires_at == _FIXED_NOW - timedelta(hours=1)
     transitions = _events(session, "state_transition")
     assert len(transitions) == 2
-    assert all(
-        e.new_value["reason"].startswith("reservation_reaped:") for e in transitions
-    )
+    assert all(e.new_value["reason"].startswith("reservation_reaped:") for e in transitions)
     # 幂等：再扫零回收
     assert governor.reap_stale_reservations() == []
 

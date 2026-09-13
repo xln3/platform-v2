@@ -87,6 +87,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from domain.security.redaction import safe_exception_summary
+from workflows.activities.browser_readiness import wait_for_resident_browser
 
 log = structlog.get_logger()
 
@@ -113,9 +114,7 @@ _WAIT_SAFETY_MARGIN_S = 45.0
 
 # 只有「暂时性全忙」值得排队等待；额度尽/禁言/配置错误/region_down/治理故障
 # 在 activity 时间尺度内不会自愈，维持立即 account_unavailable 占位。
-_TRANSIENT_WAIT_REASONS = frozenset(
-    {"no_collectable_account", "browser_busy", "browser_captcha"}
-)
+_TRANSIENT_WAIT_REASONS = frozenset({"no_collectable_account", "browser_busy", "browser_captcha"})
 
 # 豆包已进入正式账号治理；其他平台按账号表分阶段迁移，暂无账号行时仍可走
 # legacy env 路由。显式 GEO_ACCOUNT_GOVERNANCE=off 仍是唯一应急绕过方式。
@@ -480,6 +479,7 @@ def _route_from_governor_hit(slug: str, region_gb: str, payload: dict[str, Any])
             f"task region gb={region_gb} for platform {slug!r} (region/IP mismatch — "
             "fail-closed, never collect through a wrong-region exit)",
         )
+    wait_for_resident_browser(route.cdp_url, instance=route.instance_key)
     return route
 
 

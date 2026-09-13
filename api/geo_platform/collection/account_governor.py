@@ -58,6 +58,20 @@ _FAILURE_STREAK_RELEVANT_WINDOW = 10
 # Workflow 为保持等长结果，会把同一段里未执行的后续题落成该占位。它是审计
 # 事实，不是新的浏览器失败，不能放大根因或打断真实同类失败 streak。
 _NEUTRAL_TASK_OUTCOMES = frozenset({("aborted", "aborted_after_failure")})
+# Capacity/configuration failures say nothing about a platform account's health.
+_RESOURCE_FAILURE_TYPES = frozenset(
+    {
+        "account_unavailable",
+        "account_contention_timeout",
+        "region_down",
+        "region_ip_mismatch",
+        "region_exit_mismatch",
+        "browser_instance_unavailable",
+        "browser_instances_invalid",
+        "browser_instances_not_configured",
+        "batch_activity_failed",
+    }
+)
 
 _MODE_QUOTA_BLOCKS_KEY = "mode_quota_blocks"
 
@@ -327,7 +341,10 @@ class AccountGovernor:
           去重扫描窗 = 最近 50 条 task_outcome 事件（重试重放时间相邻，窗口足够）。
         """
         now = now_utc()
-        neutral_outcome = (outcome, error_type) in _NEUTRAL_TASK_OUTCOMES
+        neutral_outcome = (
+            outcome,
+            error_type,
+        ) in _NEUTRAL_TASK_OUTCOMES or error_type in _RESOURCE_FAILURE_TYPES
         # 已明确 mode 的额度墙由 mode_quota_blocks 收敛，不能再升级成整账号 error。
         mode_quota_outcome = bool(mode) and error_type == "wall_quota"
         account = self._find_account(platform=platform, browser_instance_key=browser_instance_key)
@@ -705,9 +722,7 @@ class AccountGovernor:
             if run_pub_id is not None:
                 # 认领写租约 / owned 复用续约（同事务）；TTL 须覆盖 captcha
                 # 挂起上限，见 ENV_ACCOUNT_RESERVATION_TTL_S 注释。
-                account.reservation_expires_at = now + timedelta(
-                    seconds=_reservation_ttl_s()
-                )
+                account.reservation_expires_at = now + timedelta(seconds=_reservation_ttl_s())
                 account.updated_at = now
                 self._conn.flush()
             payload = {
@@ -978,9 +993,7 @@ class AccountGovernor:
             "reservation_expires_at": _iso(account.reservation_expires_at),
         }
 
-    def _reservation_stale(
-        self, account: CollectionPlatformAccount, now: datetime
-    ) -> str | None:
+    def _reservation_stale(self, account: CollectionPlatformAccount, now: datetime) -> str | None:
         """running 账号的占用是否已失活（回收判定唯一真源）；返回成因或 None。
 
         - ``lease_expired``：reservation_expires_at < now（**NULL 视同已过期**
@@ -1232,6 +1245,8 @@ class AccountGovernor:
             for event in events:
                 payload = event.new_value or {}
                 if (payload.get("outcome"), payload.get("error_type")) in _NEUTRAL_TASK_OUTCOMES:
+                    continue
+                if payload.get("error_type") in _RESOURCE_FAILURE_TYPES:
                     continue
                 if payload.get("mode") and payload.get("error_type") == "wall_quota":
                     continue
