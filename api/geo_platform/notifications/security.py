@@ -10,6 +10,7 @@ import struct
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -18,6 +19,33 @@ from cryptography.hazmat.primitives.padding import PKCS7
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _CAPABILITY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _CAP_VERSION = 1
+_GO_TIMESTAMP_RE = re.compile(
+    r"(?P<wall>[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})"
+    r"(?:\.[0-9]{1,9})? (?P<offset>[+-][0-9]{4}) [A-Za-z0-9_+:-]{1,16}"
+    r"(?: m=[+-][0-9]{1,16}(?:\.[0-9]{1,9})?)?"
+)
+
+
+def _callback_timestamp(value: str) -> int:
+    """Parse freshness separately; signature verification keeps the raw header.
+
+    Production card callbacks also use Go Time.String() with nanoseconds and
+    a process-local monotonic suffix. Only the offset-aware wall clock is
+    relevant to freshness; the full original value remains signature material.
+    """
+    if re.fullmatch(r"[0-9]{1,12}", value):
+        return int(value)
+    match = _GO_TIMESTAMP_RE.fullmatch(value) if len(value) <= 128 else None
+    if match is not None:
+        try:
+            return int(
+                datetime.strptime(
+                    f"{match['wall']} {match['offset']}", "%Y-%m-%d %H:%M:%S %z"
+                ).timestamp()
+            )
+        except (ValueError, OverflowError):
+            pass
+    raise CallbackSecurityError("callback_timestamp_invalid")
 
 
 class CallbackSecurityError(ValueError):
@@ -127,10 +155,10 @@ def verify_callback_request(
     supplied_signature = headers.get("x-lark-signature", "")
     has_signature_material = any((timestamp_text, nonce, supplied_signature))
     if has_signature_material:
-        if not timestamp_text.isdigit() or not nonce or len(nonce) > 256:
+        if not timestamp_text or not nonce or len(nonce) > 256 or not supplied_signature:
             raise CallbackSecurityError("callback_signature_headers_missing")
         current = int(time.time()) if now is None else now
-        timestamp = int(timestamp_text)
+        timestamp = _callback_timestamp(timestamp_text)
         if abs(current - timestamp) > max_age_seconds:
             raise CallbackSecurityError("callback_timestamp_stale")
         expected = callback_signature(
