@@ -67,6 +67,10 @@ COLLECTION_RUN_STALLED = Gauge(
     "geo_business_collection_run_stalled",
     "Nonterminal collection runs unchanged for at least one hour",
 )
+COLLECTION_RUN_NO_PROGRESS = Gauge(
+    "geo_business_collection_run_no_progress",
+    "Nonterminal collection runs with no progress beyond the configured warn threshold",
+)
 REVOCATION_STALLED = Gauge(
     "geo_business_revocation_stalled",
     "Account revocation requests unchanged for at least fifteen minutes",
@@ -187,6 +191,7 @@ class BusinessMetricsSnapshot:
     workflow_start_stale: int = 0
     workflow_signal_stale: int = 0
     collection_run_stalled: int = 0
+    collection_run_no_progress: int = 0
     revocation_stalled: int = 0
     expired_session_leases: int = 0
     report_delivery_overdue: int = 0
@@ -206,6 +211,54 @@ def _psycopg_dsn(value: str) -> str:
     return value.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
+# 缺省 20 分钟，加规则 2 分钟持续窗；能覆盖历史约 32 分钟停滞事故。
+# 使用任务终态落账时间作为进展，排除人为暂停，不把心跳当作业务进展。
+_RUN_NO_PROGRESS_WARN_MINUTES_ENV = "GEO_BUSINESS_RUN_STALL_WARN_MINUTES"
+_DEFAULT_RUN_NO_PROGRESS_WARN_MINUTES = 20.0
+
+
+def _run_no_progress_warn_seconds() -> int:
+    raw = os.getenv(_RUN_NO_PROGRESS_WARN_MINUTES_ENV, "").strip()
+    if not raw:
+        return int(_DEFAULT_RUN_NO_PROGRESS_WARN_MINUTES * 60)
+    try:
+        minutes = float(raw)
+    except ValueError:
+        log.warning(
+            "business_metrics_env_invalid",
+            name=_RUN_NO_PROGRESS_WARN_MINUTES_ENV,
+            value=raw,
+            default=_DEFAULT_RUN_NO_PROGRESS_WARN_MINUTES,
+        )
+        return int(_DEFAULT_RUN_NO_PROGRESS_WARN_MINUTES * 60)
+    if not 5.0 <= minutes <= 240.0:
+        log.warning(
+            "business_metrics_env_out_of_range",
+            name=_RUN_NO_PROGRESS_WARN_MINUTES_ENV,
+            value=raw,
+            default=_DEFAULT_RUN_NO_PROGRESS_WARN_MINUTES,
+        )
+        return int(_DEFAULT_RUN_NO_PROGRESS_WARN_MINUTES * 60)
+    return int(minutes * 60)
+
+
+def _collect_run_no_progress(
+    connection: psycopg.Connection[Any], snapshot: BusinessMetricsSnapshot
+) -> None:
+    """可配阈值的 run 零进展计数（s22_0001 起；函数未迁移时跳过，不炸主链）。"""
+    exists = connection.execute(
+        "SELECT to_regprocedure('integration.collection_run_no_progress_count(integer)') "
+        "IS NOT NULL AS present"
+    ).fetchone()
+    if not (exists and exists["present"]):
+        return
+    row = connection.execute(
+        "SELECT integration.collection_run_no_progress_count(%s) AS value",
+        (_run_no_progress_warn_seconds(),),
+    ).fetchone()
+    snapshot.collection_run_no_progress = int(row["value"] if row else 0)
+
+
 def collect_business_metrics(dsn: str) -> BusinessMetricsSnapshot:
     snapshot = BusinessMetricsSnapshot()
     with psycopg.connect(_psycopg_dsn(dsn), row_factory=dict_row) as connection:
@@ -214,6 +267,7 @@ def collect_business_metrics(dsn: str) -> BusinessMetricsSnapshot:
             "SELECT metric,dimension,value FROM integration.business_alert_snapshot()"
         ).fetchall()
         _collect_metrics_v2(connection, snapshot)
+        _collect_run_no_progress(connection, snapshot)
     scalar_fields = {
         "tenant_count": "tenant_count",
         "workflow_start_stale": "workflow_start_stale",
@@ -433,6 +487,7 @@ def apply_business_metrics(snapshot: BusinessMetricsSnapshot) -> None:
     WORKFLOW_START_STALE.set(snapshot.workflow_start_stale)
     WORKFLOW_SIGNAL_STALE.set(snapshot.workflow_signal_stale)
     COLLECTION_RUN_STALLED.set(snapshot.collection_run_stalled)
+    COLLECTION_RUN_NO_PROGRESS.set(snapshot.collection_run_no_progress)
     REVOCATION_STALLED.set(snapshot.revocation_stalled)
     EXPIRED_SESSION_LEASES.set(snapshot.expired_session_leases)
     REPORT_DELIVERY_OVERDUE.set(snapshot.report_delivery_overdue)

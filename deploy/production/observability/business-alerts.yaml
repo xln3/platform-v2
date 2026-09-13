@@ -76,6 +76,15 @@ groups:
           service: collection-worker
         annotations:
           summary: Collection runs have not changed for one hour
+      - alert: GeoCollectionRunNoProgress
+        expr: geo_business_collection_run_no_progress > 0
+        for: 2m
+        labels:
+          severity: warning
+          category: collection
+          service: collection-worker
+        annotations:
+          summary: Collection runs show no progress beyond the configured warn threshold (default 20m)
       - alert: GeoRevocationStalled
         expr: geo_business_revocation_stalled > 0
         for: 2m

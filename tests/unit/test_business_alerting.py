@@ -84,3 +84,67 @@ def test_outbox_alerts_are_wired_to_exporter_gauges() -> None:
     assert ANALYTICS_OUTBOX_BACKLOG._name in backlog["expr"]
     assert ANALYTICS_OUTBOX_QUARANTINED._name in quarantined["expr"]
     assert quarantined["labels"]["severity"] == "critical"
+
+
+def test_run_no_progress_threshold_env_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run 零进展告警阈值：缺省 20min；合法值透传；非数字/越界
+    一律回退缺省并告警（绝不按坏配置出数）。"""
+    import geo_platform.business_metrics as bm
+
+    monkeypatch.delenv("GEO_BUSINESS_RUN_STALL_WARN_MINUTES", raising=False)
+    assert bm._run_no_progress_warn_seconds() == 20 * 60
+    monkeypatch.setenv("GEO_BUSINESS_RUN_STALL_WARN_MINUTES", "45")
+    assert bm._run_no_progress_warn_seconds() == 45 * 60
+    monkeypatch.setenv("GEO_BUSINESS_RUN_STALL_WARN_MINUTES", "not-a-number")
+    assert bm._run_no_progress_warn_seconds() == 20 * 60
+    monkeypatch.setenv("GEO_BUSINESS_RUN_STALL_WARN_MINUTES", "1")
+    assert bm._run_no_progress_warn_seconds() == 20 * 60
+
+
+def test_run_no_progress_alert_is_wired_to_exporter_gauge() -> None:
+    """GeoCollectionRunNoProgress 告警表达式必须引用 exporter 真实暴露的 gauge。"""
+    from pathlib import Path
+
+    import yaml
+    from geo_platform.business_metrics import COLLECTION_RUN_NO_PROGRESS
+
+    rules_path = (
+        Path(__file__).resolve().parents[2] / "deploy/production/observability/business-alerts.yaml"
+    )
+    document = yaml.safe_load(rules_path.read_text())
+    alerts = {rule["alert"]: rule for group in document["groups"] for rule in group["rules"]}
+    rule = alerts["GeoCollectionRunNoProgress"]
+    assert COLLECTION_RUN_NO_PROGRESS._name in rule["expr"]
+    assert rule["labels"]["severity"] == "warning"
+
+
+def test_collect_run_no_progress_skips_when_function_missing() -> None:
+    """迁移未应用（函数缺失）时跳过该指标、snapshot 保持 0——发布/迁移乱序
+    绝不炸主导出链；函数在位时计数透传。"""
+    from geo_platform.business_metrics import (
+        BusinessMetricsSnapshot,
+        _collect_run_no_progress,
+    )
+
+    class _FakeConnection:
+        def __init__(self, present: bool, value: int) -> None:
+            self._present = present
+            self._value = value
+
+        def execute(self, sql: str, params: tuple[int, ...] = ()) -> "_FakeConnection":
+            self._sql = sql
+            self._params = params
+            return self
+
+        def fetchone(self) -> dict[str, object]:
+            if "to_regprocedure" in self._sql:
+                return {"present": self._present}
+            return {"value": self._value}
+
+    snapshot = BusinessMetricsSnapshot()
+    _collect_run_no_progress(_FakeConnection(present=False, value=7), snapshot)
+    assert snapshot.collection_run_no_progress == 0
+
+    snapshot2 = BusinessMetricsSnapshot()
+    _collect_run_no_progress(_FakeConnection(present=True, value=3), snapshot2)
+    assert snapshot2.collection_run_no_progress == 3

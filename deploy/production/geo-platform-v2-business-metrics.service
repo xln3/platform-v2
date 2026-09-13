@@ -10,6 +10,9 @@ User=xln
 Group=xln
 WorkingDirectory=/home/xln/geo-system/platform-v2
 EnvironmentFile=/etc/geo-platform-v2/platform.env
+# run 零进展告警阈值（分钟，缺省 20，允许 5..240；2026-09-10 汇宜卡死复盘新增，
+# 指标 geo_business_collection_run_no_progress，需迁移 s22_0001 在位才出数）：
+# Environment=GEO_BUSINESS_RUN_STALL_WARN_MINUTES=20
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python -m geo_platform.business_metrics
 Restart=on-failure
