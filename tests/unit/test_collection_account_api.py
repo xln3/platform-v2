@@ -899,8 +899,8 @@ def test_link_test_push_success_marks_ok(
     session: _FakeSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     phone = _seed_phone(session)
-    monkeypatch.setenv("GEO_ASSIST_NOTIFY_URL", "https://sctapi.ftqq.com/KEY.send")
-    monkeypatch.setenv("GEO_ASSIST_NOTIFY_FLAVOR", "serverchan")
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_URL", "https://example.test/feishu")
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_FLAVOR", "feishu_webhook")
     sent: list[dict[str, Any]] = []
 
     def fake_push(**kwargs: Any) -> bool:
@@ -926,7 +926,7 @@ def test_link_test_push_success_marks_ok(
         "detail": None,
     }
     assert body["last_push_test_at"] is not None
-    assert sent and sent[0]["flavor"] == "serverchan"
+    assert sent and sent[0]["flavor"] == "feishu_webhook"
     assert "131***2231" in sent[0]["title"]  # 掩码，不明文
     assert phone.push_link_state == "ok"
     assert phone.last_push_test_at is not None
@@ -939,7 +939,8 @@ def test_link_test_push_failure_keeps_state(
     session: _FakeSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     phone = _seed_phone(session)
-    monkeypatch.setenv("GEO_ASSIST_NOTIFY_URL", "https://sctapi.ftqq.com/KEY.send")
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_URL", "https://example.test/feishu")
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_FLAVOR", "feishu_webhook")
     monkeypatch.setattr(account_admin_router, "push_captcha_assist", lambda **kw: False)
     _bind(session)
     resp = client.post(

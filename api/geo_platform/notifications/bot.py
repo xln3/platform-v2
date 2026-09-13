@@ -226,7 +226,7 @@ def main() -> None:
     address = os.getenv("GEO_FEISHU_BOT_ADDRESS", "127.0.0.1")
     if address not in {"127.0.0.1", "::1"}:
         raise RuntimeError("feishu_bot_address_must_be_loopback")
-    port = int(os.getenv("GEO_FEISHU_BOT_PORT", "18092"))
+    port = int(os.getenv("GEO_FEISHU_BOT_PORT", "18093"))
     uvicorn.run(
         app,
         host=address,

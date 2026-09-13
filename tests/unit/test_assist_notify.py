@@ -92,18 +92,12 @@ def test_bark_get_path_and_click_url(server: _CaptureServer) -> None:
     assert qs["url"] == [_ASSIST_URL]  # 点了直接打开接管页
 
 
-def test_serverchan_query_params(server: _CaptureServer) -> None:
+def test_serverchan_retired_without_network(server: _CaptureServer) -> None:
     ok = push_captcha_assist(
         flavor="serverchan", url=f"{server.base}/SCT123.send", title=_TITLE, body=_BODY
     )
-    assert ok is True
-    (rec,) = server.records
-    assert rec["method"] == "GET"
-    split = urllib.parse.urlsplit(rec["path"])
-    assert split.path == "/SCT123.send"
-    qs = urllib.parse.parse_qs(split.query)
-    assert qs["title"] == [_TITLE]
-    assert qs["desp"] == [_BODY]
+    assert ok is False
+    assert server.records == []
 
 
 def test_feishu_text_payload(server: _CaptureServer) -> None:

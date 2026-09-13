@@ -4,18 +4,12 @@ import hashlib
 import json
 import os
 import re
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-from time import monotonic
 from typing import Any
 
 import structlog
-
-from workflows.activities.assist_notify import push_captcha_assist
 
 from .logging import configure_logging
 from .notifications.config import FeishuBotConfig
@@ -27,15 +21,7 @@ MAX_BODY_BYTES = 65_536
 ALLOWED_LABELS = ("alertname", "severity", "category", "service", "region")
 ALLOWED_ANNOTATIONS = ("summary", "description")
 _SAFE_FINGERPRINT_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
-# 旧 Server酱 fallback：优先从 systemd credential file 读 SendKey；env 仅临时兼容。
-SCT_API_URL_TEMPLATE = "https://sctapi.ftqq.com/{sendkey}.send"
-# 同 alertname+fingerprint 的限频窗口：窗口内不重复外发（进程内账本，重启即重置）。
-SCT_RESEND_WINDOW_S = 300.0
 log = structlog.get_logger()
-
-_sct_last_sent: dict[tuple[str, str], float] = {}
-_legacy_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="legacy-alert-forward")
-_legacy_slots = threading.BoundedSemaphore(64)
 
 
 def safe_alert_projection(payload: object) -> list[dict[str, str]]:
@@ -135,89 +121,6 @@ def persist_business_alerts_feishu(
         return None
 
 
-def _legacy_forward_job(alerts: list[dict[str, str]], sendkey: str) -> None:
-    try:
-        forward_business_alerts_sct(alerts, sendkey=sendkey)
-    finally:
-        _legacy_slots.release()
-
-
-def enqueue_legacy_business_alerts(alerts: list[dict[str, str]], *, sendkey: str) -> bool:
-    """Bounded compatibility fallback; webhook request threads never wait on Server酱."""
-    if not sendkey.strip():
-        return False
-    if not _legacy_slots.acquire(blocking=False):
-        log.warning("business_alert_legacy_queue_full")
-        return False
-    try:
-        _legacy_executor.submit(_legacy_forward_job, list(alerts), sendkey)
-    except RuntimeError:
-        _legacy_slots.release()
-        return False
-    return True
-
-
-def _legacy_sendkey() -> str:
-    """Credential-file first, env only as a temporary backwards-compatible fallback."""
-    configured = os.getenv("GEO_ALERT_SCT_SENDKEY_FILE", "").strip()
-    credential_dir = os.getenv("CREDENTIALS_DIRECTORY", "").strip()
-    path = configured or (str(Path(credential_dir) / "alert-sct-sendkey") if credential_dir else "")
-    if path:
-        try:
-            return Path(path).read_text(encoding="utf-8").strip()
-        except OSError:
-            log.warning("business_alert_legacy_credential_unreadable")
-            return ""
-    return os.getenv("GEO_ALERT_SCT_SENDKEY", "").strip()
-
-
-def _sct_prune(now: float) -> None:
-    stale = [key for key, ts in _sct_last_sent.items() if now - ts >= SCT_RESEND_WINDOW_S]
-    for key in stale:
-        del _sct_last_sent[key]
-
-
-def forward_business_alerts_sct(
-    alerts: list[dict[str, str]], *, sendkey: str, timeout_s: float = 3.0
-) -> int:
-    """把投影后的告警经 Server酱方糖外发，返回成功外发条数。
-
-    纪律与 assist_notify 一致：绝不抛异常——未配置 sendkey / 限频命中 /
-    推送失败只记日志，绝不阻断告警接收应答。推送失败不记账，下一次
-    webhook 到达时允许重试。
-    """
-    sendkey = sendkey.strip()
-    if not sendkey:
-        return 0
-    now = monotonic()
-    _sct_prune(now)
-    sent = 0
-    for alert in alerts:
-        key = (alert.get("alertname", ""), alert.get("fingerprint", ""))
-        last = _sct_last_sent.get(key)
-        if last is not None and now - last < SCT_RESEND_WINDOW_S:
-            log.info("business_alert_sct_suppressed", alertname=key[0], fingerprint=key[1])
-            continue
-        title = f"[GEO告警] {alert.get('severity', 'unknown')} {alert.get('alertname', 'unknown')}"
-        body = "\n".join(
-            f"{field}: {alert[field]}"
-            for field in ("status", "severity", "category", "service", "alertname", "fingerprint")
-            if alert.get(field)
-        )
-        if push_captcha_assist(
-            flavor="serverchan",
-            url=SCT_API_URL_TEMPLATE.format(sendkey=sendkey),
-            title=title,
-            body=body,
-            timeout_s=timeout_s,
-        ):
-            _sct_last_sent[key] = now
-            sent += 1
-        else:
-            log.warning("business_alert_sct_failed", alertname=key[0], fingerprint=key[1])
-    return sent
-
-
 class AlertReceiverHandler(BaseHTTPRequestHandler):
     server_version = "GeoAlertReceiver/1"
 
@@ -273,16 +176,15 @@ class AlertReceiverHandler(BaseHTTPRequestHandler):
                     if alert.get(key)
                 },
             )
-        channel = os.getenv("GEO_ALERT_NOTIFY_CHANNEL", "serverchan").strip().lower()
+        channel = os.getenv("GEO_ALERT_NOTIFY_CHANNEL", "feishu_app").strip().lower()
         if channel == "feishu_app":
             if persist_business_alerts_feishu(alerts) is None:
                 self._respond(HTTPStatus.SERVICE_UNAVAILABLE)
                 return
         elif channel == "serverchan":
-            enqueue_legacy_business_alerts(
-                alerts,
-                sendkey=_legacy_sendkey(),
-            )
+            log.error("business_alert_channel_retired", channel=channel)
+            self._respond(HTTPStatus.SERVICE_UNAVAILABLE)
+            return
         elif channel not in {"", "disabled", "none"}:
             log.warning("business_alert_channel_unknown", channel=channel[:40])
         self._respond(HTTPStatus.NO_CONTENT)

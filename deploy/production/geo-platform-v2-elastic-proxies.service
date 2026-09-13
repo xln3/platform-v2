@@ -1,0 +1,18 @@
+[Unit]
+Description=GEO bounded regional proxy replenishment
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/geo-platform-v2/current
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+EnvironmentFile=-/etc/geo-platform-v2/worker-adapters.env
+EnvironmentFile=-/etc/geo-platform-v2/wukong.env
+EnvironmentFile=-/etc/geo-platform-v2/feishu-bot.env
+EnvironmentFile=-/etc/geo-platform-v2/elastic-resources.env
+Environment=PYTHONPATH=/opt/geo-platform-v2/current/api:/opt/geo-platform-v2/current
+ExecStart=/opt/geo-platform-v2/current/.venv/bin/python -m tools.elastic_proxy_controller
+TimeoutStartSec=900
+UMask=0077
+NoNewPrivileges=true

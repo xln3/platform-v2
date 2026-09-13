@@ -36,6 +36,9 @@ from sqlalchemy.orm import Session
 from workflows.activities.assist_notify import push_captcha_assist
 
 from ..identity.policy import Principal, get_principal
+from ..notifications.config import FeishuBotConfig
+from ..notifications.models import Notice
+from ..notifications.service import NotificationService
 from ..otp.extract import PHONE_RE, mask_phone
 from ..pagination import decode_keyset_cursor, encode_keyset_cursor, set_cursor_headers
 from ..tenancy.database import get_db
@@ -1137,17 +1140,48 @@ def link_test(
     phone = _find_phone(session, pub_id)
     now = now_utc()
     if body.channel == "push":
+        flavor = os.environ.get("GEO_ASSIST_NOTIFY_FLAVOR", "feishu_app").strip()
+        if flavor == "feishu_app":
+            config = FeishuBotConfig.from_env()
+            if not config.chat_id:
+                raise HTTPException(status_code=503, detail={"code": "push_channel_not_configured"})
+            result = NotificationService(session).record_alert(
+                {
+                    "alertname": "GeoNotifyLinkTest",
+                    "severity": "info",
+                    "status": "firing",
+                    "service": "account-admin",
+                    "summary": f"飞书通知通道测试：{mask_phone(phone.phone)}。",
+                    "fingerprint": f"link-test:{phone.pub_id}:{int(now.timestamp()) // 300}",
+                },
+                target_chat_id=config.chat_id,
+                repeat_window_seconds=300,
+                card_update_seconds=300,
+            )
+            notice = session.scalar(select(Notice).where(Notice.pub_id == result.notification_id))
+            delivered = bool(notice and notice.message_id)
+            if delivered:
+                phone.push_link_state = "ok"
+                phone.last_push_test_at = now
+                phone.updated_at = now
+            session.commit()
+            return LinkTestResult(
+                ok=delivered,
+                channel="push",
+                push_link_state=phone.push_link_state,
+                last_push_test_at=phone.last_push_test_at,
+                detail=None if delivered else "feishu_delivery_pending",
+            )
         notify_url = os.environ.get("GEO_ASSIST_NOTIFY_URL", "").strip()
         if not notify_url:
             raise HTTPException(status_code=503, detail={"code": "push_channel_not_configured"})
-        flavor = os.environ.get("GEO_ASSIST_NOTIFY_FLAVOR", "").strip() or "serverchan"
         ok = push_captcha_assist(
             flavor=flavor,
             url=notify_url,
             title=f"[GEO采集] 接管通道测试 {mask_phone(phone.phone)}",
             body=(
                 f"采集账号「接管」链路测试：{mask_phone(phone.phone)}"
-                f"（{phone.pub_id}）。收到本推送即方糖通道联通。"
+                f"（{phone.pub_id}）。收到本推送即通知通道联通。"
             ),
             timeout_s=5.0,
         )

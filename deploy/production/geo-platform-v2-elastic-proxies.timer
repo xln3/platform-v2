@@ -1,0 +1,10 @@
+[Unit]
+Description=Check configured GEO regional proxy capacity every five minutes
+
+[Timer]
+OnBootSec=60s
+OnUnitInactiveSec=5m
+Unit=geo-platform-v2-elastic-proxies.service
+
+[Install]
+WantedBy=timers.target

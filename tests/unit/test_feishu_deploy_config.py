@@ -36,7 +36,7 @@ def test_nginx_exposes_one_hardened_exact_callback_location() -> None:
     assert "access_log off" in locations
     assert "client_max_body_size 256k" in locations
     assert "limit_req zone=geo_feishu_callback" in locations
-    assert "proxy_pass http://127.0.0.1:18092/callbacks/feishu/card-action" in locations
+    assert "proxy_pass http://127.0.0.1:18093/callbacks/feishu/card-action" in locations
     assert "proxy_read_timeout 3s" in locations
 
 

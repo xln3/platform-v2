@@ -71,6 +71,10 @@ def push_captcha_assist(
     """按 flavor 拼装并发出接管推送。成功（2xx）→ True；任何失败 → False（不抛）。"""
     flavor = (flavor or "raw").strip().lower()
     base = (url or "").strip()
+    host = (urllib.parse.urlsplit(base).hostname or "").lower()
+    if host == "sctapi.ftqq.com" or host.endswith(".push.ft07.com"):
+        log.warning("assist_notify.retired_destination")
+        return False
     if not base:
         log.warning("assist_notify.missing_url", flavor=flavor)
         return False
@@ -84,9 +88,8 @@ def push_captcha_assist(
             )
             return _request(urllib.request.Request(target, method="GET"), timeout_s)
         if flavor == "serverchan":
-            # Server酱 Turbo（sctapi）兼容：title/desp query 参数
-            qs = urllib.parse.urlencode({"title": title, "desp": body})
-            return _request(urllib.request.Request(f"{base}?{qs}", method="GET"), timeout_s)
+            log.warning("assist_notify.channel_retired", flavor=flavor)
+            return False
         if flavor in {"feishu", "feishu_webhook"}:
             if flavor == "feishu":
                 log.warning(

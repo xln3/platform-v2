@@ -173,8 +173,9 @@ def test_probe_failure_pushes_alert(
     session = _FakeSession()
     region = _seed_region(session)
     monkeypatch.setenv("GEO_PROXY_BJ", "http://127.0.0.1:17890")
-    monkeypatch.setenv("GEO_ASSIST_NOTIFY_URL", "https://sctapi.ftqq.com/KEY.send")
-    monkeypatch.setenv("GEO_ASSIST_NOTIFY_FLAVOR", "serverchan")
+    monkeypatch.setenv("GEO_ALERT_NOTIFY_CHANNEL", "feishu_webhook")
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_URL", "https://example.test/feishu")
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_FLAVOR", "feishu_webhook")
 
     def boom(proxy: str) -> str:
         raise TimeoutError("connect timeout")
@@ -194,7 +195,7 @@ def test_probe_failure_pushes_alert(
     assert result["alerted"] is True
     assert region.state == "down"
     assert len(sent) == 1
-    assert sent[0]["flavor"] == "serverchan"
+    assert sent[0]["flavor"] == "feishu_webhook"
     assert "110000" in sent[0]["title"]
     events = _events(session)
     assert events[0].event_type == "relay_probe"

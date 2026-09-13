@@ -8,7 +8,7 @@ Requires=docker.service
 Type=simple
 User=xln
 Group=xln
-WorkingDirectory=/home/xln/geo-system/platform-v2
+WorkingDirectory=/opt/geo-platform-v2/current
 EnvironmentFile=/etc/geo-platform-v2/platform.env
 EnvironmentFile=/etc/geo-platform-v2/feishu-bot.env
 Environment=GEO_ENV=production
@@ -27,7 +27,7 @@ LoadCredential=feishu-verification-token:/etc/geo-platform-v2/credentials/feishu
 LoadCredential=feishu-encrypt-key:/etc/geo-platform-v2/credentials/feishu-encrypt-key
 LoadCredential=feishu-allowed-open-ids:/etc/geo-platform-v2/credentials/feishu-allowed-open-ids
 LoadCredential=feishu-link-signing-key:/etc/geo-platform-v2/credentials/feishu-link-signing-key
-ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python -m geo_platform.notifications.bot
+ExecStart=/opt/geo-platform-v2/current/.venv/bin/python -m geo_platform.notifications.bot
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=20

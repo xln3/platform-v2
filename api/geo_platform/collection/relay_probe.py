@@ -52,7 +52,7 @@ def _push_relay_alert(*, region_gb: str, note: str) -> bool:
     if not notify_url:
         log.warning("relay_probe_alert_unconfigured", region_gb=region_gb, note=note)
         return False
-    flavor = os.environ.get("GEO_ASSIST_NOTIFY_FLAVOR", "").strip() or "serverchan"
+    flavor = os.environ.get("GEO_ASSIST_NOTIFY_FLAVOR", "").strip() or "feishu_webhook"
     return push_captcha_assist(
         flavor=flavor,
         url=notify_url,
@@ -70,7 +70,7 @@ def _record_relay_transition(
     note: str,
 ) -> bool:
     """Use the caller's transaction to durably enqueue down/recovered updates."""
-    if os.environ.get("GEO_ALERT_NOTIFY_CHANNEL", "serverchan").strip().lower() != "feishu_app":
+    if os.environ.get("GEO_ALERT_NOTIFY_CHANNEL", "feishu_app").strip().lower() != "feishu_app":
         return False
     config = FeishuBotConfig.from_env()
     if not config.chat_id:
@@ -151,7 +151,7 @@ def probe_collection_region(conn: Session, region_gb: str) -> dict[str, Any]:
         governor.record_region_probe(region_gb=region_gb, ok=False, note=note)
         should_alert = previous_state == "ok" and region.state == "down"
         if should_alert:
-            alert_channel = os.environ.get("GEO_ALERT_NOTIFY_CHANNEL", "serverchan").strip().lower()
+            alert_channel = os.environ.get("GEO_ALERT_NOTIFY_CHANNEL", "feishu_app").strip().lower()
             if alert_channel == "feishu_app":
                 alerted = _record_relay_transition(
                     conn,
