@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from geo_platform.brandrank import service as brandrank_service
 from geo_platform.identity.policy import Principal, Role, get_principal
 from geo_platform.main import app
+from geo_platform.reports import fact_suggestions
 
 from domain.brandrank import extract, metrics
 from domain.brandrank.rules import load_domain
@@ -76,6 +77,12 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """每用例隔离：抽取缓存指 tmp；报告路径绝不触 LLM——default_client 触达即失败。"""
     monkeypatch.setenv("GEO_BRANDRANK_EXTRACT_CACHE_DIR", str(tmp_path))
     monkeypatch.setattr(extract, "default_client", lambda: pytest.fail("报告事实路径严禁调用 LLM"))
+    # This suite tests brand metrics, not the separate W3/source/site DB paths.
+    # Keep every added fetch seam isolated even when the dev database is stopped.
+    monkeypatch.setattr(fact_suggestions, "fetch_disparagement_judgments", lambda *a: ([], False))
+    monkeypatch.setattr(fact_suggestions, "fetch_disparagement_factchecks", lambda *a: {})
+    monkeypatch.setattr(fact_suggestions, "fetch_source_audit_overview", lambda *a, **kw: {})
+    monkeypatch.setattr(fact_suggestions, "fetch_site_audit_suggestions", lambda *a: None)
     yield
     app.dependency_overrides.pop(get_principal, None)
 
